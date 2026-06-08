@@ -1,0 +1,57 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Claude Island Win",
+  "version": "0.1.0",
+  "identifier": "com.dec27.claude-island-win",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Claude Island Win",
+        "width": 900,
+        "height": 520,
+        "transparent": true,
+        "decorations": false,
+        "resizable": false,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": true
+      },
+      {
+        "label": "settings",
+        "title": "Claude Island Win Settings",
+        "width": 460,
+        "height": 680,
+        "minWidth": 420,
+        "minHeight": 560,
+        "transparent": false,
+        "decorations": true,
+        "resizable": true,
+        "shadow": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "center": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "icon": ["icons/icon.ico"],
+    "publisher": "Dec27-Lee",
+    "shortDescription": "Claude and Codex dynamic island HUD for Windows",
+    "longDescription": "Claude Island Win is a Windows 11 dynamic island HUD for Claude and Codex usage, cost, overview, and Claude Code session status."
+  }
+}

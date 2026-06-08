@@ -1,0 +1,20 @@
+[package]
+name = "claude-island-win"
+version = "0.1.0"
+description = "Windows dynamic island HUD for Claude and Codex usage"
+authors = ["Dec27-Lee"]
+edition = "2021"
+
+[lib]
+name = "claude_island_win_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

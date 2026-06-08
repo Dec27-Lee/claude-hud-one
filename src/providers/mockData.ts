@@ -1,0 +1,128 @@
+import type { CostSummaryState, DailyTokenBucket, IslandAppState } from '../app/types'
+
+const claudeCost: CostSummaryState = {
+  todayUsd: 6.84,
+  monthUsd: 128.45,
+  todayTokens: 1_284_000,
+  monthTokens: 23_680_000,
+  todayBillableTokens: 732_000,
+  monthBillableTokens: 14_120_000,
+  trend: [0.4, 0.8, 1.6, 2.1, 2.9, 3.2, 4.6, 5.1, 6.2, 6.84],
+  breakdown: [
+    { model: 'claude-opus-4-8', tokens: 684_000, dollars: 4.82, percent: 0.53 },
+    { model: 'claude-sonnet-4-6', tokens: 412_000, dollars: 1.52, percent: 0.32 },
+    { model: 'claude-haiku-4-5', tokens: 188_000, dollars: 0.5, percent: 0.15 },
+  ],
+}
+
+const codexCost: CostSummaryState = {
+  todayUsd: 3.21,
+  monthUsd: 74.08,
+  todayTokens: 884_000,
+  monthTokens: 15_910_000,
+  todayBillableTokens: 516_000,
+  monthBillableTokens: 9_440_000,
+  trend: [0.2, 0.5, 0.9, 1.2, 1.9, 2.1, 2.6, 2.8, 3.0, 3.21],
+  breakdown: [
+    { model: 'gpt-5.4-codex', tokens: 456_000, dollars: 2.04, percent: 0.52 },
+    { model: 'gpt-5.4', tokens: 302_000, dollars: 0.91, percent: 0.34 },
+    { model: 'gpt-5.4-mini', tokens: 126_000, dollars: 0.26, percent: 0.14 },
+  ],
+}
+
+const makeDailyBuckets = (): DailyTokenBucket[] => {
+  return Array.from({ length: 84 }, (_, index) => {
+    const claudeTokens = index % 7 === 0 ? 0 : (index * 13_791) % 420_000
+    const codexTokens = index % 5 === 0 ? 0 : (index * 9_641) % 360_000
+    return {
+      date: `2026-${String(Math.floor(index / 28) + 1).padStart(2, '0')}-${String((index % 28) + 1).padStart(2, '0')}`,
+      totalTokens: claudeTokens + codexTokens,
+      claudeTokens,
+      codexTokens,
+    }
+  })
+}
+
+export const createMockIslandState = (): IslandAppState => ({
+  providers: {
+    claude: {
+      id: 'claude',
+      name: 'Claude',
+      accent: '#d97757',
+      visible: true,
+      plan: 'Max',
+      fiveHour: { usedPercent: 0.62, resetAtLabel: '2h 14m' },
+      weekly: { usedPercent: 0.38, resetAtLabel: '4d 8h' },
+      stale: false,
+      lastUpdatedLabel: 'Synced 1m ago',
+      source: 'mock',
+      authStatus: 'unknown',
+    },
+    codex: {
+      id: 'codex',
+      name: 'Codex',
+      accent: '#60a5fa',
+      visible: true,
+      plan: 'Plus',
+      fiveHour: { usedPercent: 0.47, resetAtLabel: '1h 52m' },
+      weekly: { usedPercent: 0.28, resetAtLabel: '5d 1h' },
+      stale: false,
+      lastUpdatedLabel: 'Synced 1m ago',
+      source: 'mock',
+      authStatus: 'unknown',
+    },
+  },
+  cost: {
+    claude: claudeCost,
+    codex: codexCost,
+  },
+  dailyBuckets: makeDailyBuckets(),
+  currentSession: {
+    mode: 'mock',
+    activity: 'active',
+    sourceLabel: 'Mock Claude Code session',
+    projectSlug: 'claude-island-win',
+    lastEventLabel: '8s ago',
+    scannedAtLabel: 'mocked now',
+    transcriptCount: 2,
+    totalEventCount: 1289,
+    assistantEventCount: 405,
+    userEventCount: 229,
+    toolCallRecordCount: 58,
+    toolResultFileCount: 31,
+    privacyNote: 'Mock data only. Live mode scans counts and timestamps without returning prompt or transcript content.',
+    counts: {
+      assistant: 405,
+      user: 229,
+      system: 21,
+      attachment: 49,
+      aiTitle: 83,
+      mode: 83,
+      permissionMode: 83,
+      queueOperation: 6,
+      fileHistorySnapshot: 3,
+      lastPrompt: 67,
+      other: 0,
+    },
+  },
+  settings: {
+    launchAtLogin: false,
+    refreshIntervalMinutes: 5,
+    language: 'zh-CN',
+    alwaysShowUsage: false,
+    lowPowerMode: false,
+    fullscreenAvoidance: true,
+    alertsEnabled: false,
+    warningThreshold: 80,
+    criticalThreshold: 95,
+    targetDisplay: 'auto',
+    topOffsetPx: 0,
+    islandWidthMode: 'notch',
+    chartStyle: 'ring',
+    costStyle: 'usd',
+    tokenCountMode: 'all',
+  },
+  alerts: { severity: 'none' },
+  lastUsageSyncLabel: 'Synced 1m ago',
+  lastCostSyncLabel: 'Synced 2m ago',
+})
