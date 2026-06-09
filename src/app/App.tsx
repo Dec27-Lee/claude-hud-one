@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import type { SettingsState } from './types'
+import type { ProviderId, SettingsState } from './types'
 import {
   centerOverlayOnDisplay,
   closeSettingsWindow,
@@ -15,7 +15,7 @@ import {
 } from './overlayBridge'
 import { IslandRoot } from '../components/island/IslandRoot'
 import { SettingsView } from '../components/settings/SettingsView'
-import { loadClaudeStatusBridgePatch, loadLiveCurrentSession } from '../providers/claudeCodeSummary'
+import { loadClaudeStatusBridgeState, loadLiveCurrentSession, mapClaudeStatusBridgeToCurrentSessionPatch, mapClaudeStatusBridgeToProviderPatch } from '../providers/claudeCodeSummary'
 import { loadLiveUsageCostSnapshot } from '../providers/liveUsageCost'
 import { useIslandStore } from '../stores/useIslandStore'
 
@@ -27,6 +27,7 @@ const currentWindowLabel = isTauriRuntime()
 export function App() {
   const store = useIslandStore()
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   useEffect(() => {
     if (!isTauriRuntime()) return
@@ -76,9 +77,13 @@ export function App() {
 
     let cancelled = false
     const refreshStatusBridge = async (): Promise<void> => {
-      const currentSessionPatch = await loadClaudeStatusBridgePatch()
-      if (!cancelled && currentSessionPatch) {
-        store.patchCurrentSession(currentSessionPatch)
+      const bridge = await loadClaudeStatusBridgeState()
+      if (cancelled || !bridge) return
+
+      store.patchCurrentSession(mapClaudeStatusBridgeToCurrentSessionPatch(bridge))
+      const claudeProviderPatch = mapClaudeStatusBridgeToProviderPatch(bridge)
+      if (claudeProviderPatch) {
+        store.applyClaudeProviderPatch(claudeProviderPatch)
       }
     }
 
@@ -114,6 +119,42 @@ export function App() {
     }
   }, [store.state.settings.lowPowerMode, store.state.settings.refreshIntervalMinutes])
 
+  const refreshAll = async (): Promise<void> => {
+    if (isRefreshing) return
+
+    setIsRefreshing(true)
+    try {
+      const [currentSession, bridge, snapshot, nativeDisplays] = await Promise.all([
+        loadLiveCurrentSession(),
+        loadClaudeStatusBridgeState(),
+        loadLiveUsageCostSnapshot(),
+        listDisplays(),
+      ])
+
+      if (currentSession) {
+        store.setCurrentSession(currentSession)
+      }
+
+      if (bridge) {
+        store.patchCurrentSession(mapClaudeStatusBridgeToCurrentSessionPatch(bridge))
+        const claudeProviderPatch = mapClaudeStatusBridgeToProviderPatch(bridge)
+        if (claudeProviderPatch) {
+          store.applyClaudeProviderPatch(claudeProviderPatch)
+        }
+      }
+
+      if (snapshot) {
+        store.applyLiveUsageCostSnapshot(snapshot)
+      }
+
+      if (nativeDisplays.length > 0) {
+        setDisplays(nativeDisplays)
+      }
+    } finally {
+      setIsRefreshing(false)
+    }
+  }
+
   const patchSettings = (settings: Partial<SettingsState>): void => {
     const nextSettings = { ...store.state.settings, ...settings }
     store.patchSettings(settings)
@@ -137,6 +178,12 @@ export function App() {
     void saveAppSettings({ ...store.state.settings, ...settings })
   }
 
+  const toggleProviderVisible = (provider: ProviderId, visible: boolean): void => {
+    const visibleProviders = { ...store.state.settings.visibleProviders, [provider]: visible }
+    store.setProviderVisible(provider, visible)
+    void saveAppSettings({ ...store.state.settings, visibleProviders })
+  }
+
   if (currentWindowLabel === 'settings') {
     return (
       <main className="settings-app">
@@ -146,7 +193,7 @@ export function App() {
           onClose={() => void closeSettingsWindow()}
           onOpenDiagnostics={() => void openDiagnosticsDir('currentProject')}
           onPatchSettings={patchSettings}
-          onToggleProvider={store.setProviderVisible}
+          onToggleProvider={toggleProviderVisible}
           onSetChartStyle={(chartStyle) => {
             store.setChartStyle(chartStyle)
             saveSettingsPatch({ chartStyle })
@@ -159,6 +206,8 @@ export function App() {
             store.setTokenCountMode(tokenCountMode)
             saveSettingsPatch({ tokenCountMode })
           }}
+          onRefreshNow={() => void refreshAll()}
+          isRefreshing={isRefreshing}
         />
       </main>
     )
@@ -168,7 +217,9 @@ export function App() {
     <IslandRoot
       state={store.state}
       onOpenSettings={() => void openSettingsWindow()}
-      onToggleProvider={store.setProviderVisible}
+      onToggleProvider={toggleProviderVisible}
+      onRefreshNow={() => void refreshAll()}
+      isRefreshing={isRefreshing}
     />
   )
 }

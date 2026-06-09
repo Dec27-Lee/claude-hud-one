@@ -17,8 +17,29 @@ function Invoke-Step {
 Invoke-Step "Version consistency" { npm run check:version }
 Invoke-Step "Frontend build" { npm run build }
 Invoke-Step "Rust check" { cargo check --manifest-path "src-tauri\Cargo.toml" -j 1 }
+Invoke-Step "Rust usage/cost tests" { npm run test:rust }
 Invoke-Step "UI screenshots" { npm run test:ui }
 Invoke-Step "Tauri release build" { npm run tauri:build }
+Invoke-Step "Installer artifacts" {
+  $artifacts = @(
+    "src-tauri\target\release\bundle\nsis\Claude Island Win_0.1.0_x64-setup.exe",
+    "src-tauri\target\release\bundle\msi\Claude Island Win_0.1.0_x64_en-US.msi"
+  )
+
+  foreach ($artifact in $artifacts) {
+    if (-not (Test-Path $artifact)) {
+      throw "Installer artifact not found: $artifact"
+    }
+
+    $item = Get-Item $artifact
+    if ($item.Length -le 0) {
+      throw "Installer artifact is empty: $artifact"
+    }
+
+    $hash = Get-FileHash -Algorithm SHA256 -Path $artifact
+    Write-Host "$artifact SHA256 $($hash.Hash)" -ForegroundColor Green
+  }
+}
 Invoke-Step "Release exe smoke" {
   $exe = "src-tauri\target\release\claude-island-win.exe"
   if (-not (Test-Path $exe)) {

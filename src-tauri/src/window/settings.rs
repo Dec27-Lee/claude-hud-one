@@ -21,6 +21,12 @@ pub struct AppSettings {
     pub chart_style: String,
     pub cost_style: String,
     pub token_count_mode: String,
+    #[serde(default = "default_visible_providers")]
+    pub visible_providers: Value,
+}
+
+fn default_visible_providers() -> Value {
+    json!({ "claude": true, "codex": false })
 }
 
 impl Default for AppSettings {
@@ -41,6 +47,7 @@ impl Default for AppSettings {
             chart_style: "ring".to_string(),
             cost_style: "usd".to_string(),
             token_count_mode: "all".to_string(),
+            visible_providers: default_visible_providers(),
         }
     }
 }

@@ -34,7 +34,7 @@ export function CostView({ providers, cost, costStyle, tokenCountMode }: CostVie
   const visibleProviders = providers.filter((provider) => provider.visible)
 
   if (visibleProviders.length === 0) {
-    return <div className="empty-state">Cost 仍在后台扫描，但当前没有可见 provider。</div>
+    return <div className="empty-state">Cost 仍在后台扫描，但当前没有可见的 Claude provider。</div>
   }
 
   return (

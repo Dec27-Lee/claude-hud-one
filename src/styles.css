@@ -137,8 +137,11 @@ button { color: inherit; }
 .session-strip__main span { color: #94a3b8; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .session-strip__metrics { display: flex; gap: 8px; color: #cbd5e1; font-size: 12px; }
 .session-strip__metrics span { border-radius: 999px; background: rgba(15, 23, 42, .72); padding: 5px 8px; white-space: nowrap; }
-.provider-switches, .page-dots, .tile-picker, .segmented-control, .settings-actions { display: flex; gap: 8px; align-items: center; }
+.provider-switches, .page-dots, .tile-picker, .segmented-control, .settings-actions, .panel-footer__actions { display: flex; gap: 8px; align-items: center; }
 .settings-actions { flex-wrap: wrap; }
+.alert-banner { display: inline-flex; margin-top: 7px; border-radius: 999px; padding: 4px 9px; font-size: 11px; font-weight: 800; letter-spacing: .04em; background: rgba(255,255,255,.08); }
+.alert-banner--warning { color: #fcd34d; background: rgba(245, 158, 11, .12); }
+.alert-banner--critical { color: #fca5a5; background: rgba(239, 68, 68, .14); }
 .provider-chip, .style-chip, .secondary-button, .segmented-control__item, .style-tile, .icon-button {
   border: 1px solid rgba(255,255,255,.12);
   background: rgba(255,255,255,.06);
@@ -146,6 +149,7 @@ button { color: inherit; }
   padding: 7px 11px;
 }
 .provider-chip--active, .style-tile--active, .segmented-control__item--active { background: rgba(255,255,255,.16); }
+.secondary-button:disabled, .icon-button:disabled { cursor: not-allowed; opacity: .45; }
 .icon-button { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; }
 .page-dot { width: 8px; height: 8px; border: 0; border-radius: 999px; background: rgba(148, 163, 184, .45); padding: 0; }
 .page-dot--active { width: 24px; background: #f8fafc; }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { checkForUpdates, getDiagnosticsSummary, getUpdateState, openAppDataDir, type DiagnosticsSummary, type DisplayInfo, type UpdateState } from '../../app/overlayBridge'
+import { checkForUpdates, getDiagnosticsSummary, getUpdateState, openAppDataDir, openReleasePage, type DiagnosticsSummary, type DisplayInfo, type UpdateState } from '../../app/overlayBridge'
 import type { ChartStyle, CostStyle, IslandAppState, ProviderId, SettingsState, TokenCountMode } from '../../app/types'
-import { providerOrder } from '../../app/types'
+import { displayedProviderOrder } from '../../app/types'
 
 type SettingsViewProps = {
   state: IslandAppState
@@ -13,6 +13,8 @@ type SettingsViewProps = {
   onSetChartStyle: (style: ChartStyle) => void
   onSetCostStyle: (style: CostStyle) => void
   onSetTokenCountMode: (mode: TokenCountMode) => void
+  onRefreshNow: () => void
+  isRefreshing: boolean
 }
 
 const chartStyles: ChartStyle[] = ['ring', 'bar', 'stepped', 'numeric', 'sparkline']
@@ -25,7 +27,7 @@ const toTargetDisplay = (value: string, displays: DisplayInfo[]): SettingsState[
   return { id: value, label: display?.name ?? value }
 }
 
-export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPatchSettings, onToggleProvider, onSetChartStyle, onSetCostStyle, onSetTokenCountMode }: SettingsViewProps) {
+export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPatchSettings, onToggleProvider, onSetChartStyle, onSetCostStyle, onSetTokenCountMode, onRefreshNow, isRefreshing }: SettingsViewProps) {
   const [updateState, setUpdateState] = useState<UpdateState | null>(null)
   const [diagnostics, setDiagnostics] = useState<DiagnosticsSummary | null>(null)
 
@@ -50,6 +52,10 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
   const handleOpenAppData = async (): Promise<void> => {
     await openAppDataDir()
     setDiagnostics(await getDiagnosticsSummary())
+  }
+
+  const handleOpenReleasePage = async (): Promise<void> => {
+    await openReleasePage()
   }
 
   return (
@@ -121,7 +127,7 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
 
       <section className="settings-section">
         <h3>Providers</h3>
-        {providerOrder.map((providerId) => {
+        {displayedProviderOrder.map((providerId) => {
           const provider = state.providers[providerId]
           return <label key={providerId}><input type="checkbox" checked={provider.visible} onChange={(event) => onToggleProvider(providerId, event.currentTarget.checked)} /> {provider.name} · {provider.plan ?? 'No plan'} · {provider.lastUpdatedLabel}</label>
         })}
@@ -138,10 +144,19 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
           <span>Version</span><strong>{updateState?.currentVersion ?? '0.1.0'}</strong>
           <span>Channel</span><strong>{updateState?.channel ?? 'stable'}</strong>
           <span>Status</span><strong>{updateState?.status ?? 'not loaded'}</strong>
+          <span>Configured</span><strong>{updateState?.configured ? 'yes' : 'no'}</strong>
+          <span>Can check</span><strong>{updateState?.canCheck ? 'yes' : 'no'}</strong>
           <span>Last check</span><strong>{updateState?.lastCheckedAt ?? 'never'}</strong>
+          <span>Endpoint</span><strong>{updateState?.endpoint ?? 'not configured'}</strong>
+          <span>Manual update</span><strong>{updateState?.manualUpdateAvailable ? 'available' : 'not available'}</strong>
+          <span>Release page</span><strong title={updateState?.releasePageUrl ?? undefined}>{updateState?.releasePageUrl ?? 'not configured'}</strong>
+          <span>Error code</span><strong>{updateState?.errorCode ?? 'none'}</strong>
         </div>
         <p>{updateState?.message ?? 'Updater status is loading.'}</p>
-        <button className="secondary-button" onClick={() => void handleCheckForUpdates()}>Check for updates</button>
+        <div className="settings-actions">
+          <button className="secondary-button" disabled={updateState?.canCheck === false} onClick={() => void handleCheckForUpdates()}>Check for updates</button>
+          <button className="secondary-button" disabled={!updateState?.manualUpdateAvailable} onClick={() => void handleOpenReleasePage()}>Open release page</button>
+        </div>
       </section>
 
       <section className="settings-section">
@@ -157,10 +172,10 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
           <span>Settings file</span><strong title={diagnostics?.settingsPath ?? undefined}>{formatExists(diagnostics?.settingsExists)}</strong>
           <span>Usage cache</span><strong title={diagnostics?.usageCachePath ?? undefined}>{formatExists(diagnostics?.usageCacheExists)}</strong>
           <span>Claude projects</span><strong title={diagnostics?.claudeProjectsRoot ?? undefined}>{formatExists(diagnostics?.claudeProjectsRootExists)}</strong>
-          <span>Codex sessions</span><strong title={diagnostics?.codexSessionsRoot ?? undefined}>{formatExists(diagnostics?.codexSessionsRootExists)}</strong>
         </div>
         <p>{diagnostics?.privacyNote ?? 'Diagnostics summary is loading.'}</p>
         <div className="settings-actions">
+          <button className="secondary-button" onClick={onRefreshNow} disabled={isRefreshing}>{isRefreshing ? 'Refreshing…' : 'Refresh now'}</button>
           <button className="secondary-button" onClick={onOpenDiagnostics}>Open Claude logs</button>
           <button className="secondary-button" onClick={() => void handleOpenAppData()}>Open app data</button>
         </div>

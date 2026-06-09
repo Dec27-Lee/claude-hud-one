@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { updateOverlayHitRegions, type OverlayHitRegion } from '../../app/overlayBridge'
 import type { IslandAppState, IslandPage, IslandViewState, ProviderId } from '../../app/types'
-import { providerOrder } from '../../app/types'
+import { displayedProviderOrder } from '../../app/types'
 import { CostView } from './CostView'
 import { CurrentSessionStrip } from './CurrentSessionStrip'
 import { OverviewView } from './OverviewView'
@@ -11,6 +11,8 @@ type IslandRootProps = {
   state: IslandAppState
   onOpenSettings: () => void
   onToggleProvider: (provider: ProviderId, visible: boolean) => void
+  onRefreshNow: () => void
+  isRefreshing: boolean
 }
 
 const pageLabels: Record<IslandPage, string> = {
@@ -50,13 +52,13 @@ const rectToHitRegion = (rect: DOMRect): OverlayHitRegion => {
   }
 }
 
-export function IslandRoot({ state, onOpenSettings, onToggleProvider }: IslandRootProps) {
+export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshNow, isRefreshing }: IslandRootProps) {
   const capsuleRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const defaultViewState = state.settings.alwaysShowUsage ? 'peek' : 'compact'
   const [viewState, setViewState] = useState<IslandViewState>(() => browserPreviewViewState(defaultViewState))
   const [activePage, setActivePage] = useState<IslandPage>(() => browserPreviewPage())
-  const providers = useMemo(() => providerOrder.map((provider) => state.providers[provider]), [state.providers])
+  const providers = useMemo(() => displayedProviderOrder.map((provider) => state.providers[provider]), [state.providers])
   const visibleProviders = providers.filter((provider) => provider.visible)
   const alertClass = state.alerts.severity === 'none' ? '' : ` island-shell--${state.alerts.severity}`
   const powerClass = state.settings.lowPowerMode ? ' island-shell--low-power' : ''
@@ -113,7 +115,7 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider }: IslandRo
               ))}
             </span>
           ) : <span className={`live-dot live-dot--${sessionActivity}`} title={`Claude Code ${sessionActivityLabel} · ${sessionStatusLabel}`} />}
-          <span className="capsule-logo capsule-logo--codex">X</span>
+          <span className="capsule-logo capsule-logo--claude">AI</span>
         </button>
 
         {viewState === 'expanded' ? (
@@ -122,6 +124,7 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider }: IslandRo
               <div>
                 <span className="section-kicker">Claude Island Win</span>
                 <h1>{pageLabels[activePage]}</h1>
+                {state.alerts.message ? <span className={`alert-banner alert-banner--${state.alerts.severity}`}>{state.alerts.message}</span> : null}
               </div>
               <div className="provider-switches">
                 {providers.map((provider) => (
@@ -142,12 +145,15 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider }: IslandRo
             <div className="panel-body">
               {activePage === 'usage' ? <UsageView providers={providers} chartStyle={state.settings.chartStyle} warningThreshold={state.settings.warningThreshold} criticalThreshold={state.settings.criticalThreshold} /> : null}
               {activePage === 'cost' ? <CostView providers={providers} cost={state.cost} costStyle={state.settings.costStyle} tokenCountMode={state.settings.tokenCountMode} /> : null}
-              {activePage === 'overview' ? <OverviewView buckets={state.dailyBuckets} /> : null}
+              {activePage === 'overview' ? <OverviewView buckets={state.dailyBuckets} showCodex={false} /> : null}
             </div>
 
             <footer className="panel-footer">
-              <button className="icon-button" onClick={onOpenSettings} aria-label="Open settings">⚙</button>
-              <span>{activePage === 'usage' ? state.lastUsageSyncLabel : state.lastCostSyncLabel}</span>
+              <div className="panel-footer__actions">
+                <button className="icon-button" onClick={onOpenSettings} aria-label="Open settings">⚙</button>
+                <button className="icon-button" onClick={onRefreshNow} disabled={isRefreshing} aria-label="Refresh Claude Island data">{isRefreshing ? '…' : '↻'}</button>
+              </div>
+              <span>{isRefreshing ? 'Refreshing now…' : activePage === 'usage' ? state.lastUsageSyncLabel : state.lastCostSyncLabel}</span>
               <nav className="page-dots" aria-label="Island pages">
                 {pages.map((page) => (
                   <button

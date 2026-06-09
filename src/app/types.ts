@@ -8,7 +8,7 @@ export type AppLanguage = 'auto' | 'en' | 'zh-CN'
 export type TargetDisplay = 'auto' | 'primary' | { id: string; label: string }
 export type SessionMode = 'mock' | 'live'
 export type SessionActivityState = 'idle' | 'active' | 'running' | 'waiting' | 'error'
-export type ProviderSource = 'mock' | 'localEstimate' | 'endpoint' | 'cache'
+export type ProviderSource = 'mock' | 'localEstimate' | 'claudeCode' | 'endpoint' | 'cache'
 export type ProviderAuthStatus = 'unknown' | 'missing' | 'ok' | 'expired' | 'scopeRequired' | 'notConfigured'
 
 export type WindowUsageState = {
@@ -137,7 +137,9 @@ export type ClaudeStatusBridgeState = {
   totalLinesAdded: number | null
   totalLinesRemoved: number | null
   fiveHourUsedPercent: number | null
+  fiveHourResetAt: string | null
   sevenDayUsedPercent: number | null
+  sevenDayResetAt: string | null
   effortLevel: string | null
   thinkingEnabled: boolean | null
   agentName: string | null
@@ -183,6 +185,7 @@ export type SettingsState = {
   chartStyle: ChartStyle
   costStyle: CostStyle
   tokenCountMode: TokenCountMode
+  visibleProviders: Record<ProviderId, boolean>
 }
 
 export type AlertState = {
@@ -202,3 +205,4 @@ export type IslandAppState = {
 }
 
 export const providerOrder: ProviderId[] = ['claude', 'codex']
+export const displayedProviderOrder: ProviderId[] = ['claude']

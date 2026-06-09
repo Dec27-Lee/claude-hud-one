@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { emit, listen } from '@tauri-apps/api/event'
-import type { ChartStyle, CostStyle, CurrentSessionState, IslandAppState, LiveUsageCostSnapshot, ProviderId, SettingsState, TokenCountMode } from '../app/types'
+import type { AlertState, ChartStyle, CostStyle, CurrentSessionState, IslandAppState, LiveUsageCostSnapshot, ProviderId, ProviderLiveState, SettingsState, TokenCountMode } from '../app/types'
+import { displayedProviderOrder } from '../app/types'
 import { createMockIslandState } from '../providers/mockData'
 
 export type IslandStore = {
@@ -11,7 +12,9 @@ export type IslandStore = {
   setTokenCountMode: (mode: TokenCountMode) => void
   setCurrentSession: (session: CurrentSessionState) => void
   patchCurrentSession: (session: Partial<CurrentSessionState>) => void
+  applyClaudeProviderPatch: (provider: ProviderLiveState) => void
   applyLiveUsageCostSnapshot: (snapshot: LiveUsageCostSnapshot) => void
+  setAlerts: (alerts: AlertState) => void
   patchSettings: (settings: Partial<SettingsState>) => void
 }
 
@@ -20,13 +23,48 @@ const STATE_EVENT = 'island-state-updated'
 
 const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
+const deriveAlerts = (state: IslandAppState): AlertState => {
+  if (!state.settings.alertsEnabled) return { severity: 'none' }
+
+  const activeProviders = displayedProviderOrder
+    .map((provider) => state.providers[provider])
+    .filter((provider) => provider.visible && !provider.stale && !provider.fiveHour.error && !provider.weekly.error)
+
+  const hottest = activeProviders
+    .map((provider) => ({
+      provider,
+      percent: Math.round(Math.max(provider.fiveHour.usedPercent, provider.weekly.usedPercent) * 100),
+    }))
+    .sort((left, right) => right.percent - left.percent)[0]
+
+  if (!hottest) return { severity: 'none' }
+  if (hottest.percent >= state.settings.criticalThreshold) return { severity: 'critical', message: `${hottest.provider.name} usage ${hottest.percent}%` }
+  if (hottest.percent >= state.settings.warningThreshold) return { severity: 'warning', message: `${hottest.provider.name} usage ${hottest.percent}%` }
+  return { severity: 'none' }
+}
+
+const withDerivedAlerts = (state: IslandAppState): IslandAppState => ({ ...state, alerts: deriveAlerts(state) })
+
+const mergeState = (stored: Partial<IslandAppState>): IslandAppState => {
+  const base = createMockIslandState()
+  return withDerivedAlerts({
+    ...base,
+    ...stored,
+    providers: { ...base.providers, ...stored.providers },
+    cost: { ...base.cost, ...stored.cost },
+    settings: { ...base.settings, ...stored.settings },
+    currentSession: { ...base.currentSession, ...stored.currentSession },
+    alerts: { ...base.alerts, ...stored.alerts },
+  })
+}
+
 const loadPersistedState = (): IslandAppState => {
   if (typeof window === 'undefined') return createMockIslandState()
 
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY)
     if (!stored) return createMockIslandState()
-    return { ...createMockIslandState(), ...JSON.parse(stored) } as IslandAppState
+    return mergeState(JSON.parse(stored) as Partial<IslandAppState>)
   } catch (error) {
     console.warn('Failed to load persisted island state', error)
     return createMockIslandState()
@@ -56,7 +94,7 @@ export const useIslandStore = (): IslandStore => {
       if (event.key !== STORAGE_KEY || !event.newValue) return
 
       try {
-        setState({ ...createMockIslandState(), ...JSON.parse(event.newValue) } as IslandAppState)
+        setState(mergeState(JSON.parse(event.newValue) as Partial<IslandAppState>))
       } catch (error) {
         console.warn('Failed to apply persisted island state', error)
       }
@@ -95,13 +133,20 @@ export const useIslandStore = (): IslandStore => {
   return {
     state,
     setProviderVisible: (provider, visible) => {
-      updateState((current) => ({
+      updateState((current) => withDerivedAlerts({
         ...current,
         providers: {
           ...current.providers,
           [provider]: {
             ...current.providers[provider],
             visible,
+          },
+        },
+        settings: {
+          ...current.settings,
+          visibleProviders: {
+            ...current.settings.visibleProviders,
+            [provider]: visible,
           },
         },
       }))
@@ -121,25 +166,62 @@ export const useIslandStore = (): IslandStore => {
     patchCurrentSession: (currentSessionPatch) => {
       updateState((current) => ({ ...current, currentSession: { ...current.currentSession, ...currentSessionPatch } }))
     },
-    applyLiveUsageCostSnapshot: (snapshot) => {
-      updateState((current) => ({
+    applyClaudeProviderPatch: (claudeProvider) => {
+      updateState((current) => withDerivedAlerts({
         ...current,
         providers: {
           ...current.providers,
-          claude: { ...current.providers.claude, ...snapshot.claudeProvider },
-          codex: { ...current.providers.codex, ...snapshot.codexProvider },
+          claude: { ...current.providers.claude, ...claudeProvider },
         },
-        cost: {
-          claude: snapshot.claudeCost,
-          codex: snapshot.codexCost,
-        },
-        dailyBuckets: snapshot.dailyBuckets.length > 0 ? snapshot.dailyBuckets : current.dailyBuckets,
-        lastUsageSyncLabel: snapshot.lastUsageSyncLabel,
-        lastCostSyncLabel: snapshot.lastCostSyncLabel,
+        lastUsageSyncLabel: `Claude Code estimate · ${claudeProvider.lastUpdatedLabel}`,
       }))
     },
+    applyLiveUsageCostSnapshot: (snapshot) => {
+      updateState((current) => {
+        const preserveClaudeCodeEstimate = current.providers.claude.source === 'claudeCode'
+        return withDerivedAlerts({
+          ...current,
+          providers: {
+            ...current.providers,
+            claude: preserveClaudeCodeEstimate
+              ? {
+                  ...current.providers.claude,
+                  plan: current.providers.claude.plan ?? 'Claude Code',
+                  accent: current.providers.claude.accent,
+                  visible: current.providers.claude.visible,
+                }
+              : { ...current.providers.claude, ...snapshot.claudeProvider },
+            codex: { ...current.providers.codex, ...snapshot.codexProvider },
+          },
+          cost: {
+            claude: snapshot.claudeCost,
+            codex: snapshot.codexCost,
+          },
+          dailyBuckets: snapshot.dailyBuckets.length > 0 ? snapshot.dailyBuckets : current.dailyBuckets,
+          lastUsageSyncLabel: preserveClaudeCodeEstimate ? current.lastUsageSyncLabel : snapshot.lastUsageSyncLabel,
+          lastCostSyncLabel: snapshot.lastCostSyncLabel,
+        })
+      })
+    },
+    setAlerts: (alerts) => {
+      updateState((current) => ({ ...current, alerts }))
+    },
     patchSettings: (settings) => {
-      updateState((current) => ({ ...current, settings: { ...current.settings, ...settings } }))
+      updateState((current) => {
+        const nextSettings = { ...current.settings, ...settings }
+        const visibleProviders = settings.visibleProviders
+        return withDerivedAlerts({
+          ...current,
+          settings: nextSettings,
+          providers: visibleProviders
+            ? {
+                ...current.providers,
+                claude: { ...current.providers.claude, visible: visibleProviders.claude },
+                codex: { ...current.providers.codex, visible: visibleProviders.codex },
+              }
+            : current.providers,
+        })
+      })
     },
   }
 }

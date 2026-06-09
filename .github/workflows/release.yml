@@ -41,11 +41,27 @@ jobs:
       - name: Check Rust
         run: cargo check --manifest-path src-tauri\Cargo.toml -j 1
 
+      - name: Run Rust usage/cost tests
+        run: npm run test:rust
+
       - name: Run UI smoke screenshots
         run: npm run test:ui
 
       - name: Build Tauri bundles
         run: npm run tauri:build
+
+      - name: Verify installer artifacts
+        shell: powershell
+        run: |
+          $assets = @(
+            Get-ChildItem 'src-tauri\target\release\bundle\nsis\*.exe',
+            Get-ChildItem 'src-tauri\target\release\bundle\msi\*.msi'
+          )
+          if ($assets.Count -lt 2) { throw "Expected NSIS and MSI artifacts, found $($assets.Count)." }
+          foreach ($asset in $assets) {
+            if ($asset.Length -le 0) { throw "Installer artifact is empty: $($asset.FullName)" }
+            Write-Host "$($asset.Name) $($asset.Length) bytes"
+          }
 
       - name: Generate checksums
         shell: powershell

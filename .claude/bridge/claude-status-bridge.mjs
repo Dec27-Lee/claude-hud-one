@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -9,6 +10,9 @@ const PROJECT_STATE_PATH = resolve(SCRIPT_DIR, 'state', 'claude-status.json')
 const APPDATA_STATE_PATH = process.env.APPDATA
   ? resolve(process.env.APPDATA, 'Claude Island Win', 'claude-status.json')
   : null
+const HUD_PLUS_STATUSLINE_PATH = process.env.CLAUDE_HUD_PLUS_STATUSLINE
+  ?? (process.env.USERPROFILE ? resolve(process.env.USERPROFILE, '.claude', 'plugins', 'claude-hud-plus', 'statusline.ps1') : null)
+const HUD_PLUS_TIMEOUT_MS = Number(process.env.CLAUDE_ISLAND_HUD_PLUS_TIMEOUT_MS ?? 2_200)
 
 const FALLBACK_STATUS = 'Claude Island'
 let completed = false
@@ -20,7 +24,7 @@ const complete = (statusText = FALLBACK_STATUS) => {
   process.exit(0)
 }
 
-const failSafe = setTimeout(() => complete(FALLBACK_STATUS), 800)
+const failSafe = setTimeout(() => complete(FALLBACK_STATUS), Math.max(HUD_PLUS_TIMEOUT_MS + 500, 2_700))
 failSafe.unref?.()
 
 const readStdin = async () => {
@@ -128,7 +132,9 @@ const summarizeStatusLine = (input) => {
     totalLinesAdded: numberOrNull(cost?.total_lines_added),
     totalLinesRemoved: numberOrNull(cost?.total_lines_removed),
     fiveHourUsedPercent: compactPercent(rateLimits?.five_hour?.used_percentage),
+    fiveHourResetAt: stringOrNull(rateLimits?.five_hour?.resets_at),
     sevenDayUsedPercent: compactPercent(rateLimits?.seven_day?.used_percentage),
+    sevenDayResetAt: stringOrNull(rateLimits?.seven_day?.resets_at),
     effortLevel: stringOrNull(input?.effort?.level),
     thinkingEnabled: boolOrNull(input?.thinking?.enabled),
     agentName: stringOrNull(input?.agent?.name),
@@ -192,7 +198,7 @@ const mergeWithPrevious = (nextState, previousState) => {
     'modelId', 'modelName', 'contextUsedPercent', 'contextRemainingPercent', 'contextWindowSize',
     'inputTokens', 'outputTokens', 'cacheCreationInputTokens', 'cacheReadInputTokens',
     'totalCostUsd', 'totalDurationMs', 'totalApiDurationMs', 'totalLinesAdded', 'totalLinesRemoved',
-    'fiveHourUsedPercent', 'sevenDayUsedPercent', 'effortLevel', 'thinkingEnabled', 'agentName',
+    'fiveHourUsedPercent', 'fiveHourResetAt', 'sevenDayUsedPercent', 'sevenDayResetAt', 'effortLevel', 'thinkingEnabled', 'agentName',
   ]
 
   const merged = { ...nextState }
@@ -224,18 +230,45 @@ const writeStateFile = (targetPath, state) => {
   }
 }
 
+const hudPlusStatusLine = (stdinText) => {
+  if (MODE !== 'statusLine' || !HUD_PLUS_STATUSLINE_PATH || !existsSync(HUD_PLUS_STATUSLINE_PATH)) return null
+
+  try {
+    const result = spawnSync(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', HUD_PLUS_STATUSLINE_PATH],
+      {
+        input: stdinText,
+        encoding: 'utf8',
+        timeout: HUD_PLUS_TIMEOUT_MS,
+        windowsHide: true,
+        maxBuffer: 512 * 1024,
+      },
+    )
+
+    if (result.status === 0 && typeof result.stdout === 'string' && result.stdout.trim().length > 0) {
+      return result.stdout.trimEnd()
+    }
+  } catch {
+    // Fall back to the compact Claude Island status line.
+  }
+
+  return null
+}
+
 try {
   const text = await readStdin()
-  const input = text.trim() ? JSON.parse(text) : {}
+  const cleanText = text.replace(/^﻿/, '')
+  const input = cleanText.trim() ? JSON.parse(cleanText) : {}
   const previousState = readPreviousState()
   const nextState = mergeWithPrevious(MODE === 'hook' ? summarizeHook(input) : summarizeStatusLine(input), previousState)
   writeStateFile(APPDATA_STATE_PATH, nextState)
   writeStateFile(PROJECT_STATE_PATH, nextState)
 
-  const statusLineText = MODE === 'statusLine'
+  const fallbackStatusLineText = MODE === 'statusLine'
     ? `Claude Island · ${nextState.statusText}`
     : ''
-  complete(statusLineText)
+  complete(hudPlusStatusLine(cleanText) ?? fallbackStatusLineText)
 } catch {
   complete(FALLBACK_STATUS)
 }

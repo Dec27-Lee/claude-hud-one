@@ -143,6 +143,11 @@ fn check_for_updates() -> Result<UpdateState, String> {
 }
 
 #[tauri::command]
+fn open_release_page() -> Result<String, String> {
+    window::updater::open_release_page()
+}
+
+#[tauri::command]
 fn load_app_settings() -> Result<AppSettings, String> {
     let mut settings = window::settings::load_app_settings();
     settings.launch_at_login = window::startup::get_launch_at_login();
@@ -200,6 +205,7 @@ pub fn run() {
             get_live_usage_cost_snapshot,
             get_update_state,
             check_for_updates,
+            open_release_page,
             load_app_settings,
             save_app_settings,
             get_launch_at_login,

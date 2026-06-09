@@ -529,3 +529,91 @@ fn now_millis_label() -> String {
         .map(|duration| duration.as_millis().to_string())
         .unwrap_or_else(|_| "0".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn collect_usage_fields_recurses_nested_usage_objects() {
+        let value = json!({
+            "message": {
+                "usage": {
+                    "input_tokens": 120,
+                    "output_tokens": 34,
+                    "cache_creation_input_tokens": 56,
+                    "cache_read_input_tokens": 780
+                }
+            },
+            "nested": [{ "usage": { "input_tokens": 10 } }]
+        });
+        let mut usage = TokenUsage::default();
+
+        collect_usage_fields(&value, &mut usage);
+
+        assert_eq!(usage.input_tokens, 130);
+        assert_eq!(usage.output_tokens, 34);
+        assert_eq!(usage.cache_creation_input_tokens, 56);
+        assert_eq!(usage.cache_read_input_tokens, 780);
+        assert_eq!(usage.total_tokens(), 1_000);
+        assert_eq!(usage.billable_tokens(), 298);
+    }
+
+    #[test]
+    fn estimate_total_cost_uses_billable_cache_read_discount() {
+        let usage = TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            cache_creation_input_tokens: 1_000_000,
+            cache_read_input_tokens: 1_000_000,
+        };
+
+        let cost = estimate_total_cost(&usage, true, Some("claude-opus-4-8"));
+
+        assert!((cost - 106.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn pricing_for_recognizes_main_model_families() {
+        assert_eq!(pricing_for("claude-opus-4-8", true), (15.0, 75.0));
+        assert_eq!(pricing_for("claude-haiku-4-5", true), (0.8, 4.0));
+        assert_eq!(pricing_for("claude-sonnet-4-6", true), (3.0, 15.0));
+        assert_eq!(pricing_for("gpt-5.4-codex", false), (1.25, 10.0));
+        assert_eq!(pricing_for("unknown", false), (1.0, 5.0));
+    }
+
+    #[test]
+    fn merge_daily_buckets_sorts_and_combines_providers() {
+        let mut claude = ProviderAggregate::default();
+        claude.by_date.insert("2026-06-08".to_string(), TokenUsage { input_tokens: 100, ..TokenUsage::default() });
+        claude.by_date.insert("2026-06-07".to_string(), TokenUsage { output_tokens: 50, ..TokenUsage::default() });
+
+        let mut codex = ProviderAggregate::default();
+        codex.by_date.insert("2026-06-08".to_string(), TokenUsage { output_tokens: 25, ..TokenUsage::default() });
+        codex.by_date.insert("2026-06-09".to_string(), TokenUsage { input_tokens: 75, ..TokenUsage::default() });
+
+        let buckets = merge_daily_buckets(&claude, &codex);
+
+        assert_eq!(buckets.len(), 3);
+        assert_eq!(buckets[0].date, "2026-06-07");
+        assert_eq!(buckets[0].claude_tokens, 50);
+        assert_eq!(buckets[0].codex_tokens, 0);
+        assert_eq!(buckets[1].date, "2026-06-08");
+        assert_eq!(buckets[1].total_tokens, 125);
+        assert_eq!(buckets[2].date, "2026-06-09");
+        assert_eq!(buckets[2].codex_tokens, 75);
+    }
+
+    #[test]
+    fn provider_state_marks_local_estimate_source_and_stale_errors() {
+        let aggregate = ProviderAggregate::default();
+
+        let state = provider_state(&aggregate, "Claude transcript", None);
+
+        assert!(state.stale);
+        assert_eq!(state.source, "localEstimate");
+        assert_eq!(state.auth_status, "unknown");
+        assert_eq!(state.five_hour.error.as_deref(), Some("No local token usage fields found yet"));
+    }
+}

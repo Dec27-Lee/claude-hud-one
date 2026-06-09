@@ -20,6 +20,8 @@ test.describe('Claude Island Win UI smoke', () => {
     await page.goto('/?view=expanded&page=usage')
     await expect(page.getByRole('heading', { name: 'Usage' })).toBeVisible()
     await expect(page.getByLabel('Current Claude Code session summary')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Refresh Claude Island data' })).toBeVisible()
+    await expect(page.getByText('Codex')).toHaveCount(0)
     await screenshot(page, '02-expanded-usage')
 
     await page.goto('/?view=expanded&page=cost')
@@ -28,6 +30,7 @@ test.describe('Claude Island Win UI smoke', () => {
 
     await page.goto('/?view=expanded&page=overview')
     await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+    await expect(page.getByText('Codex')).toHaveCount(0)
     await screenshot(page, '04-expanded-overview')
   })
 
@@ -35,7 +38,11 @@ test.describe('Claude Island Win UI smoke', () => {
     await page.goto('/?window=settings')
     await expect(page.getByRole('heading', { name: 'Claude Island Win' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Updates' })).toBeVisible()
+    await expect(page.getByText('Manual update')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Open release page' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Refresh now' })).toBeVisible()
     await expect(page.getByText('About / Diagnostics')).toBeVisible()
+    await expect(page.getByText('Codex')).toHaveCount(0)
     await screenshot(page, '05-settings')
   })
 })

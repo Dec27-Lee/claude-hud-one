@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { ClaudeCodeSummary, ClaudeStatusBridgeState, CurrentSessionState, SessionActivityState } from '../app/types'
+import type { ClaudeCodeSummary, ClaudeStatusBridgeState, CurrentSessionState, ProviderLiveState, SessionActivityState } from '../app/types'
 
 const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
@@ -21,6 +21,29 @@ const relativeTimeLabel = (isoOrMillis: string | null): string => {
   if (diffHours < 24) return `${diffHours}h ago`
 
   return `${Math.round(diffHours / 24)}d ago`
+}
+
+const resetLabel = (iso: string | null): string => {
+  if (!iso) return 'Claude Code estimate'
+
+  const timestamp = Date.parse(iso)
+  if (!Number.isFinite(timestamp)) return 'Claude Code estimate'
+
+  const diffSeconds = Math.max(0, Math.round((timestamp - Date.now()) / 1000))
+  if (diffSeconds < 60) return '<1m'
+
+  const diffMinutes = Math.round(diffSeconds / 60)
+  if (diffMinutes < 60) return `${diffMinutes}m`
+
+  const diffHours = Math.round(diffMinutes / 60)
+  if (diffHours < 24) return `${diffHours}h`
+
+  return `${Math.round(diffHours / 24)}d`
+}
+
+const usagePercent = (value: number | null): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(1, value / 100))
 }
 
 const projectSlugFromBridge = (bridge: ClaudeStatusBridgeState): string => {
@@ -63,6 +86,25 @@ export const mapClaudeStatusBridgeToCurrentSessionPatch = (bridge: ClaudeStatusB
   totalCostUsd: bridge.totalCostUsd,
 })
 
+export const mapClaudeStatusBridgeToProviderPatch = (bridge: ClaudeStatusBridgeState): ProviderLiveState | null => {
+  if (typeof bridge.fiveHourUsedPercent !== 'number' && typeof bridge.sevenDayUsedPercent !== 'number') return null
+
+  return {
+    fiveHour: {
+      usedPercent: usagePercent(bridge.fiveHourUsedPercent),
+      resetAtLabel: resetLabel(bridge.fiveHourResetAt),
+    },
+    weekly: {
+      usedPercent: usagePercent(bridge.sevenDayUsedPercent),
+      resetAtLabel: resetLabel(bridge.sevenDayResetAt),
+    },
+    stale: !bridgeIsFresh(bridge),
+    lastUpdatedLabel: relativeTimeLabel(bridge.updatedAt),
+    source: 'claudeCode',
+    authStatus: 'ok',
+  }
+}
+
 const activityFromSummary = (summary: ClaudeCodeSummary): SessionActivityState => {
   if (!summary.lastActivityAt) return 'idle'
 
@@ -92,16 +134,20 @@ export const mapClaudeCodeSummaryToCurrentSession = (summary: ClaudeCodeSummary)
   counts: summary.counts,
 })
 
-export const loadClaudeStatusBridgePatch = async (): Promise<Partial<CurrentSessionState> | null> => {
+export const loadClaudeStatusBridgeState = async (): Promise<ClaudeStatusBridgeState | null> => {
   if (!isTauriRuntime()) return null
 
   try {
-    const bridge = await invoke<ClaudeStatusBridgeState | null>('get_claude_status_bridge_state')
-    return bridge && bridgeIsFresh(bridge) ? mapClaudeStatusBridgeToCurrentSessionPatch(bridge) : null
+    return await invoke<ClaudeStatusBridgeState | null>('get_claude_status_bridge_state')
   } catch (error) {
     console.warn('Failed to load Claude Code status bridge state', error)
     return null
   }
+}
+
+export const loadClaudeStatusBridgePatch = async (): Promise<Partial<CurrentSessionState> | null> => {
+  const bridge = await loadClaudeStatusBridgeState()
+  return bridge && bridgeIsFresh(bridge) ? mapClaudeStatusBridgeToCurrentSessionPatch(bridge) : null
 }
 
 export const loadLiveCurrentSession = async (): Promise<CurrentSessionState | null> => {

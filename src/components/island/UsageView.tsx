@@ -11,6 +11,7 @@ type UsageViewProps = {
 const sourceLabels: Record<NonNullable<ProviderState['source']>, string> = {
   mock: 'Mock preview',
   localEstimate: 'Local estimate',
+  claudeCode: 'Claude Code estimate',
   endpoint: 'Official endpoint',
   cache: 'Last-known cache',
 }
@@ -37,7 +38,7 @@ export function UsageView({ providers, chartStyle, warningThreshold, criticalThr
   const visibleProviders = providers.filter((provider) => provider.visible)
 
   if (visibleProviders.length === 0) {
-    return <div className="empty-state">Claude 和 Codex 都已隐藏。可在 Providers 设置里重新开启。</div>
+    return <div className="empty-state">Claude 已隐藏。可在 Providers 设置里重新开启。</div>
   }
 
   return (

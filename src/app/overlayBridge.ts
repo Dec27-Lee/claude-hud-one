@@ -28,6 +28,13 @@ export type UpdateState = {
   channel: string
   lastCheckedAt: string | null
   message: string
+  configured: boolean
+  canCheck: boolean
+  downloadAvailable: boolean
+  manualUpdateAvailable: boolean
+  errorCode: string | null
+  endpoint: string | null
+  releasePageUrl: string | null
 }
 
 export type DiagnosticsSummary = {
@@ -210,6 +217,17 @@ export const checkForUpdates = async (): Promise<UpdateState | null> => {
     return await invoke<UpdateState>('check_for_updates')
   } catch (error) {
     console.warn('Failed to check for updates', error)
+    return null
+  }
+}
+
+export const openReleasePage = async (): Promise<string | null> => {
+  if (!isTauriRuntime()) return null
+
+  try {
+    return await invoke<string>('open_release_page')
+  } catch (error) {
+    console.warn('Failed to open release page', error)
     return null
   }
 }
