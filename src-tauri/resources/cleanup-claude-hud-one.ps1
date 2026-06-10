@@ -79,18 +79,7 @@ function Remove-ClaudeHudOneSettings {
 
   $statusLineCommand = $settings.statusLine.command
   if (Command-IsClaudeHudOne $statusLineCommand) {
-    $upstreamPath = if ($env:APPDATA) { Join-Path $env:APPDATA 'Claude HUD One\bridge\upstream-statusline.json' } else { $null }
-    $upstream = if ($upstreamPath) { Read-JsonFile $upstreamPath } else { $null }
-    $upstreamCommand = $upstream.command
-
-    if ($upstreamCommand -and -not (Command-IsClaudeHudOne $upstreamCommand)) {
-      $settings.statusLine = [PSCustomObject]@{
-        type = 'command'
-        command = [string]$upstreamCommand
-      }
-    } else {
-      $settings.PSObject.Properties.Remove('statusLine')
-    }
+    $settings.PSObject.Properties.Remove('statusLine')
     $changed = $true
   }
 

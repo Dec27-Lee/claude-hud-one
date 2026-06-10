@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 const BRIDGE_SCRIPT: &str = include_str!("../../../.claude/bridge/claude-status-bridge.mjs");
-const HUD_PLUS_TIMEOUT_MS: &str = "4000";
 const HOOK_EVENTS: [&str; 7] = [
     "UserPromptSubmit",
     "PreToolUse",
@@ -42,7 +41,12 @@ pub fn ensure_global_bridge() -> Result<ClaudeGlobalBridgeStatus, String> {
     let settings_path = claude_settings_path().ok_or_else(|| "USERPROFILE/HOME is not available".to_string())?;
     let mut settings = read_settings_json(&settings_path)?;
     let original = settings.clone();
+    let bridge_command = command_for_bridge(&bridge_path, false);
     let hook_command = command_for_bridge(&bridge_path, true);
+    let previous_status_line = current_status_line_command(&settings);
+
+    save_upstream_status_line(previous_status_line.as_deref(), &bridge_command)?;
+    set_status_line(&mut settings, &bridge_command);
     ensure_hooks(&mut settings, &hook_command);
 
     let changed = settings != original;
@@ -62,9 +66,9 @@ pub fn ensure_global_bridge() -> Result<ClaudeGlobalBridgeStatus, String> {
         backup_path,
         Some(settings),
         if changed {
-            "Claude HUD One hooks installed. Existing statusLine was preserved."
+            "Claude HUD One now owns Claude Code statusLine and hooks. Previous statusLine is kept only as an internal diagnostic backup."
         } else {
-            "Claude HUD One hooks are already installed. Existing statusLine is preserved."
+            "Claude HUD One already owns Claude Code statusLine and hooks."
         },
     ))
 }
@@ -82,7 +86,6 @@ pub fn enable_status_line_bridge() -> Result<ClaudeGlobalBridgeStatus, String> {
 
     save_upstream_status_line(previous_status_line.as_deref(), &bridge_command)?;
     set_status_line(&mut settings, &bridge_command);
-    ensure_timeout_env(&mut settings);
     ensure_hooks(&mut settings, &hook_command);
 
     let changed = settings != original;
@@ -102,9 +105,9 @@ pub fn enable_status_line_bridge() -> Result<ClaudeGlobalBridgeStatus, String> {
         backup_path,
         Some(settings),
         if changed {
-            "Enhanced statusLine capture enabled. Claude HUD One will proxy the preserved statusLine output."
+            "Claude HUD One statusLine owner repaired. Built-in Terminal HUD will render from the unified bridge."
         } else {
-            "Enhanced statusLine capture is already enabled."
+            "Claude HUD One statusLine owner is already active."
         },
     ))
 }
@@ -117,15 +120,11 @@ pub fn restore_status_line() -> Result<ClaudeGlobalBridgeStatus, String> {
     let mut settings = read_settings_json(&settings_path)?;
     let original = settings.clone();
     let current = current_status_line_command(&settings);
-    let upstream = read_upstream_status_line_command();
     let message;
 
-    if let Some(command) = upstream.as_deref() {
-        set_status_line(&mut settings, command);
-        message = "Original statusLine restored. Claude HUD One hooks remain installed for compatible background capture.";
-    } else if current.as_deref().map(command_is_bridge).unwrap_or(false) {
+    if current.as_deref().map(command_is_bridge).unwrap_or(false) {
         ensure_object(&mut settings).remove("statusLine");
-        message = "Claude HUD One statusLine removed. No preserved upstream statusLine was found; hooks remain installed.";
+        message = "Claude HUD One statusLine removed. External statusLine restoration is not part of Claude HUD One owner mode; hooks remain installed.";
     } else {
         message = "Current statusLine is not managed by Claude HUD One. Nothing was changed.";
     }
@@ -219,9 +218,9 @@ fn status_from_settings(
     let upstream_status_line_saved = upstream_status_line_command.is_some();
     let installed = bridge_exists && hooks_installed;
     let compatibility_mode = match (hooks_installed, status_line_installed) {
-        (true, true) => "multiplexer",
+        (true, true) => "owner",
         (true, false) => "hooks-only",
-        (false, true) => "statusline-only",
+        (false, true) => "statusline-owner",
         (false, false) => "not-installed",
     }
     .to_string();
@@ -395,17 +394,6 @@ fn set_status_line(settings: &mut Value, command: &str) {
             "refreshInterval": 1,
         }),
     );
-}
-
-fn ensure_timeout_env(settings: &mut Value) {
-    let object = ensure_object(settings);
-    let env = object.entry("env".to_string()).or_insert_with(|| json!({}));
-    if !env.is_object() {
-        *env = json!({});
-    }
-    env.as_object_mut()
-        .expect("env object")
-        .insert("CLAUDE_HUD_ONE_HUD_PLUS_TIMEOUT_MS".to_string(), json!(HUD_PLUS_TIMEOUT_MS));
 }
 
 fn ensure_hooks(settings: &mut Value, hook_command: &str) -> Vec<String> {

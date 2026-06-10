@@ -31,10 +31,152 @@ pub struct AppSettings {
     pub token_count_mode: String,
     #[serde(default = "default_visible_providers")]
     pub visible_providers: Value,
+    #[serde(default = "default_terminal_hud")]
+    pub terminal_hud: Value,
+    #[serde(default = "default_desktop_hud")]
+    pub desktop_hud: Value,
 }
 
 fn default_visible_providers() -> Value {
     json!({ "claude": true, "codex": false })
+}
+
+fn default_terminal_hud() -> Value {
+    serde_json::from_str(
+        r##"{
+            "enabled": true,
+            "preset": "hud-plus-default",
+            "language": "en",
+            "rows": [
+                ["model", "contextBar", "contextValue"],
+                ["project", "addedDirs", "git"],
+                ["sessionTokens"],
+                ["activity"]
+            ],
+            "rowOverflow": "truncate",
+            "activityLine": {
+                "mode": "auto",
+                "maxWidthRatio": 0.9,
+                "toolNameFormat": "short",
+                "items": {
+                    "todos": true,
+                    "agents": true,
+                    "tools": true,
+                    "sessionTime": false
+                },
+                "warnings": {
+                    "usage": true,
+                    "memory": true,
+                    "environment": true,
+                    "promptCache": false
+                }
+            },
+            "showSeparators": false,
+            "pathLevels": 1,
+            "maxWidth": null,
+            "elementOrder": ["project", "addedDirs", "context", "usage", "promptCache", "memory", "environment", "tools", "agents", "todos", "sessionTime"],
+            "gitStatus": {
+                "enabled": true,
+                "showDirty": true,
+                "showAheadBehind": false,
+                "showFileStats": false,
+                "branchOverflow": "truncate",
+                "pushWarningThreshold": 0,
+                "pushCriticalThreshold": 0
+            },
+            "colors": {
+                "context": "#22D3EE",
+                "usage": "brightBlue",
+                "warning": "#F59E0B",
+                "usageWarning": "brightMagenta",
+                "critical": "#F43F5E",
+                "model": "#38BDF8",
+                "project": "#FBBF24",
+                "git": "#C084FC",
+                "gitBranch": "#22D3EE",
+                "label": "dim",
+                "labelTitle": "dim",
+                "labelValue": "dim",
+                "custom": 208,
+                "barFilled": "█",
+                "barEmpty": "░",
+                "contextBands": [],
+                "usageBands": []
+            },
+            "display": {
+                "showModel": true,
+                "showProject": true,
+                "showAddedDirs": true,
+                "addedDirsLayout": "inline",
+                "showContextBar": true,
+                "contextValue": "both",
+                "showConfigCounts": false,
+                "showCost": false,
+                "showDuration": false,
+                "showSpeed": false,
+                "showTokenBreakdown": true,
+                "showUsage": false,
+                "usageValue": "percent",
+                "usageBarEnabled": true,
+                "showResetLabel": true,
+                "usageCompact": false,
+                "showTools": true,
+                "showAgents": true,
+                "showTodos": true,
+                "showSessionName": false,
+                "showClaudeCodeVersion": false,
+                "showEffortLevel": false,
+                "showMemoryUsage": false,
+                "showEnvironment": false,
+                "showPromptCache": false,
+                "promptCacheTtlSeconds": 300,
+                "showSessionTokens": true,
+                "showOutputStyle": false,
+                "showSessionStartDate": false,
+                "showLastResponseAt": false,
+                "mergeGroups": [["context", "usage"]],
+                "autocompactBuffer": "enabled",
+                "contextWarningThreshold": 70,
+                "contextCriticalThreshold": 85,
+                "usageThreshold": 0,
+                "sevenDayThreshold": 80,
+                "environmentThreshold": 0,
+                "externalUsagePath": "",
+                "externalUsageFreshnessMs": 300000,
+                "modelFormat": "full",
+                "modelOverride": "",
+                "customLine": "",
+                "timeFormat": "relative"
+            }
+        }"##,
+    )
+    .expect("default terminal HUD config must be valid JSON")
+}
+
+fn default_desktop_hud() -> Value {
+    json!({
+        "enabled": true,
+        "preset": "one-default",
+        "density": "compact",
+        "defaultPage": "usage",
+        "visibleItems": {
+            "model": true,
+            "contextValue": true,
+            "project": true,
+            "sessionTokens": true,
+            "usage": true,
+            "cost": true,
+            "tools": true,
+            "activity": true,
+            "git": true,
+            "addedDirs": true,
+            "agents": true,
+            "todos": true,
+            "speed": true
+        },
+        "panelItems": ["contextValue", "tools", "model", "git", "agents", "todos"],
+        "tickerItems": ["activity", "project", "tools"]
+    })
 }
 
 impl Default for AppSettings {
@@ -57,6 +199,8 @@ impl Default for AppSettings {
             cost_style: "usd".to_string(),
             token_count_mode: "all".to_string(),
             visible_providers: default_visible_providers(),
+            terminal_hud: default_terminal_hud(),
+            desktop_hud: default_desktop_hud(),
         }
     }
 }

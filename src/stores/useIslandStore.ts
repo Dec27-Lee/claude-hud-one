@@ -3,6 +3,7 @@ import { emit, listen } from '@tauri-apps/api/event'
 import type { AlertState, ChartStyle, CostStyle, CurrentSessionState, IslandAppState, LiveUsageCostSnapshot, ProviderId, ProviderLiveState, SettingsState, TokenCountMode } from '../app/types'
 import { displayedProviderOrder } from '../app/types'
 import { createMockIslandState } from '../providers/mockData'
+import { mergeDesktopHudConfig, mergeTerminalHudConfig } from '../hud/config'
 
 export type IslandStore = {
   state: IslandAppState
@@ -55,6 +56,17 @@ const claudeCodeWaitingProvider = (): ProviderLiveState => ({
   authStatus: 'unknown',
 })
 
+export const mergeSettings = (base: SettingsState, patch?: Partial<SettingsState>): SettingsState => ({
+  ...base,
+  ...patch,
+  visibleProviders: {
+    ...base.visibleProviders,
+    ...patch?.visibleProviders,
+  },
+  terminalHud: mergeTerminalHudConfig(base.terminalHud, patch?.terminalHud),
+  desktopHud: mergeDesktopHudConfig(base.desktopHud, patch?.desktopHud),
+})
+
 const mergeState = (stored: Partial<IslandAppState>): IslandAppState => {
   const base = createMockIslandState()
   return withDerivedAlerts({
@@ -62,7 +74,7 @@ const mergeState = (stored: Partial<IslandAppState>): IslandAppState => {
     ...stored,
     providers: { ...base.providers, ...stored.providers },
     cost: { ...base.cost, ...stored.cost },
-    settings: { ...base.settings, ...stored.settings },
+    settings: mergeSettings(base.settings, stored.settings),
     currentSession: { ...base.currentSession, ...stored.currentSession },
     sessions: stored.sessions?.length ? stored.sessions : base.sessions,
     alerts: { ...base.alerts, ...stored.alerts },
@@ -236,7 +248,7 @@ export const useIslandStore = (): IslandStore => {
     },
     patchSettings: (settings) => {
       updateState((current) => {
-        const nextSettings = { ...current.settings, ...settings }
+        const nextSettings = mergeSettings(current.settings, settings)
         const visibleProviders = settings.visibleProviders
         return withDerivedAlerts({
           ...current,

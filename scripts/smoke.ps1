@@ -45,6 +45,13 @@ Invoke-Step "Release exe smoke" {
     throw "Release exe not found: $exe"
   }
 
+  try {
+    Get-Process -Name "claude-hud-one" -ErrorAction SilentlyContinue | Stop-Process -Force -Confirm:$false
+    Start-Sleep -Milliseconds 500
+  } catch {
+    Write-Host "Could not stop existing claude-hud-one processes: $($_.Exception.Message)" -ForegroundColor Yellow
+  }
+
   $process = Start-Process -FilePath $exe -PassThru
   Start-Sleep -Seconds 8
   if ($process.HasExited) {

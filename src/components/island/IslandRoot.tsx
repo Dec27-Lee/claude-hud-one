@@ -3,6 +3,7 @@ import type { CSSProperties, MouseEvent, PointerEvent } from 'react'
 import { cursorPosition, getCurrentWindow } from '@tauri-apps/api/window'
 import { setOverlayPosition, updateOverlayHitRegions, type OverlayHitRegion } from '../../app/overlayBridge'
 import type { CurrentSessionState, IslandAppState, IslandPage, IslandViewState, OverlayPosition, ProviderId } from '../../app/types'
+import type { HudDisplayItemId } from '../../hud/types'
 import { displayedProviderOrder } from '../../app/types'
 import { CostView } from './CostView'
 import { CurrentSessionStrip } from './CurrentSessionStrip'
@@ -74,6 +75,17 @@ const compactLabel = (value: string, maxLength = 18): string => (
   value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value
 )
 
+const compactTokens = (tokens: number | null | undefined): string | null => {
+  if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens <= 0) return null
+  if (tokens < 1_000) return `${Math.round(tokens)} tokens`
+  if (tokens < 10_000) return `${(tokens / 1_000).toFixed(1)}K`
+  return `${Math.round(tokens / 1_000)}K`
+}
+
+const positiveCount = (value: number | null | undefined): number => (
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
+)
+
 const shortCode = (value: string | null | undefined): string | null => {
   if (!value) return null
   const leaf = pathBaseName(value) ?? value
@@ -102,19 +114,36 @@ const sessionKey = (session: CurrentSessionState, index: number): string => (
   session.sessionKey ?? session.sessionId ?? session.transcriptPath ?? `${workspaceLabel(session)}-${index}`
 )
 
-const sessionStatusText = (session: CurrentSessionState): string => (
-  session.activeToolName
-    ? `Tool ${session.activeToolName}`
-    : session.bridgeStatusText
-      ?? session.modelLabel
-      ?? session.lastEventLabel
-      ?? session.sourceLabel
-)
+const sessionStatusText = (session: CurrentSessionState, isVisible: (item: HudDisplayItemId) => boolean): string | null => {
+  if (isVisible('tools') && session.activeToolName) return `Tool ${session.activeToolName}`
+  if (isVisible('activity') && session.bridgeStatusText) return session.bridgeStatusText
+  if (isVisible('model') && session.modelLabel) return session.modelLabel
+  return isVisible('activity') ? session.lastEventLabel ?? session.sourceLabel : null
+}
 
-const sessionTickerText = (session: CurrentSessionState): string => {
-  const activityLabel = sessionActivityLabels[session.activity]
-  const status = sessionStatusText(session)
-  return [activityLabel, identityLabel(session), status].filter(Boolean).join(' · ')
+const desktopItemLabel = (session: CurrentSessionState, item: HudDisplayItemId, isVisible: (item: HudDisplayItemId) => boolean): string | null => {
+  if (!isVisible(item)) return null
+  switch (item) {
+    case 'activity': return [sessionActivityLabels[session.activity], session.bridgeStatusText ?? session.lastEventLabel].filter(Boolean).join(' · ')
+    case 'project': return identityLabel(session)
+    case 'model': return session.modelLabel ?? null
+    case 'tools': return session.activeToolName ? `Tool ${session.activeToolName}` : null
+    case 'contextValue': return compactTokens(session.contextUsedTokens) ? `${compactTokens(session.contextUsedTokens)} context` : null
+    case 'sessionTokens': return compactTokens(session.contextUsedTokens) ? `${compactTokens(session.contextUsedTokens)} tokens` : null
+    case 'cost': return typeof session.totalCostUsd === 'number' && session.totalCostUsd > 0 ? `$${session.totalCostUsd.toFixed(session.totalCostUsd < 10 ? 2 : 1)}` : null
+    case 'git': return session.gitBranch ? `git ${session.gitBranch}${session.gitDirty ? '*' : ''}` : null
+    case 'addedDirs': return session.addedDirSlugs?.length ? `dirs ${session.addedDirSlugs.join(', ')}` : null
+    case 'agents': return positiveCount(session.agentsCount) || positiveCount(session.agentsRunningCount) ? `agents ${positiveCount(session.agentsCount) || positiveCount(session.agentsRunningCount)}` : null
+    case 'todos': return positiveCount(session.todosTotalCount) ? `todos ${positiveCount(session.todosCompletedCount)}/${positiveCount(session.todosTotalCount)}` : null
+    case 'speed': return typeof session.outputSpeed === 'number' && session.outputSpeed > 0 ? `${session.outputSpeed >= 10 ? Math.round(session.outputSpeed) : session.outputSpeed.toFixed(1)} tok/s` : null
+    default: return null
+  }
+}
+
+const sessionTickerText = (session: CurrentSessionState, isVisible: (item: HudDisplayItemId) => boolean, tickerItems: HudDisplayItemId[]): string => {
+  const items: HudDisplayItemId[] = tickerItems.length ? tickerItems : ['activity', 'project', 'tools']
+  const parts = items.map((item) => desktopItemLabel(session, item, isVisible)).filter(Boolean)
+  return parts.join(' · ') || sessionStatusText(session, isVisible) || 'Claude HUD One'
 }
 
 const sortedSessions = (sessions: CurrentSessionState[]): CurrentSessionState[] => {
@@ -131,9 +160,9 @@ const browserPreviewViewState = (fallback: IslandViewState): IslandViewState => 
   return value === 'compact' || value === 'peek' || value === 'expanded' ? value : fallback
 }
 
-const browserPreviewPage = (): IslandPage => {
+const browserPreviewPage = (fallback: IslandPage): IslandPage => {
   const value = new URLSearchParams(window.location.search).get('page')
-  return value === 'cost' || value === 'overview' || value === 'usage' ? value : 'usage'
+  return value === 'cost' || value === 'overview' || value === 'usage' ? value : fallback
 }
 
 const rectToHitRegion = (rect: DOMRect): OverlayHitRegion => {
@@ -158,8 +187,10 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
   const dragMoveInFlightRef = useRef(false)
   const suppressNextClickRef = useRef(false)
   const defaultViewState = state.settings.alwaysShowUsage ? 'peek' : 'compact'
+  const desktopHud = state.settings.desktopHud
+  const isDesktopItemVisible = (item: HudDisplayItemId): boolean => desktopHud.enabled && desktopHud.visibleItems[item] !== false
   const [viewState, setViewState] = useState<IslandViewState>(() => browserPreviewViewState(defaultViewState))
-  const [activePage, setActivePage] = useState<IslandPage>(() => browserPreviewPage())
+  const [activePage, setActivePage] = useState<IslandPage>(() => browserPreviewPage(desktopHud.defaultPage))
   const [tickerIndex, setTickerIndex] = useState(0)
   const providers = useMemo(() => displayedProviderOrder.map((provider) => state.providers[provider]), [state.providers])
   const sessions = useMemo(() => sortedSessions(state.sessions.length > 0 ? state.sessions : [state.currentSession]), [state.currentSession, state.sessions])
@@ -168,7 +199,13 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
   const alertClass = state.alerts.severity === 'none' ? '' : ` island-shell--${state.alerts.severity}`
   const powerClass = state.settings.lowPowerMode ? ' island-shell--low-power' : ''
   const sessionActivity = tickerSession.activity
-  const sessionActivityLabel = sessionActivityLabels[sessionActivity]
+  const pageVisible: Record<IslandPage, boolean> = {
+    usage: isDesktopItemVisible('usage'),
+    cost: isDesktopItemVisible('cost'),
+    overview: true,
+  }
+  const visiblePages = pages.filter((page) => pageVisible[page])
+  const effectiveActivePage = pageVisible[activePage] ? activePage : visiblePages[0] ?? 'overview'
   const shouldAutoPeek = viewState === 'compact' && (sessionActivity === 'running' || sessionActivity === 'waiting' || sessionActivity === 'error')
   const effectiveViewState = shouldAutoPeek ? 'peek' : viewState
 
@@ -336,7 +373,13 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
       resizeObserver.disconnect()
       window.removeEventListener('resize', updateRegions)
     }
-  }, [activePage, effectiveViewState, sessions.length])
+  }, [effectiveActivePage, effectiveViewState, sessions.length, visiblePages.length])
+
+  useEffect(() => {
+    if (!desktopHud.enabled) void updateOverlayHitRegions([])
+  }, [desktopHud.enabled])
+
+  if (!desktopHud.enabled) return <main className="desktop-stage" aria-hidden="true" />
 
   return (
     <main className="desktop-stage">
@@ -361,7 +404,7 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
             <span className="peek-metrics">
               <span className={`session-ticker session-peek session-peek--${sessionActivity}`} aria-live="polite">
                 <span key={`${tickerKey}-${tickerIndex}`} className="session-ticker__line">
-                  <span>{sessionTickerText(tickerSession)}</span>
+                  <span>{sessionTickerText(tickerSession, isDesktopItemVisible, desktopHud.tickerItems)}</span>
                   {sessions.length > 1 ? <span className="session-ticker__count">{(tickerIndex % sessions.length) + 1}/{sessions.length}</span> : null}
                 </span>
               </span>
@@ -369,7 +412,7 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
           ) : (
             <span className={`session-ticker session-ticker--compact session-peek--${sessionActivity}`} aria-live="polite">
               <span key={`${tickerKey}-${tickerIndex}`} className="session-ticker__line">
-                <span>{sessionTickerText(tickerSession)}</span>
+                <span>{sessionTickerText(tickerSession, isDesktopItemVisible, desktopHud.tickerItems)}</span>
               </span>
             </span>
           )}
@@ -381,7 +424,7 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
             <header className="panel-header">
               <div>
                 <span className="section-kicker">Claude HUD One</span>
-                <h1>{pageLabels[activePage]}</h1>
+                <h1>{pageLabels[effectiveActivePage]}</h1>
                 {state.alerts.message ? <span className={`alert-banner alert-banner--${state.alerts.severity}`}>{state.alerts.message}</span> : null}
               </div>
               <div className="provider-switches">
@@ -398,12 +441,12 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
               </div>
             </header>
 
-            <CurrentSessionStrip session={tickerSession} sessions={sessions} />
+            <CurrentSessionStrip session={tickerSession} sessions={sessions} visibleItems={desktopHud.visibleItems} panelItems={desktopHud.panelItems} />
 
             <div className="panel-body">
-              {activePage === 'usage' ? <UsageView providers={providers} chartStyle={state.settings.chartStyle} warningThreshold={state.settings.warningThreshold} criticalThreshold={state.settings.criticalThreshold} /> : null}
-              {activePage === 'cost' ? <CostView providers={providers} cost={state.cost} costStyle={state.settings.costStyle} tokenCountMode={state.settings.tokenCountMode} /> : null}
-              {activePage === 'overview' ? <OverviewView buckets={state.dailyBuckets} showCodex={false} /> : null}
+              {effectiveActivePage === 'usage' ? <UsageView providers={providers} chartStyle={state.settings.chartStyle} warningThreshold={state.settings.warningThreshold} criticalThreshold={state.settings.criticalThreshold} /> : null}
+              {effectiveActivePage === 'cost' ? <CostView providers={providers} cost={state.cost} costStyle={state.settings.costStyle} tokenCountMode={state.settings.tokenCountMode} /> : null}
+              {effectiveActivePage === 'overview' ? <OverviewView buckets={state.dailyBuckets} showCodex={false} /> : null}
             </div>
 
             <footer className="panel-footer">
@@ -411,18 +454,18 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
                 <button className="icon-button" onClick={onOpenSettings} aria-label="Open settings">⚙</button>
                 <button className="icon-button" onClick={onRefreshNow} disabled={isRefreshing} aria-label="Refresh Claude HUD One data">{isRefreshing ? '…' : '↻'}</button>
               </div>
-              <span>{isRefreshing ? 'Refreshing now…' : activePage === 'usage' ? state.lastUsageSyncLabel : state.lastCostSyncLabel}</span>
+              <span>{isRefreshing ? 'Refreshing now…' : effectiveActivePage === 'usage' ? state.lastUsageSyncLabel : effectiveActivePage === 'cost' ? state.lastCostSyncLabel : 'Overview ready'}</span>
               <nav className="page-dots" aria-label="Island pages">
-                {pages.map((page) => (
+                {visiblePages.map((page) => (
                   <button
                     key={page}
-                    className={page === activePage ? 'page-dot page-dot--active' : 'page-dot'}
+                    className={page === effectiveActivePage ? 'page-dot page-dot--active' : 'page-dot'}
                     onClick={() => setActivePage(page)}
                     aria-label={pageLabels[page]}
                   />
                 ))}
               </nav>
-              <span className="style-chip">{state.settings.lowPowerMode ? 'low power' : activePage === 'usage' ? state.settings.chartStyle : activePage === 'cost' ? state.settings.costStyle : 'grid'}</span>
+              <span className="style-chip">{state.settings.lowPowerMode ? 'low power' : effectiveActivePage === 'usage' ? state.settings.chartStyle : effectiveActivePage === 'cost' ? state.settings.costStyle : 'grid'}</span>
             </footer>
           </div>
         ) : null}

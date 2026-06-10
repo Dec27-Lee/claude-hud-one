@@ -1,3 +1,5 @@
+import type { DesktopHudConfig, TerminalHudConfig } from '../hud/config'
+
 export type ProviderId = 'claude' | 'codex'
 export type IslandViewState = 'compact' | 'peek' | 'expanded'
 export type IslandPage = 'usage' | 'cost' | 'overview'
@@ -100,6 +102,27 @@ export type CurrentSessionState = {
   contextUsedPercent?: number | null
   contextUsedTokens?: number | null
   totalCostUsd?: number | null
+  addedDirSlugs?: string[] | null
+  addedDirsOverflowCount?: number | null
+  gitBranch?: string | null
+  gitDirty?: boolean | null
+  gitAhead?: number | null
+  gitBehind?: number | null
+  sessionStartedAt?: string | null
+  lastAssistantResponseAt?: string | null
+  outputSpeed?: number | null
+  agentsCount?: number | null
+  agentsRunningCount?: number | null
+  todosActiveCount?: number | null
+  todosCompletedCount?: number | null
+  todosTotalCount?: number | null
+  memoryUsedPercent?: number | null
+  memoryUsedBytes?: number | null
+  memoryTotalBytes?: number | null
+  claudeMdCount?: number | null
+  rulesCount?: number | null
+  mcpCount?: number | null
+  hooksCount?: number | null
 }
 
 export type ClaudeCodeSummary = {
@@ -147,6 +170,27 @@ export type ClaudeStatusBridgeState = {
   totalApiDurationMs: number | null
   totalLinesAdded: number | null
   totalLinesRemoved: number | null
+  outputSpeed?: number | null
+  addedDirSlugs?: string[] | null
+  addedDirsOverflowCount?: number | null
+  gitBranch?: string | null
+  gitDirty?: boolean | null
+  gitAhead?: number | null
+  gitBehind?: number | null
+  sessionStartedAt?: string | null
+  lastAssistantResponseAt?: string | null
+  agentsCount?: number | null
+  agentsRunningCount?: number | null
+  todosActiveCount?: number | null
+  todosCompletedCount?: number | null
+  todosTotalCount?: number | null
+  memoryUsedPercent?: number | null
+  memoryUsedBytes?: number | null
+  memoryTotalBytes?: number | null
+  claudeMdCount?: number | null
+  rulesCount?: number | null
+  mcpCount?: number | null
+  hooksCount?: number | null
   fiveHourUsedPercent: number | null
   fiveHourResetAt: string | null
   sevenDayUsedPercent: number | null
@@ -198,6 +242,8 @@ export type SettingsState = {
   costStyle: CostStyle
   tokenCountMode: TokenCountMode
   visibleProviders: Record<ProviderId, boolean>
+  terminalHud: TerminalHudConfig
+  desktopHud: DesktopHudConfig
 }
 
 export type AlertState = {

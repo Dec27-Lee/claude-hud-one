@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { checkForUpdates, enableClaudeStatusLineBridge, ensureClaudeGlobalBridge, getClaudeGlobalBridgeStatus, getDiagnosticsSummary, getUpdateState, openAppDataDir, openReleasePage, removeClaudeGlobalBridgeHooks, restoreClaudeStatusLine, type ClaudeGlobalBridgeStatus, type DiagnosticsSummary, type DisplayInfo, type UpdateState } from '../../app/overlayBridge'
 import type { AppLanguage, ChartStyle, CostStyle, IslandAppState, ProviderId, SettingsState, TokenCountMode } from '../../app/types'
 import { displayedProviderOrder } from '../../app/types'
+import { normalizeHudState } from '../../hud/normalize'
+import { DesktopHudPanel } from './DesktopHudPanel'
+import { TerminalHudPanel } from './TerminalHudPanel'
 
 type SettingsViewProps = {
   state: IslandAppState
@@ -18,7 +21,7 @@ type SettingsViewProps = {
 }
 
 type UILanguage = 'en' | 'zh-CN'
-type SettingsTab = 'general' | 'appearance' | 'placement' | 'claude' | 'updates' | 'about'
+type SettingsTab = 'general' | 'appearance' | 'placement' | 'terminal' | 'desktop' | 'claude' | 'updates' | 'about'
 
 const chartStyles: ChartStyle[] = ['ring', 'bar', 'stepped', 'numeric', 'sparkline']
 const costStyles: CostStyle[] = ['usd', 'value', 'tokens', 'trend']
@@ -35,6 +38,8 @@ const settingsMessages = {
       general: 'General',
       appearance: 'Appearance',
       placement: 'Placement',
+      terminal: 'Terminal HUD',
+      desktop: 'Desktop HUD',
       claude: 'Claude',
       updates: 'Updates',
       about: 'About',
@@ -76,24 +81,24 @@ const settingsMessages = {
     tokenMode: 'Token mode',
     tokenModes: { all: 'All tokens', billable: 'Billable only' },
     noPlan: 'No plan',
-    claudeCompatibility: 'Claude Code Compatibility',
-    claudeCompatibilityHint: 'Hooks-only is the default: Claude HUD One collects background state without taking over Claude HUD Plus or another statusLine.',
-    mode: 'Mode',
+    claudeCompatibility: 'Claude Code Bridge',
+    claudeCompatibilityHint: 'Claude HUD One owns Claude Code statusLine and hooks so the built-in Terminal HUD and Desktop HUD share one bridge.',
+    mode: 'Ownership mode',
     installed: 'Installed',
     settings: 'Settings',
     bridgeScript: 'Bridge script',
     statusLineOwner: 'StatusLine owner',
-    enhancedCapture: 'Enhanced capture',
+    enhancedCapture: 'StatusLine owner',
     currentStatusLine: 'Current statusLine',
     hooks: 'Hooks',
-    upstreamSaved: 'Upstream saved',
-    upstreamCommand: 'Upstream command',
+    upstreamSaved: 'Diagnostic upstream backup',
+    upstreamCommand: 'Backup command',
     lastBackup: 'Last backup',
     loadingCompatibility: 'Claude settings compatibility status is loading.',
     checkSettings: 'Check settings',
-    installHooksOnly: 'Install / repair hooks-only',
-    enableEnhanced: 'Enable enhanced capture',
-    restoreStatusLine: 'Restore original statusLine',
+    installHooksOnly: 'Install / repair bridge owner',
+    enableEnhanced: 'Repair statusLine owner',
+    restoreStatusLine: 'Remove Claude HUD One statusLine',
     removeHooks: 'Remove Claude HUD One hooks',
     updates: 'Updates',
     updatesHint: 'Manual update metadata for the current local build.',
@@ -136,7 +141,7 @@ const settingsMessages = {
     available: 'available',
     notAvailable: 'not available',
     owner: {
-      claudeHudOne: 'Claude HUD One multiplexer',
+      claudeHudOne: 'Claude HUD One Terminal HUD',
       claudeHudPlus: 'Claude HUD Plus',
       claudeHud: 'Claude HUD',
       custom: 'Custom statusLine',
@@ -144,9 +149,10 @@ const settingsMessages = {
       notLoaded: 'not loaded',
     },
     modes: {
-      hooksOnly: 'hooks-only compatible',
-      multiplexer: 'enhanced multiplexer',
-      statuslineOnly: 'statusLine only',
+      owner: 'Claude HUD One owner',
+      hooksOnly: 'hooks-only fallback',
+      multiplexer: 'legacy multiplexer',
+      statuslineOnly: 'statusLine owner only',
       notInstalled: 'not installed',
       notLoaded: 'not loaded',
     },
@@ -160,6 +166,8 @@ const settingsMessages = {
       general: '通用',
       appearance: '外观',
       placement: '位置',
+      terminal: '终端 HUD',
+      desktop: '桌面 HUD',
       claude: 'Claude',
       updates: '更新',
       about: '关于',
@@ -201,24 +209,24 @@ const settingsMessages = {
     tokenMode: 'Token 口径',
     tokenModes: { all: '全部 Token', billable: '仅计费 Token' },
     noPlan: '无套餐',
-    claudeCompatibility: 'Claude Code 兼容配置',
-    claudeCompatibilityHint: '默认使用 hooks-only 旁路采集，不抢占 Claude HUD Plus 或其他 statusLine。需要更完整快照时，可手动启用增强 multiplexer。',
-    mode: '模式',
+    claudeCompatibility: 'Claude Code Bridge',
+    claudeCompatibilityHint: 'Claude HUD One 作为 Claude Code statusLine 与 hooks owner，内置 Terminal HUD 和桌面 HUD 共用同一个 bridge。',
+    mode: '接管模式',
     installed: '已安装',
     settings: 'Settings 文件',
     bridgeScript: 'Bridge 脚本',
     statusLineOwner: 'StatusLine 归属',
-    enhancedCapture: '增强采集',
+    enhancedCapture: 'StatusLine owner',
     currentStatusLine: '当前 statusLine',
     hooks: 'Hooks',
-    upstreamSaved: '已保存上游',
-    upstreamCommand: '上游命令',
+    upstreamSaved: '诊断备份',
+    upstreamCommand: '备份命令',
     lastBackup: '最近备份',
     loadingCompatibility: '正在读取 Claude settings 兼容状态。',
     checkSettings: '检查 settings',
-    installHooksOnly: '安装 / 修复 hooks-only',
-    enableEnhanced: '启用增强采集',
-    restoreStatusLine: '恢复原 statusLine',
+    installHooksOnly: '安装 / 修复 Bridge owner',
+    enableEnhanced: '修复 statusLine owner',
+    restoreStatusLine: '移除 Claude HUD One statusLine',
     removeHooks: '移除 Claude HUD One hooks',
     updates: '更新',
     updatesHint: '当前本地构建的手动更新信息。',
@@ -261,7 +269,7 @@ const settingsMessages = {
     available: '可用',
     notAvailable: '不可用',
     owner: {
-      claudeHudOne: 'Claude HUD One multiplexer',
+      claudeHudOne: 'Claude HUD One Terminal HUD',
       claudeHudPlus: 'Claude HUD Plus',
       claudeHud: 'Claude HUD',
       custom: '自定义 statusLine',
@@ -269,9 +277,10 @@ const settingsMessages = {
       notLoaded: '未加载',
     },
     modes: {
-      hooksOnly: 'hooks-only 兼容模式',
-      multiplexer: '增强 multiplexer',
-      statuslineOnly: '仅 statusLine',
+      owner: 'Claude HUD One owner',
+      hooksOnly: 'hooks-only fallback',
+      multiplexer: '旧版 multiplexer',
+      statuslineOnly: '仅 statusLine owner',
       notInstalled: '未安装',
       notLoaded: '未加载',
     },
@@ -306,9 +315,11 @@ const ownerLabel = (owner: string | undefined, copy: SettingsCopy): string => {
 }
 const modeLabel = (mode: string | undefined, copy: SettingsCopy): string => {
   switch (mode) {
+    case 'owner': return copy.modes.owner
     case 'hooks-only': return copy.modes.hooksOnly
     case 'multiplexer': return copy.modes.multiplexer
-    case 'statusline-only': return copy.modes.statuslineOnly
+    case 'statusline-only':
+    case 'statusline-owner': return copy.modes.statuslineOnly
     case 'not-installed': return copy.modes.notInstalled
     default: return copy.modes.notLoaded
   }
@@ -329,6 +340,8 @@ const settingsTabs = (copy: SettingsCopy): Array<{ id: SettingsTab; label: strin
   { id: 'general', label: copy.tabs.general },
   { id: 'appearance', label: copy.tabs.appearance },
   { id: 'placement', label: copy.tabs.placement },
+  { id: 'terminal', label: copy.tabs.terminal },
+  { id: 'desktop', label: copy.tabs.desktop },
   { id: 'claude', label: copy.tabs.claude },
   { id: 'updates', label: copy.tabs.updates },
   { id: 'about', label: copy.tabs.about },
@@ -339,7 +352,9 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
   const [diagnostics, setDiagnostics] = useState<DiagnosticsSummary | null>(null)
   const [globalBridge, setGlobalBridge] = useState<ClaudeGlobalBridgeStatus | null>(null)
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
-  const copy = settingsMessages[resolveLanguage(state.settings.language)]
+  const uiLanguage = resolveLanguage(state.settings.language)
+  const copy = settingsMessages[uiLanguage]
+  const normalizedHudState = normalizeHudState(state)
 
   useEffect(() => {
     let cancelled = false
@@ -554,6 +569,10 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
             </section>
           </div>
         ) : null}
+
+        {activeTab === 'terminal' ? <TerminalHudPanel config={state.settings.terminalHud} language={uiLanguage} previewState={normalizedHudState} onPatchSettings={onPatchSettings} /> : null}
+
+        {activeTab === 'desktop' ? <DesktopHudPanel config={state.settings.desktopHud} language={uiLanguage} onPatchSettings={onPatchSettings} /> : null}
 
         {activeTab === 'claude' ? (
           <div className="settings-tab-panel" role="tabpanel">

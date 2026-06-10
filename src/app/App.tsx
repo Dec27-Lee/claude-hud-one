@@ -18,7 +18,7 @@ import { IslandRoot } from '../components/island/IslandRoot'
 import { SettingsView } from '../components/settings/SettingsView'
 import { loadClaudeStatusBridgeSessions, loadClaudeStatusBridgeState, loadLiveSessions, mapClaudeStatusBridgeToProviderPatch } from '../providers/claudeCodeSummary'
 import { loadLiveUsageCostSnapshot } from '../providers/liveUsageCost'
-import { useIslandStore } from '../stores/useIslandStore'
+import { mergeSettings, useIslandStore } from '../stores/useIslandStore'
 
 const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
@@ -203,7 +203,7 @@ export function App() {
   const patchSettings = (settings: Partial<SettingsState>): void => {
     const placementChanged = 'targetDisplay' in settings || 'topOffsetPx' in settings
     const settingsPatch: Partial<SettingsState> = placementChanged ? { ...settings, overlayPosition: null } : settings
-    const nextSettings = { ...store.state.settings, ...settingsPatch }
+    const nextSettings = mergeSettings(store.state.settings, settingsPatch)
     store.patchSettings(settingsPatch)
     void saveAppSettings(nextSettings)
 
@@ -229,19 +229,19 @@ export function App() {
   }
 
   const saveOverlayPosition = (overlayPosition: OverlayPosition): void => {
-    const nextSettings = { ...store.state.settings, overlayPosition }
+    const nextSettings = mergeSettings(store.state.settings, { overlayPosition })
     store.patchSettings({ overlayPosition })
     void saveAppSettings(nextSettings)
   }
 
   const saveSettingsPatch = (settings: Partial<SettingsState>): void => {
-    void saveAppSettings({ ...store.state.settings, ...settings })
+    void saveAppSettings(mergeSettings(store.state.settings, settings))
   }
 
   const toggleProviderVisible = (provider: ProviderId, visible: boolean): void => {
     const visibleProviders = { ...store.state.settings.visibleProviders, [provider]: visible }
     store.setProviderVisible(provider, visible)
-    void saveAppSettings({ ...store.state.settings, visibleProviders })
+    void saveAppSettings(mergeSettings(store.state.settings, { visibleProviders }))
   }
 
   if (currentWindowLabel === 'settings') {

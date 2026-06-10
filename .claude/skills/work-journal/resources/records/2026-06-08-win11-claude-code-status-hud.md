@@ -107,6 +107,7 @@
 - 2026-06-10：用户提出把自己开发的 `E:\\Develop_E\\claude-hud-plus` 终端 HUD 能力内置到 Claude HUD One，以解决两个独立 statusLine 产品同时安装时的兼容复杂度。已按工作日志续接后并行只读研究当前 Island bridge/global settings/状态池、Claude HUD Plus 终端渲染/配置/控制台能力，以及两者的集成边界；未读取 prompt、tool-result、transcript 正文或凭据。已新增分析文档 `local\\需求讨论\\2026-06-10-claude-hud-one-内置claude-hud-plus终端hud集成分析.md`，结论为：值得做，但推荐“Claude HUD One Bridge Core 统一 statusLine owner + 内置/复用 HUD Plus terminal renderer + 桌面悬浮窗消费脱敏 shared state + shared/terminal/desktop 分层配置”，不建议全量硬合并或重写终端渲染。已同步更新 `.claude\\workspace-index.md` 的 `local/需求讨论/` 入口。
 - 2026-06-10：用户对上一版报告提出 6 条新约束：HUD Plus 现在支持展示的所有信息新项目都要支持；HUD Plus 的 UI 可视化样式配置要进入新项目 Settings 独立 tab；不考虑历史迁移，配置冲突直接覆盖；不考虑恢复 Claude HUD Plus；shared 给桌面端字段也要可配置，未来支持自定义桌面悬浮窗展示项；项目需改成带 HUD 的新名字。已再次并行只读研究 HUD Plus 全量展示项/配置项、当前 Island 固定桌面展示模型与可配置 schema、项目命名方案；已将分析文档改写为 v2：推荐新产品名 `Claude HUD One`（副标题 `HUD Suite for Claude Code on Windows`），目标架构调整为 Terminal HUD parity + Settings Studio 独立 Terminal HUD tab + Desktop HUD display item registry + Claude HUD One 直接接管 statusLine/hooks/default config，不再设计历史迁移或外部 HUD Plus 恢复。未修改产品代码，未执行构建。
 - 2026-06-10：用户进一步确认项目名必须同时包含 `Claude` 与 `HUD`，因为工具专注 Claude Code 使用。已修订分析文档命名章节和标题，最终推荐从 `Claude HUD One Desk` 调整为 `Claude HUD One`，副标题改为 `Terminal & Desktop HUD Suite for Windows`，仓库名建议 `claude-hud-one`，备选调整为 `Claude HUD Suite`、`Claude HUD Desk`、`Claude HUD Plus Desk`；同时将文档内 `Claude HUD One Bridge/owner` 统一改为 `Claude HUD One Bridge/owner`。
+- 2026-06-10：用户要求了解 `local\\需求讨论\\2026-06-10-claude-hud-one-内置claude-hud-plus终端hud集成分析.md` 并按工作区技能要求开始开发处理。已确认本轮从只读方案进入实现阶段，续接本记录而非新建记录；计划先并行侦察当前仓库与 `E:\\Develop_E\\claude-hud-plus`，再落地 Phase 0 技术基座：Normalized HUD State、Field Schema、Display Item Registry、Terminal/Desktop config、Terminal HUD parity matrix 与 Settings Studio 首批入口；暂不读取 prompt/tool-result/transcript 正文或凭据。
 
 ## 2026-06-10 HUD Plus 内置集成 clear-thinking 摘要
 
@@ -169,3 +170,186 @@
 - 验证：清理后首次全仓扫描 201 个文件，旧品牌命名残留为 0；重新执行 `npm run check:version`、`npm run build`、`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 均通过；随后执行 `npm run tauri:build` 成功生成 release exe 与 NSIS 安装包；重新扫描 6637 个文件、约 2269MB 内容，旧品牌命名残留为 0。
 - 新产物：`src-tauri\target\release\claude-hud-one.exe`，SHA256 `76361B8BF23417693C07CB4E472B09872E254EB9442CCDE8E9BEE2090E71B114`；`src-tauri\target\release\bundle\nsis\Claude HUD One_0.1.0_x64-setup.exe`，SHA256 `B32ACF74A45ED6EE883E1078C7A844E0E1033C51905506FF4A245708875FC75A`。
 - 结论：已完成构建产物级清理、重建和命名残留复查；当前仓库与重新生成的 build/target 产物中未发现旧品牌命名残留。
+
+## 2026-06-10 HUD Plus 内置 Phase 0 开发处理
+
+- 原始需求：用户要求了解 `local\\需求讨论\\2026-06-10-claude-hud-one-内置claude-hud-plus终端hud集成分析.md`，参考历史记录，按工作区技能要求开始开发处理。
+- 范围：本轮不直接搬完整 HUD Plus renderer，不读取 prompt/tool-result/transcript 正文或凭据；先落地 Phase 0 技术基座和 Settings 入口，为后续 Terminal HUD parity、Desktop display registry、Settings Studio 继续开发提供稳定类型与配置承载。
+- 计划执行：已通过工作区索引和工作日志索引续接本记录；并行只读侦察当前项目 Bridge/Settings/状态模型、`E:\\Develop_E\\claude-hud-plus` row item/config/schema/preview 能力，以及 Phase 0 文件落点；随后实现类型基座、默认配置、持久化和 UI 入口。
+- 产物路径：新增 `src/hud/types.ts`、`src/hud/config.ts`、`src/hud/displayItemRegistry.ts`、`src/hud/fieldSchema.ts`、`src/hud/parityMatrix.ts`、`src/hud/normalize.ts`、`src/hud/index.ts`；新增 `src/components/settings/TerminalHudPanel.tsx`、`src/components/settings/DesktopHudPanel.tsx`、`src/components/settings/HudParityMatrixView.tsx`；修改 `src/app/types.ts`、`src/providers/mockData.ts`、`src/stores/useIslandStore.ts`、`src/app/App.tsx`、`src-tauri/src/window/settings.rs`、`src/components/settings/SettingsView.tsx`、`src/styles.css`、`tests/ui.spec.ts`。
+- 关键实现：`SettingsState` 新增 `terminalHud` / `desktopHud`；前端 store 增加嵌套 settings 深合并，避免旧 localStorage 或 partial patch 丢默认值；Rust `AppSettings` 以 `serde_json::Value` 保存 `terminalHud` / `desktopHud`，降低 TS/Rust schema 漂移风险；Settings 新增 `终端 HUD` 与 `桌面 HUD` tab，展示默认 rows、首批 config schema 数量、display item registry 数量与 parity matrix；UI 测试覆盖新增 tab。
+- 验证情况：`npm run build` 通过；`cargo check --manifest-path src-tauri\\Cargo.toml -j 1` 通过；`npm run test:ui` 通过（3 passed）；`npm run check:version` 通过；`npm run test:rust` 通过（usage_cost 5 passed）。本轮未执行完整 `npm run smoke`，也未重新生成 NSIS 安装包。
+- 风险与下一步：当前只是 Phase 0 基座，Terminal HUD 真实 statusLine renderer 尚未内置接管；Desktop HUD 仍未按 registry 动态生成主 UI；后续应继续把 `NormalizedHudState` 转换为 HUD Plus `RenderContext`、迁入/适配 terminal renderer 与 preview、补 rows builder/color/activity/git schema，并保持 desktop-safe allowlist 与 statusLine 热路径不依赖 GUI。
+- 是否更新索引：本轮新增的是源码与 Settings 面板，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：部分完成。Phase 0 技术基座和首批 Settings 入口已完成并通过轻量验证；完整内置 Claude HUD Plus terminal renderer 与可配置 Desktop HUD 生成仍待后续阶段。
+
+## 2026-06-10 HUD Plus 内置 Phase 1/2 持续开发
+
+- 原始需求：用户要求继续执行直到整个任务完成，中途遇问题自行找解决方案、规划并处理。
+- 范围：继续在不读取 prompt/tool-result/transcript 正文或凭据的前提下推进内置 Terminal HUD 和 Desktop registry 消费；本轮优先让 statusLine 热路径具备内置 renderer，让 Settings 能预览 Terminal HUD，并让 Desktop HUD 配置实际影响 compact/peek/expanded 展示。
+- 产物路径：修改 `.claude/bridge/claude-status-bridge.mjs`；新增 `src/hud/terminalRenderer.ts` 并从 `src/hud/index.ts` 导出；修改 `src/components/settings/TerminalHudPanel.tsx`、`src/components/settings/SettingsView.tsx`、`src/components/island/IslandRoot.tsx`、`src/components/island/CurrentSessionStrip.tsx`、`src/styles.css`、`tests/ui.spec.ts`。
+- 关键实现：bridge 新增内置 Terminal HUD renderer，直接从脱敏 `nextState` 渲染 model/context/project/tools/activity/sessionTokens/usage/cost/duration/outputStyle/version/effort/customLine，默认优先输出内置 Terminal HUD，renderer 失败或 `terminalHud.enabled=false` 时回退 upstream/HUD Plus/compact fallback；保留 `CLAUDE_HUD_ONE_PREFER_UPSTREAM_STATUSLINE=1`、`CLAUDE_HUD_ONE_TERMINAL_HUD=0`、`CLAUDE_HUD_ONE_NO_COLOR=1`、`CLAUDE_HUD_ONE_TERMINAL_MAX_WIDTH` 调试开关；Terminal Settings 增加安全预览和常用信息项开关；Desktop HUD 消费 `desktopHud.defaultPage` 与 `desktopHud.visibleItems`，可控制 Usage/Cost 页可见性、默认展开页、compact/peek ticker 与 CurrentSessionStrip 中 activity/project/tools/model/context/sessionTokens 字段。
+- 验证情况：`node --check .claude\\bridge\\claude-status-bridge.mjs` 通过；bridge 样例 stdin 可输出内置 Terminal HUD 多行状态；`npm run build` 通过；`cargo check --manifest-path src-tauri\\Cargo.toml -j 1` 通过；`npm run test:ui` 通过（4 passed，覆盖 Desktop defaultPage/visibleItems 与 Terminal preview）；`npm run check:version` 通过；`npm run test:rust` 通过（usage_cost 5 passed）。本轮未执行完整 `npm run smoke`，未重新打包 NSIS。
+- 风险与下一步：当前内置 renderer 仍是安全最小版，未完全迁入 HUD Plus 的 git/addedDirs/promptCache/memory/environment/agents/todos/sessionTime/ANSI 宽度与 color workbench 全能力；Terminal Settings 仍未实现 rows builder、color workbench、JSON/diff/validate；Desktop HUD 已消费部分 registry，但主 UI 还不是完全由 registry 动态生成。下一步应继续补 rows builder/preview validate、迁入更多 HUD Plus renderer 能力和配置项，并在稳定后执行完整 smoke 与打包验证。
+- 是否更新索引：本轮新增的是源码能力与测试，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：部分完成。内置 Terminal HUD statusLine 最小闭环、Terminal Settings 预览和 Desktop registry 初步消费已完成并通过轻量验证；全量 HUD Plus parity 和完整 Settings Studio 仍需继续推进。
+
+## 2026-06-10 Bridge ownership 策略调整
+
+- 原始需求：继续推进完整任务，按新产品方向不再把 Claude HUD Plus 视为外部主 statusLine，需要 Claude HUD One 作为统一 Bridge owner。
+- 范围：调整全局 bridge 安装/修复策略、Settings 文案和卸载清理边界；本轮不直接修改当前用户级 `C:\\Users\\Yue\\.claude\\settings.json`，只修改产品代码，待安装/启动或用户点击修复时生效。
+- 产物路径：`src-tauri/src/window/claude_global.rs`、`src-tauri/resources/cleanup-claude-hud-one.ps1`、`src/components/settings/SettingsView.tsx`。
+- 关键实现：`ensure_global_bridge()` 从 hooks-only preserved statusLine 改为直接写入 Claude HUD One statusLine owner + hooks，并将旧 statusLine 仅作为内部诊断备份保存；`enable_status_line_bridge()` 改为修复 statusLine owner；`restore_status_line()` 改为仅移除 Claude HUD One statusLine，不再恢复外部 upstream；状态模式新增/切换为 `owner` / `statusline-owner`；Settings 文案从 Compatibility 改为 Claude Code Bridge/owner；卸载脚本命中 Claude HUD One statusLine 时只移除自身 statusLine，不恢复 HUD Plus 或其他外部 statusLine。
+- 验证情况：`npm run build` 通过；`cargo check --manifest-path src-tauri\\Cargo.toml -j 1` 通过；卸载脚本 PowerShell 语法解析通过；`npm run test:ui` 通过（4 passed）；`npm run check:version` 通过；`npm run test:rust` 通过（usage_cost 5 passed）；`node --check .claude\\bridge\\claude-status-bridge.mjs` 通过。
+- 风险与下一步：当前代码方向已切为 Claude HUD One owner，但 UI 仍保留“移除 Claude HUD One statusLine/移除 hooks”维护按钮，便于清理自身配置；还需继续补 Terminal HUD 完整 rows builder、color workbench、JSON/diff/validate，以及更多 HUD Plus row item 的真实渲染 parity。
+- 是否更新索引：本轮未新增长期资料入口，`.claude/workspace-index.md` 无需更新。
+- 结论：部分完成。Bridge owner 代码路径、Settings 文案和卸载边界已按新产品方向调整并通过验证；Terminal HUD parity 和 Settings Studio 全量能力继续推进。
+
+## 2026-06-10 Terminal Settings Studio 增强
+
+- 原始需求：继续推进直到完整任务完成，Terminal HUD Settings 需要从静态入口升级为可配置工作台。
+- 范围：本轮补 Terminal HUD 的基础 rows builder、JSON 编辑/validate/apply/reset default、预览与常用 item 开关；不实现拖拽排序、不实现颜色工作台、不实现完整 HUD Plus preview parity。
+- 产物路径：`src/components/settings/TerminalHudPanel.tsx`、`src/styles.css`、`tests/ui.spec.ts`。
+- 关键实现：Terminal HUD tab 支持添加/删除 row、在 row 内添加/移除已登记 terminal display item；新增 JSON editor，可 validate `rows` 和 `display` 基本结构后应用到 `terminalHud`，并支持重置 `DEFAULT_TERMINAL_HUD_CONFIG`；预览继续使用 `renderTerminalHudPreviewLines` 从 `NormalizedHudState` 和当前 config 生成安全文本；UI 测试新增 rows builder 与 JSON editor 断言。
+- 验证情况：`npm run build` 通过；`npm run test:ui` 通过（4 passed）；`npm run check:version` 通过；`cargo check --manifest-path src-tauri\\Cargo.toml -j 1` 通过。
+- 风险与下一步：rows builder 仍是基础按钮/select 版本，不支持拖拽；JSON validate 只做结构级校验，未做全 schema 诊断；下一步应补 color workbench、config diff、更多 HUD Plus item 的 renderer parity 与 Terminal diagnostics。
+- 是否更新索引：本轮未新增长期资料入口，`.claude/workspace-index.md` 无需更新。
+- 结论：部分完成。Terminal Settings 已具备 rows builder、JSON validate/apply/reset 和安全预览；完整 HUD Plus UI 配置工作台仍需继续推进。
+
+## 2026-06-10 Terminal Color Workbench 基础接入
+
+- 原始需求：继续推进直到完整任务完成，Terminal HUD Settings 需要补齐 Claude HUD Plus 风格配置能力，先让颜色和进度条字符可配置并进入 bridge/preview 热路径。
+- 范围：本轮接入 Terminal HUD 基础 color config、Settings Color Workbench UI、bridge 内置 renderer 颜色输出和安全预览进度条字符；不读取 prompt/tool-result/transcript 正文或凭据，不实现完整 HUD Plus theme/band/ANSI 宽度 parity。
+- 产物路径：`src/hud/config.ts`、`src-tauri/src/window/settings.rs`、`.claude/bridge/claude-status-bridge.mjs`、`src/hud/terminalRenderer.ts`、`src/components/settings/TerminalHudPanel.tsx`、`src/styles.css`、`tests/ui.spec.ts`。
+- 关键实现：`TerminalHudConfig` 新增 `colors`，覆盖 model/project/context/usage/warning/critical/label 颜色和 barFilled/barEmpty 字符；前端 merge、Rust 默认 settings 和 bridge 默认 config 同步；bridge 通过 `#RRGGBB` 转 ANSI truecolor，并按 context/usage/warning/critical/label 应用主题色；Settings Terminal HUD tab 新增 Color Workbench，可用 color input 修改主题色，用文本框修改进度条填充/空位字符；preview renderer 使用配置后的 bar 字符。
+- 验证情况：`node --check .claude\bridge\claude-status-bridge.mjs` 通过；bridge 样例 stdin 在 `CLAUDE_HUD_ONE_NO_COLOR=1` 下可输出内置 Terminal HUD 多行状态且使用配置后的 bar 字符；`npm run build` 通过；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过；`npm run test:ui` 通过（4 passed，覆盖 Color Workbench 入口）。本轮未执行完整 `npm run smoke`，未重新打包 NSIS。
+- 风险与下一步：Color Workbench 仍是基础版，尚未实现 HUD Plus 完整 theme palette、usage/context bands、颜色预设导入导出、ANSI/CJK display width 细节和 runtime diagnostics；下一步继续补更多 HUD Plus item parity 与 Settings 诊断/差异化配置。
+- 是否更新索引：本轮新增的是源码、测试和既有工作记录更新，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：部分完成。Terminal Color Workbench 基础能力已接入配置、Settings、bridge 输出和 preview，并通过轻量验证；完整 HUD Plus UI 配置 parity 仍需继续推进。
+
+## 2026-06-10 Terminal parity 基础项补齐
+
+- 原始需求：继续推进完整内置 Claude HUD Plus 终端 HUD 能力，优先缩小 display registry/parity matrix 与实际 renderer 之间的差距。
+- 范围：本轮补齐不依赖敏感正文读取的基础项：`addedDirs`、`git`、`promptCache`、`agents`、`todos`、`sessionTime`、`speed` 的 bridge/normalize/preview/terminal renderer 通路；继续不读取 prompt、tool input、tool result、transcript 正文或凭据。`git` 只通过短超时 `git` 元信息命令读取 branch/dirty/ahead/behind，不读取文件内容。
+- 产物路径：`.claude/bridge/claude-status-bridge.mjs`、`src/app/types.ts`、`src/providers/claudeCodeSummary.ts`、`src/hud/types.ts`、`src/hud/normalize.ts`、`src/hud/terminalRenderer.ts`、`src/components/settings/TerminalHudPanel.tsx`。
+- 关键实现：bridge 写入脱敏 added dir basename、git summary、session start/last response、output speed、agents/todos 聚合计数字段；前端 `NormalizedHudState` 增加 workspace/session/activity 扩展字段；Terminal preview renderer 补齐新增 item case；Settings Terminal HUD 常用开关扩展到 addedDirs、agents、todos、promptCache、duration、speed、outputStyle、version、session time 等；bridge 内置 renderer 默认 rows 与 TS/Rust 默认 rows 对齐为 `model/context`、`project/addedDirs/git`、`sessionTokens`、`activity`。
+- 验证情况：`node --check .claude\bridge\claude-status-bridge.mjs` 通过；bridge 样例 stdin 输出包含 `dirs claude-hud-plus, other`、`git main*`、agents/todos summary；`npm run build` 通过；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过；`npm run test:ui` 通过（4 passed）；`npm run check:version` 通过；`npm run test:rust` 通过（usage_cost 5 passed）。本轮未执行完整 `npm run smoke`，未重新打包 NSIS。
+- 风险与下一步：agents/todos 仍以 hooks/statusLine 已提供的聚合字段或当前工具事件推断为主，尚未实现 HUD Plus 通过 transcript 元信息聚合的完整 parity；promptCache 依赖可用的 last assistant response timestamp；git 命令设置了短超时但仍需关注极慢仓库。下一步继续补完整 ANSI/CJK 宽度、usage/context bands、theme presets、Terminal diagnostics 和 Desktop item-driven layout。
+- 是否更新索引：本轮新增的是源码与既有工作记录更新，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：部分完成。Terminal parity 基础项的安全数据通路与 renderer 已补齐并通过轻量验证；完整 HUD Plus parity、Settings diagnostics 和打包 smoke 仍需继续推进。
+
+## 2026-06-10 HUD Field Schema 扩展
+
+- 原始需求：继续把 HUD Plus 的可视化配置能力整合到 Claude HUD One Settings Studio，避免只停留在少量首批字段。
+- 范围：扩展配置字段 schema 和 Settings 统计口径，覆盖 Terminal rows/layout/display/color/json 与 Desktop visible items；同步 registry/parity notes 以反映已补的安全投影字段。
+- 产物路径：`src/hud/fieldSchema.ts`、`src/components/settings/TerminalHudPanel.tsx`、`src/components/settings/DesktopHudPanel.tsx`、`src/hud/displayItemRegistry.ts`、`src/hud/parityMatrix.ts`。
+- 关键实现：`HUD_FIELD_SCHEMA` 新增 rows builder、row overflow/maxWidth/showSeparators、context/usage select、terminal display switches、color fields、bar chars、terminal JSON editor、desktop visibleItems 等条目；新增 `fieldSchemaBySurface()`，Terminal/Desktop Settings 面板按 surface 统计字段总数；display registry fieldKeys 更新为当前 `NormalizedHudState` 实际字段；parity matrix notes 更新 git/addedDirs/promptCache/agents/todos/sessionTime 的当前状态。
+- 验证情况：`npm run build` 通过；`npm run test:ui` 通过（4 passed）；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过。本轮未执行完整 `npm run smoke`，未重新打包 NSIS。
+- 风险与下一步：field schema 已覆盖更多字段，但还没有自动生成完整表单；Terminal Settings 仍是手写 rows/color/json 区块。下一步应补 diagnostics、预设应用逻辑、config diff 和更完整的 Desktop item-driven layout。
+- 是否更新索引：本轮新增的是源码与既有工作记录更新，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：部分完成。HUD Field Schema 已从首批字段扩展为较完整的 Terminal/Desktop 配置元数据；完整可视化表单生成和诊断闭环仍需继续推进。
+
+## 2026-06-10 Terminal 配置诊断增强
+
+- 原始需求：继续把 Terminal HUD Settings 从静态配置面板升级为可用的配置工作台，减少 rows/preset/JSON 配置误用。
+- 范围：补 preset 实际应用、JSON rows unknown item 校验、colors object 校验、Terminal diagnostics 摘要；不引入拖拽排序或完整自动表单生成。
+- 产物路径：`src/components/settings/TerminalHudPanel.tsx`、`tests/ui.spec.ts`。
+- 关键实现：点击 `hud-plus-default` preset 会恢复默认 rows/display，点击 `minimal` preset 会切换为极简 rows 并关闭部分非必要信息项，`custom` 仅保留当前配置并标记 preset；JSON validate 增加 unknown row item 检查和 colors object 结构检查；Terminal tab 新增诊断区，展示 configured rows、configured items、unknown items、preview lines；UI 测试补充 Terminal 诊断区断言。
+- 验证情况：`npm run build` 通过；`npm run test:ui` 通过（4 passed）；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过。本轮未执行完整 `npm run smoke`，未重新打包 NSIS。
+- 风险与下一步：preset 目前只内置 HUD Plus default/minimal/custom 三类，尚未支持用户自定义 preset 管理、配置 diff、schema 级所有字段校验和 runtime owner/bridge 诊断。
+- 是否更新索引：本轮新增的是源码与测试，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：部分完成。Terminal Settings 已具备基础 preset 应用、unknown item 校验和诊断摘要；更完整的 Settings Studio 仍需继续推进。
+
+## 2026-06-10 Desktop ticker/panel item 驱动接入
+
+- 原始需求：shared 给桌面端的字段也要可配置，后续支持自定义桌面悬浮窗展示项；继续从固定 UI 过渡到 Display Item Registry 驱动。
+- 范围：本轮让 `desktopHud.tickerItems` 和 `desktopHud.panelItems` 实际影响 compact/peek 文案与 expanded session metrics；接入已脱敏的 git/addedDirs/agents/todos/speed 字段展示。不改 Usage/Cost/Overview 主页面结构，不读取 prompt/tool-result/transcript 正文或凭据。
+- 产物路径：`src/components/island/IslandRoot.tsx`、`src/components/island/CurrentSessionStrip.tsx`、`src/hud/config.ts`、`src-tauri/src/window/settings.rs`、`src/components/settings/DesktopHudPanel.tsx`、`src/hud/displayItemRegistry.ts`、`src/hud/parityMatrix.ts`、`src/providers/mockData.ts`、`tests/ui.spec.ts`。
+- 关键实现：compact/peek ticker 改为按 `desktopHud.tickerItems` 顺序渲染可见 item；expanded `CurrentSessionStrip` metrics 改为按 `desktopHud.panelItems` 渲染；新增桌面 item label 支持 project/activity/model/tools/context/sessionTokens/cost/git/addedDirs/agents/todos/speed；默认 Desktop config 增加 git/addedDirs/agents/todos/speed 可见性，并默认 panelItems 为 context/tools/model/git/agents/todos；Desktop Settings 可见项清单扩展对应 item；mock data 和 UI 测试加入 `git main*` 验证。
+- 验证情况：初次 `npm run build` 暴露 fallback item 类型推断问题，已修复；最终 `npm run build` 通过；`npm run test:ui` 通过（4 passed）；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过。本轮未执行完整 `npm run smoke`，未重新打包 NSIS。
+- 风险与下一步：Desktop 主面板仍不是完全自动布局生成，Usage/Cost/Overview 仍为固定页面；panelItems/tickerItems 尚缺 Settings 可视化排序器。下一步可补 Desktop layout builder、item ordering UI、更多 item 组件和完整 smoke/打包。
+- 是否更新索引：本轮新增的是源码、测试和既有工作记录更新，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：部分完成。Desktop HUD 已从单纯 visibleItems 迈向 ticker/panel item-driven 展示；完整 Desktop layout builder 和自动化布局生成仍需继续推进。
+
+## 2026-06-10 Terminal memory/environment parity 基础接入
+
+- 原始需求：继续补齐 Claude HUD Plus 终端 HUD 展示项，优先实现不依赖 prompt/tool-result/transcript 正文读取的 memory 与 environment 基础能力。
+- 范围：bridge 只采集系统内存聚合值和配置文件存在/数量统计，不读取文件正文、不读取 Claude settings 内容、不读取凭据；environment 统计范围包括全局/项目 `CLAUDE.md`、rules 目录条目、`.mcp.json` 和 settings 文件存在数量。
+- 产物路径：`.claude/bridge/claude-status-bridge.mjs`、`src/app/types.ts`、`src/providers/claudeCodeSummary.ts`、`src/hud/types.ts`、`src/hud/normalize.ts`、`src/hud/config.ts`、`src-tauri/src/window/settings.rs`、`src/hud/terminalRenderer.ts`、`src/hud/fieldSchema.ts`、`src/hud/displayItemRegistry.ts`、`src/components/settings/TerminalHudPanel.tsx`、`src/providers/mockData.ts`。
+- 关键实现：bridge 通过 Node `os.totalmem/freemem` 写入 memoryUsedPercent/Bytes/Total；通过 existence/readdir 统计 claudeMd/rules/mcp/hooks(settings 文件存在数)；Terminal renderer 增加 `memory` 与 `environment` item；`TerminalHudConfig.display` 新增 `showEnvironment`，Settings display switches 和 field schema 同步；NormalizedHudState 增加 `system` 分组；前端 preview 与 bridge statusLine renderer 均支持该 item。
+- 验证情况：`node --check .claude\bridge\claude-status-bridge.mjs` 通过；bridge 样例 stdin 可继续输出内置 Terminal HUD，且未破坏 git/addedDirs/agents/todos 输出；`npm run build` 通过；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过；`npm run test:ui` 通过（4 passed）；`npm run check:version` 通过。本轮未执行完整 `npm run smoke`，未重新打包 NSIS。
+- 风险与下一步：environment 仍是安全基础统计，不读取 settings JSON，因此 hooks/MCP 不是 HUD Plus 的完整语义统计；memory/environment 默认关闭，需要用户在 Terminal Settings rows/display 中启用。下一步继续补 ANSI/CJK width、context/usage bands、theme presets、Desktop layout builder 和完整 smoke/打包。
+- 是否更新索引：本轮新增的是源码与既有工作记录更新，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：部分完成。Terminal memory/environment 的安全基础 parity 已接入并通过轻量验证；完整 HUD Plus 语义统计和发布级 smoke 仍需继续推进。
+
+## 2026-06-10 Terminal overflow/separator 基础接入
+
+- 原始需求：继续补齐 HUD Plus terminal renderer parity，特别是 rows layout 的 overflow、宽度和 separator 行为。
+- 范围：本轮让 bridge statusLine renderer 和 Settings preview 都消费 `showSeparators`、`maxWidth`、`rowOverflow=truncate|wrap`；改进 bridge 侧 ANSI/CJK 计宽截断，避免截断时直接丢掉颜色控制序列。未完整迁入 HUD Plus 的 OSC8 hyperlink 保留/闭合、grapheme cluster 和复杂 wrap 分段算法。
+- 产物路径：`.claude/bridge/claude-status-bridge.mjs`、`src/hud/terminalRenderer.ts`。
+- 关键实现：bridge 新增 ANSI-aware `truncateToWidth()` 与基础 `wrapLineToWidth()`，按 `terminalHud.showSeparators` 使用 ` │ ` 分隔 item；preview renderer 增加 CJK-aware width、truncate/wrap 和 separator；`CLAUDE_HUD_ONE_TERMINAL_MAX_WIDTH`/`terminalHud.maxWidth` 可控制输出宽度。
+- 验证情况：`node --check .claude\bridge\claude-status-bridge.mjs` 通过；bridge 样例设置 `CLAUDE_HUD_ONE_TERMINAL_MAX_WIDTH=28` 后多行输出按宽度截断；`npm run build` 通过；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过；`npm run test:ui` 通过（4 passed）；`npm run check:version` 通过。本轮未执行完整 `npm run smoke`，未重新打包 NSIS。
+- 风险与下一步：当前 wrap 仍是基础空白分词，不具备 HUD Plus 对 OSC8、emoji ZWJ、复杂 grapheme 和 preferred separator wrapping 的完整实现；后续若要 1:1 parity 应继续迁入 HUD Plus 的 `render/width.ts` 核心算法。
+- 是否更新索引：本轮新增的是源码与既有工作记录更新，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：部分完成。Terminal row overflow/separator 基础行为已接入 bridge 与 preview；完整 HUD Plus 宽度算法 parity 仍需继续推进。
+
+## 2026-06-10 完整 smoke 与打包验证
+
+- 原始需求：持续执行直到整体任务可用，阶段性改造完成后需要发布级验证和安装包产物。
+- 范围：运行完整 `npm run smoke`，覆盖版本一致性、前端构建、Rust check、Rust usage/cost tests、UI screenshots、Tauri release build、NSIS 安装包校验和 release exe 8 秒存活冒烟。
+- 产物路径：`scripts/smoke.ps1`、`src-tauri/target/release/claude-hud-one.exe`、`src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`。
+- 关键处理：首次 smoke 在 release exe 存活检查处失败，release exe 以 code 0 提前退出；结合当前单实例 mutex 行为判断为已有 `claude-hud-one.exe` 进程占用单实例导致。已更新 `scripts/smoke.ps1`，在 release smoke 前停止已有同名 `claude-hud-one` 进程并短暂等待，再启动新 release exe 验证。
+- 验证情况：第二次 `npm run smoke` 完整通过：`npm run check:version` 通过；`npm run build` 通过；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过；`npm run test:rust` 通过（usage_cost 5 passed）；`npm run test:ui` 通过（4 passed）；`npm run tauri:build` 通过；NSIS 安装包生成并校验 SHA256 `34157F62E870709874FF3C5164B0EA246C64088173D0572FC2C287731B958F6F`；release exe PID 5960 存活 8 秒后由 smoke 脚本停止。
+- 风险与下一步：本轮已重新生成 NSIS，但未执行真实安装/卸载人工验证；完整 HUD Plus parity 中 OSC8/复杂 grapheme width、完整 transcript 元信息聚合、Desktop layout builder 仍可继续优化。
+- 是否更新索引：本轮修改的是验证脚本和构建产物，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：阶段完成。当前代码与安装包已通过完整 smoke；可进入最终复核、必要的 git diff 检查和用户安装验证说明。
+
+## 2026-06-10 复核修复：Desktop HUD enabled 开关
+
+- 原始需求：最终复核当前 HUD 内置改造，修复明显用户可见问题。
+- 范围：只读子代理复核发现 `desktopHud.enabled=false` 时主 HUD 容器仍渲染，只是 item 不显示；本轮修复该开关语义，不改托盘/Settings 入口。
+- 产物路径：`src/components/island/IslandRoot.tsx`、`tests/ui.spec.ts`。
+- 关键实现：当 `desktopHud.enabled=false` 时，`IslandRoot` 在所有 hooks 之后返回空的 `desktop-stage`，不再渲染胶囊/expanded panel；同时调用 `updateOverlayHitRegions([])` 清空点击命中区域，避免隐藏后仍残留交互区；UI 测试新增关闭 Desktop HUD 后找不到 `Open Claude HUD One` 按钮的断言。
+- 验证情况：`npm run build` 通过；`npm run test:ui` 通过（5 passed）；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过。由于这是完整 smoke 后的新改动，后续需要再跑一次完整 `npm run smoke` 并更新最终安装包 SHA256。
+- 风险与下一步：关闭 Desktop HUD 后需要通过系统托盘/外部入口重新打开 Settings；这符合桌面悬浮窗关闭语义，但后续可在 Settings 文案中明确。
+- 是否更新索引：本轮修改的是源码与测试，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：复核问题已修复。Desktop HUD enabled 开关现在能真正隐藏主 HUD，轻量验证通过，待最终 smoke。
+
+## 2026-06-10 最终 smoke 重跑
+
+- 原始需求：Desktop HUD enabled 修复后重新执行完整发布级验证，确保最终安装包与当前源码一致。
+- 范围：重跑完整 `npm run smoke`，覆盖版本一致性、前端构建、Rust check、Rust usage/cost tests、UI screenshots、Tauri release build、NSIS 安装包校验和 release exe 存活冒烟。
+- 产物路径：`src-tauri/target/release/claude-hud-one.exe`、`src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`。
+- 验证情况：最终 `npm run smoke` 完整通过：`npm run check:version` 通过；`npm run build` 通过；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过；`npm run test:rust` 通过（usage_cost 5 passed）；`npm run test:ui` 通过（5 passed）；`npm run tauri:build` 通过；NSIS 安装包生成并校验 SHA256 `56EB8097DE304AD78BFF6A9852F5B5DC99D39FCFF5E85C9F5E0CCCADD3D17EA4`；release exe PID 31372 存活 8 秒后由 smoke 脚本停止。
+- 风险与下一步：未做真实安装/卸载人工点击验证；未提交/推送 git；完整 HUD Plus parity 仍有高级细节（OSC8/复杂 grapheme width、完整 transcript 元信息聚合、Desktop layout builder）可继续迭代，但当前阶段已具备完整 smoke 通过的安装包。
+- 是否更新索引：本轮未新增长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：阶段完成。当前源码和安装包均通过最终完整 smoke，可交给用户安装验证或进入提交流程。
+
+## 2026-06-10 安装阶段 bridge 接管修复
+
+- 原始问题：用户重新安装后发现 `C:\Users\Yue\.claude\settings.json` 的 `statusLine` 仍指向 `claude-hud-plus\statusline.ps1`，没有被 Claude HUD One 替代。
+- 根因判断：产品代码中的 `ensure_global_bridge()` 已是 owner 模式，但它只在 App 启动时执行；NSIS 安装阶段只停止旧进程和安装文件，没有在安装完成时修复用户级 Claude Code settings。因此“只重新安装但未真正启动新版 App/ensure 未跑到”会让 `statusLine` 仍保持旧 Claude HUD Plus。
+- 范围：新增 NSIS postinstall 修复路径，并即时修复当前用户级 Claude settings；只读取/输出 `statusLine`、Claude HUD One hook 数量和相关存在性，不输出 token/base url/权限/其他敏感配置。
+- 产物路径：新增 `src-tauri/resources/install-claude-hud-one-bridge.ps1`、`src-tauri/resources/claude-status-bridge.mjs`；修改 `src-tauri/installer-hooks.nsh`、`src-tauri/tauri.conf.json`。
+- 关键实现：安装包资源中打入 bridge 脚本与 install 修复脚本；`NSIS_HOOK_POSTINSTALL` 调用 `install-claude-hud-one-bridge.ps1`，将 bridge 复制到 `%APPDATA%\Claude HUD One\bridge\claude-status-bridge.mjs`，备份 `~\.claude\settings.json`，把 `statusLine.command` 设置为 `node "%APPDATA%\Claude HUD One\bridge\claude-status-bridge.mjs"`，安装 7 个 Claude HUD One hooks，并把原 Claude HUD Plus statusLine 保存到 `%APPDATA%\Claude HUD One\bridge\upstream-statusline.json`。
+- 当前机器修复：已运行源码中的 install 修复脚本。复核结果：当前 `statusLineCommand` 为 `node "C:\Users\Yue\AppData\Roaming\Claude HUD One\bridge\claude-status-bridge.mjs"`；`statusLineType=command`；`refreshInterval=1`；Claude HUD One hook 数量为 7；`CLAUDE_HUD_ONE_HUD_PLUS_TIMEOUT_MS` 已存在；AppData bridge 存在；upstream backup 存在。
+- 验证情况：install/cleanup PowerShell 脚本 parser check 通过；项目 bridge 与资源 bridge `node --check` 通过；`npm run build` 通过；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过；完整 `npm run smoke` 通过，包含版本检查、前端构建、Rust check、Rust usage/cost tests、UI smoke（5 passed）、Tauri release build、NSIS 安装包 SHA256 校验和 release exe 8 秒存活冒烟。新 NSIS 安装包 SHA256：`90C1B9FCCE7CD9DC3806A58934E3E0D8E2A0462331175F4A17ADCAC1856C2925`。
+- 风险与下一步：当前已解决“安装后未替代 Claude HUD Plus”的问题；后续用户重新安装新版 NSIS 后，即使未手动启动 App，安装完成阶段也会接管 statusLine/hooks。仍建议重开 Claude Code 会话或执行 `/reload-plugins` 后观察底部 statusLine 输出。
+- 是否更新索引：本轮新增的是安装资源脚本和打包资源，不是长期资料入口；`.claude/workspace-index.md` 无需更新。
+- 结论：已修复。当前本机 Claude Code 配置已由 Claude HUD One 接管，安装包也已补 postinstall 自动接管能力并通过完整 smoke。
+
+## 2026-06-10 Terminal HUD Plus 1:1 parity 澄清
+
+- 原始问题：用户反馈 Claude HUD One 当前终端底部显示效果不如原 Claude HUD Plus，展示信息不足，要求“直接按照原来的项目把所有展示信息和配置颗粒度同步过来，保证切换后的效果和之前完全一致”。
+- 关键澄清：不能在运行时继续依赖、调用或委托原 `E:\\Develop_E\\claude-hud-plus`/Claude HUD Plus statusLine；旧项目只作为参考源码。Claude HUD One 必须在自身 bridge、renderer、Settings 和统一配置文件中重新实现同等展示和配置能力。
+- 范围：补齐 Terminal HUD config shape、默认 rows/layout、activityLine、gitStatus、display 粒度、colors/bands、width/truncate/wrap/hyperlink 行为、Settings UI schema 与 preview；继续保持隐私边界，不读取 prompt/tool input/tool result/transcript 正文或凭据。
+- 已确认差距：当前 `terminalHud` 缺少 `activityLine`、`pathLevels`、`elementOrder`、`gitStatus`；display 缺少 `addedDirsLayout`、`showConfigCounts`、`usageCompact`、`promptCacheTtlSeconds`、`mergeGroups`、阈值、external usage、`modelFormat/modelOverride/timeFormat` 等；colors 缺少 `usageWarning/git/gitBranch/labelTitle/labelValue/custom/contextBands/usageBands`；renderer 与 preview 对 model badge、context/usage 语义、activityLine、git、addedDirs、OSC8/grapheme/CJK width 仍未达到 HUD Plus parity。
+- 实施原则：先在 Claude HUD One 内扩展配置模型与默认值，再迁入/重写 HUD Plus renderer 语义；AppData 仍只使用 `%APPDATA%\\Claude HUD One\\settings.json` 作为软件主配置，Claude Code `~/.claude/settings.json` 只作为 statusLine/hooks 注册点。
+- 本轮实现：已将 `src/hud/config.ts` 的 `TerminalHudConfig` 扩展到 HUD Plus 主要 config shape，补 `activityLine`、`pathLevels`、`elementOrder`、`gitStatus`、`addedDirsLayout`、`showConfigCounts`、`usageCompact`、`promptCacheTtlSeconds`、`mergeGroups`、阈值、external usage、`modelFormat/modelOverride/timeFormat`、`usageWarning/git/gitBranch/labelTitle/labelValue/custom/contextBands/usageBands` 等字段；Rust 默认 settings 改为同等 JSON shape；`.claude/bridge/claude-status-bridge.mjs` 与 `src-tauri/resources/claude-status-bridge.mjs` 同步扩展默认 config 和 merge 逻辑。
+- Renderer 处理：bridge 和 Settings preview 已改为 Claude HUD One 内部渲染，不再执行 upstream/HUD Plus statusLine；bridge 中已移除 `HUD_PLUS_STATUSLINE`、`PREFER_UPSTREAM`、`hudPlusStatusLine()`、`upstreamStatusLine()` 运行时调用路径。Terminal renderer 已补 model badge/modelFormat/modelOverride、context `82% (222K/270K)` 语义、usage bar/remaining/compact/reset、gitStatus toggles、activityLine mode/items/warnings、promptCache TTL、timeFormat、custom color、named/256/hex 颜色解析等基础 parity。
+- Settings 处理：Terminal HUD tab 已把 `showSessionName` 和更多 boolean display 开关纳入 UI，并增加 HUD Plus 颗粒度配置区，支持 contextValue、usageValue、addedDirsLayout、modelFormat、timeFormat、activityLine.mode、toolNameFormat、modelOverride、gitStatus 开关；Color Workbench 改为支持 `#hex`、命名色和 256 色值文本输入，覆盖新增颜色键。
+- 安装/文档处理：安装脚本和 Rust 全局 bridge 安装逻辑不再写入 `CLAUDE_HUD_ONE_HUD_PLUS_TIMEOUT_MS`；README 已改为说明 Claude HUD One 自身重实现 Terminal HUD，不再运行或委托旧 Claude HUD Plus。
+- 验证情况：`node --check .claude\bridge\claude-status-bridge.mjs`、`node --check src-tauri\resources\claude-status-bridge.mjs` 通过；样例 stdin 输出 Claude HUD One 内部 Terminal HUD 多行：model/context/project/git/session tokens/activity；`npm run build` 通过；`cargo check --manifest-path src-tauri\Cargo.toml -j 1` 通过；`npm run test:rust` 通过（5 passed）；`npm run test:ui` 通过（5 passed）；最终 `npm run smoke` 完整通过，NSIS 安装包 SHA256 `9AE538C98839C2999E3046B6056A688574F6EA8AF5BC16CF28CB0019D20684FF`，release exe 存活 8 秒后停止。
+- 风险与下一步：本轮已去掉旧 HUD Plus 运行时依赖并补齐主要配置 shape/基础语义，但若要求严格逐字符 1:1，还需要继续迁入 HUD Plus 的完整 OSC8 hyperlink 保留/闭合、Intl.Segmenter grapheme/emoji ZWJ/CJK ambiguous width 算法、完整 tools/agents/todos transcript 元信息聚合、context/usage bands 的精确阈值行为和 Settings 自动表单/排序器。仍需保持不读取 prompt/tool input/tool result/transcript 正文或凭据。
+- 是否更新索引：本轮继续修改已有源码、README 和既有记录，未新增长期资料入口；`.claude/workspace-index.md` 暂无需更新。
+- 结论：阶段完成。Claude HUD One Terminal HUD 已转为在本项目内重实现 HUD Plus 主要展示与配置能力，不再依赖旧 Claude HUD Plus 执行，并通过完整 smoke；严格逐字符 parity 的高级渲染细节可继续作为下一阶段收尾。
