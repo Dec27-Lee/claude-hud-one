@@ -5,6 +5,13 @@ use serde_json::{json, Value};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OverlayPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub launch_at_login: bool,
     pub refresh_interval_minutes: u8,
@@ -17,6 +24,7 @@ pub struct AppSettings {
     pub critical_threshold: u8,
     pub target_display: Value,
     pub top_offset_px: i32,
+    pub overlay_position: Option<OverlayPosition>,
     pub island_width_mode: String,
     pub chart_style: String,
     pub cost_style: String,
@@ -43,6 +51,7 @@ impl Default for AppSettings {
             critical_threshold: 95,
             target_display: json!("auto"),
             top_offset_px: 0,
+            overlay_position: None,
             island_width_mode: "notch".to_string(),
             chart_style: "ring".to_string(),
             cost_style: "usd".to_string(),
@@ -77,5 +86,5 @@ pub fn save_app_settings(settings: AppSettings) -> Result<AppSettings, String> {
 fn settings_path() -> Option<PathBuf> {
     env::var_os("APPDATA")
         .map(PathBuf::from)
-        .map(|appdata| appdata.join("Claude Island Win").join("settings.json"))
+        .map(|appdata| appdata.join("Claude HUD One").join("settings.json"))
 }

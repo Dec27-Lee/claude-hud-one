@@ -1,3 +1,4 @@
+pub mod claude_global;
 pub mod claude_session;
 pub mod claude_status;
 pub mod diagnostics;

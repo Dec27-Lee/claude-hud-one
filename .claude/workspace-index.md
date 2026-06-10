@@ -3,7 +3,7 @@
  * @LastEditors: 他们叫我跃总 Dec27-Lee
  * @Date: 2026-06-08 14:42:08
  * @LastEditTime: 2026-06-08 14:43:44
- * @FilePath: \claude-island-win\.claude\workspace-index.md
+ * @FilePath: .claude\workspace-index.md
 -->
 # 工作区索引
 
@@ -26,7 +26,7 @@
 | 路径 | 用途 | 入口文件 |
 | --- | --- | --- |
 | `local/参考项目/codex-island/` | macOS Claude/Codex 动态岛参考项目，用于分析 UI、窗口、用量/费用数据与性能策略 | `local/参考项目/codex-island/README.zh-CN.md` |
-| `local/需求讨论/` | Win11 Claude Island Win 需求讨论、技术分析、正式一期完整复刻方案、阶段进展复盘和方案结论 | `local/需求讨论/2026-06-08-win11-codex-island-full-replica-一期正式产品方案.md`；`local/需求讨论/2026-06-09-claude-island-win-对标codex-island-当前进展与正式使用缺口.md` |
+| `local/需求讨论/` | Win11 Claude HUD One 需求讨论、技术分析、正式一期完整复刻方案、阶段进展复盘、HUD Plus 终端内置集成分析和方案结论 | `local/需求讨论/2026-06-08-win11-codex-island-full-replica-一期正式产品方案.md`；`local/需求讨论/2026-06-09-claude-hud-one-对标codex-island-当前进展与正式使用缺口.md`；`local/需求讨论/2026-06-10-claude-hud-one-内置claude-hud-plus终端hud集成分析.md` |
 | `package.json` | 前端/Tauri npm 脚本与依赖入口 | `package.json` |
 | `src/` | React/TypeScript 前端 UI、状态模型、mock 数据与动态岛组件 | `src/app/App.tsx` |
 | `src-tauri/` | Tauri 2 桌面壳、Rust 原生窗口能力与打包配置 | `src-tauri/tauri.conf.json` |

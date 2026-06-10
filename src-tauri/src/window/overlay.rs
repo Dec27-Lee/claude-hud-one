@@ -29,17 +29,6 @@ impl HitRegion {
     }
 }
 
-impl Default for HitRegion {
-    fn default() -> Self {
-        Self {
-            x: 308.0,
-            y: 10.0,
-            width: 284.0,
-            height: 54.0,
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct OverlayTracker {
     hit_regions: Arc<Mutex<Vec<HitRegion>>>,
@@ -49,8 +38,8 @@ pub struct OverlayTracker {
 impl Default for OverlayTracker {
     fn default() -> Self {
         Self {
-            hit_regions: Arc::new(Mutex::new(vec![HitRegion::default()])),
-            click_through: Arc::new(AtomicBool::new(false)),
+            hit_regions: Arc::new(Mutex::new(Vec::new())),
+            click_through: Arc::new(AtomicBool::new(true)),
         }
     }
 }
@@ -75,7 +64,7 @@ impl OverlayTracker {
         self.hit_regions
             .lock()
             .map(|regions| regions.clone())
-            .unwrap_or_else(|_| vec![HitRegion::default()])
+            .unwrap_or_default()
     }
 
     fn replace_click_through(&self, enabled: bool) -> bool {
@@ -83,17 +72,20 @@ impl OverlayTracker {
     }
 }
 
-pub fn configure_overlay_window(window: &WebviewWindow) -> tauri::Result<()> {
+pub fn configure_overlay_window(
+    window: &WebviewWindow,
+    tracker: OverlayTracker,
+) -> tauri::Result<()> {
     window.set_always_on_top(true)?;
     window.set_decorations(false)?;
     window.set_shadow(false)?;
-    apply_native_overlay_styles(window, false)?;
-    install_mouse_activate_guard(window)?;
+    apply_native_overlay_styles(window, true, false)?;
+    install_mouse_activate_guard(window, tracker)?;
     Ok(())
 }
 
 pub fn set_click_through(window: &WebviewWindow, enabled: bool) -> tauri::Result<()> {
-    apply_native_overlay_styles(window, enabled)
+    apply_native_overlay_styles(window, enabled, true)
 }
 
 pub fn show_no_activate(window: &WebviewWindow) -> tauri::Result<()> {
@@ -110,6 +102,20 @@ pub fn show_no_activate(window: &WebviewWindow) -> tauri::Result<()> {
     }
 }
 
+pub fn demote_no_activate(window: &WebviewWindow) -> tauri::Result<()> {
+    #[cfg(windows)]
+    {
+        let hwnd = window.hwnd()?;
+        demote_hwnd_no_activate(hwnd.0 as isize);
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    {
+        window.show()
+    }
+}
+
 pub fn start_hit_test_tracker(window: &WebviewWindow, tracker: OverlayTracker) -> tauri::Result<()> {
     #[cfg(windows)]
     {
@@ -117,15 +123,15 @@ pub fn start_hit_test_tracker(window: &WebviewWindow, tracker: OverlayTracker) -
         let hwnd_value = hwnd.0 as isize;
 
         thread::spawn(move || loop {
-            thread::sleep(Duration::from_millis(50));
+            thread::sleep(Duration::from_millis(25));
 
-            let Some(inside) = cursor_inside_hit_regions(hwnd_value, tracker.hit_regions()) else {
-                continue;
+            let next_click_through = match cursor_inside_hit_regions(hwnd_value, tracker.hit_regions()) {
+                Some(inside) => !inside,
+                None => true,
             };
-            let next_click_through = !inside;
 
             if tracker.replace_click_through(next_click_through) != next_click_through {
-                apply_native_overlay_styles_hwnd(hwnd_value, next_click_through);
+                apply_native_overlay_styles_hwnd(hwnd_value, next_click_through, true);
             }
         });
     }
@@ -140,19 +146,26 @@ pub fn start_hit_test_tracker(window: &WebviewWindow, tracker: OverlayTracker) -
 }
 
 #[cfg(windows)]
-fn apply_native_overlay_styles(window: &WebviewWindow, click_through: bool) -> tauri::Result<()> {
+fn apply_native_overlay_styles(
+    window: &WebviewWindow,
+    click_through: bool,
+    preserve_z_order: bool,
+) -> tauri::Result<()> {
     let hwnd = window.hwnd()?;
-    apply_native_overlay_styles_hwnd(hwnd.0 as isize, click_through);
+    apply_native_overlay_styles_hwnd(hwnd.0 as isize, click_through, preserve_z_order);
     Ok(())
 }
 
 #[cfg(windows)]
-fn install_mouse_activate_guard(window: &WebviewWindow) -> tauri::Result<()> {
+fn install_mouse_activate_guard(
+    window: &WebviewWindow,
+    tracker: OverlayTracker,
+) -> tauri::Result<()> {
     use windows::Win32::{
         Foundation::{HWND, LPARAM, LRESULT, WPARAM},
         UI::{
             Shell::{DefSubclassProc, SetWindowSubclass},
-            WindowsAndMessaging::{MA_NOACTIVATE, WM_MOUSEACTIVATE},
+            WindowsAndMessaging::{HTCLIENT, HTTRANSPARENT, MA_NOACTIVATE, WM_MOUSEACTIVATE, WM_NCHITTEST},
         },
     };
 
@@ -164,36 +177,62 @@ fn install_mouse_activate_guard(window: &WebviewWindow) -> tauri::Result<()> {
         wparam: WPARAM,
         lparam: LPARAM,
         _subclass_id: usize,
-        _ref_data: usize,
+        ref_data: usize,
     ) -> LRESULT {
         if message == WM_MOUSEACTIVATE {
             return LRESULT(MA_NOACTIVATE as isize);
+        }
+
+        if message == WM_NCHITTEST {
+            let hit_regions = unsafe { &*(ref_data as *const Arc<Mutex<Vec<HitRegion>>>) };
+            let (cursor_x, cursor_y) = point_from_lparam(lparam);
+            let inside = hit_regions
+                .lock()
+                .ok()
+                .and_then(|regions| point_inside_hit_regions(hwnd.0 as isize, cursor_x, cursor_y, &regions))
+                .unwrap_or(false);
+
+            return if inside {
+                LRESULT(HTCLIENT as isize)
+            } else {
+                LRESULT(HTTRANSPARENT as isize)
+            };
         }
 
         unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
     }
 
     let hwnd = window.hwnd()?;
+    let hit_regions = tracker.hit_regions.clone();
+    let ref_data = Box::into_raw(Box::new(hit_regions)) as usize;
     unsafe {
-        let _ = SetWindowSubclass(hwnd, Some(subclass_proc), OVERLAY_SUBCLASS_ID, 0);
+        let _ = SetWindowSubclass(hwnd, Some(subclass_proc), OVERLAY_SUBCLASS_ID, ref_data);
     }
 
     Ok(())
 }
 
 #[cfg(not(windows))]
-fn install_mouse_activate_guard(_window: &WebviewWindow) -> tauri::Result<()> {
+fn install_mouse_activate_guard(
+    _window: &WebviewWindow,
+    _tracker: OverlayTracker,
+) -> tauri::Result<()> {
     Ok(())
 }
 
 #[cfg(windows)]
-fn apply_native_overlay_styles_hwnd(hwnd_value: isize, click_through: bool) {
+fn apply_native_overlay_styles_hwnd(
+    hwnd_value: isize,
+    click_through: bool,
+    preserve_z_order: bool,
+) {
     use windows::Win32::{
         Foundation::HWND,
         UI::WindowsAndMessaging::{
             GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST,
-            SET_WINDOW_POS_FLAGS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
-            WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+            SET_WINDOW_POS_FLAGS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+            SWP_SHOWWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+            WS_EX_TRANSPARENT,
         },
     };
 
@@ -211,10 +250,16 @@ fn apply_native_overlay_styles_hwnd(hwnd_value: isize, click_through: bool) {
 
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next_style as isize);
 
-        let flags = SET_WINDOW_POS_FLAGS(
+        let mut flags = SET_WINDOW_POS_FLAGS(
             SWP_NOMOVE.0 | SWP_NOSIZE.0 | SWP_NOACTIVATE.0 | SWP_SHOWWINDOW.0,
         );
-        let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, flags);
+        let insert_after = if preserve_z_order {
+            flags = SET_WINDOW_POS_FLAGS(flags.0 | SWP_NOZORDER.0);
+            None
+        } else {
+            Some(HWND_TOPMOST)
+        };
+        let _ = SetWindowPos(hwnd, insert_after, 0, 0, 0, 0, flags);
     }
 }
 
@@ -239,23 +284,61 @@ fn show_hwnd_no_activate(hwnd_value: isize) {
 }
 
 #[cfg(windows)]
-fn cursor_inside_hit_regions(hwnd_value: isize, regions: Vec<HitRegion>) -> Option<bool> {
+fn demote_hwnd_no_activate(hwnd_value: isize) {
     use windows::Win32::{
-        Foundation::{HWND, POINT, RECT},
-        UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect},
+        Foundation::HWND,
+        UI::WindowsAndMessaging::{
+            SetWindowPos, HWND_NOTOPMOST, SET_WINDOW_POS_FLAGS, SWP_NOACTIVATE, SWP_NOMOVE,
+            SWP_NOSIZE, SWP_SHOWWINDOW,
+        },
     };
 
     let hwnd = HWND(hwnd_value as *mut core::ffi::c_void);
+    let flags = SET_WINDOW_POS_FLAGS(
+        SWP_NOMOVE.0 | SWP_NOSIZE.0 | SWP_NOACTIVATE.0 | SWP_SHOWWINDOW.0,
+    );
+
+    unsafe {
+        let _ = SetWindowPos(hwnd, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags);
+    }
+}
+
+#[cfg(windows)]
+fn cursor_inside_hit_regions(hwnd_value: isize, regions: Vec<HitRegion>) -> Option<bool> {
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    use windows::Win32::Foundation::POINT;
+
     let mut cursor = POINT::default();
-    let mut window_rect = RECT::default();
 
     unsafe {
         GetCursorPos(&mut cursor).ok()?;
-        GetWindowRect(hwnd, &mut window_rect).ok()?;
     }
 
-    let cursor_x = cursor.x as f64;
-    let cursor_y = cursor.y as f64;
+    point_inside_hit_regions(hwnd_value, cursor.x as f64, cursor.y as f64, &regions)
+}
+
+#[cfg(windows)]
+fn point_inside_hit_regions(
+    hwnd_value: isize,
+    cursor_x: f64,
+    cursor_y: f64,
+    regions: &[HitRegion],
+) -> Option<bool> {
+    use windows::Win32::{
+        Foundation::{HWND, RECT},
+        UI::WindowsAndMessaging::GetWindowRect,
+    };
+
+    if regions.is_empty() {
+        return Some(false);
+    }
+
+    let hwnd = HWND(hwnd_value as *mut core::ffi::c_void);
+    let mut window_rect = RECT::default();
+
+    unsafe {
+        GetWindowRect(hwnd, &mut window_rect).ok()?;
+    }
 
     Some(regions.iter().any(|region| {
         let left = window_rect.left as f64 + region.x;
@@ -267,7 +350,19 @@ fn cursor_inside_hit_regions(hwnd_value: isize, regions: Vec<HitRegion>) -> Opti
     }))
 }
 
+#[cfg(windows)]
+fn point_from_lparam(lparam: windows::Win32::Foundation::LPARAM) -> (f64, f64) {
+    let value = lparam.0 as u32;
+    let x = (value & 0xffff) as i16 as f64;
+    let y = ((value >> 16) & 0xffff) as i16 as f64;
+    (x, y)
+}
+
 #[cfg(not(windows))]
-fn apply_native_overlay_styles(_window: &WebviewWindow, _click_through: bool) -> tauri::Result<()> {
+fn apply_native_overlay_styles(
+    _window: &WebviewWindow,
+    _click_through: bool,
+    _preserve_z_order: bool,
+) -> tauri::Result<()> {
     Ok(())
 }

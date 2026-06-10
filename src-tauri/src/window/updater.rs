@@ -2,7 +2,7 @@ use std::process::Command;
 
 use serde::Serialize;
 
-const RELEASE_PAGE_URL: &str = "https://github.com/Dec27-Lee/claude-island-win/releases";
+const RELEASE_PAGE_URL: &str = "https://github.com/Dec27-Lee/claude-hud-one/releases";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

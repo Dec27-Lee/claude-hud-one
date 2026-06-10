@@ -11,6 +11,7 @@ export type IslandStore = {
   setCostStyle: (style: CostStyle) => void
   setTokenCountMode: (mode: TokenCountMode) => void
   setCurrentSession: (session: CurrentSessionState) => void
+  setSessions: (sessions: CurrentSessionState[]) => void
   patchCurrentSession: (session: Partial<CurrentSessionState>) => void
   applyClaudeProviderPatch: (provider: ProviderLiveState) => void
   applyLiveUsageCostSnapshot: (snapshot: LiveUsageCostSnapshot) => void
@@ -18,7 +19,7 @@ export type IslandStore = {
   patchSettings: (settings: Partial<SettingsState>) => void
 }
 
-const STORAGE_KEY = 'claude-island-win:island-state'
+const STORAGE_KEY = 'claude-hud-one:island-state'
 const STATE_EVENT = 'island-state-updated'
 
 const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -45,6 +46,15 @@ const deriveAlerts = (state: IslandAppState): AlertState => {
 
 const withDerivedAlerts = (state: IslandAppState): IslandAppState => ({ ...state, alerts: deriveAlerts(state) })
 
+const claudeCodeWaitingProvider = (): ProviderLiveState => ({
+  fiveHour: { usedPercent: 0, resetAtLabel: 'rate limits unavailable' },
+  weekly: { usedPercent: 0, resetAtLabel: 'rate limits unavailable' },
+  stale: true,
+  lastUpdatedLabel: 'Waiting for Claude Code rate limits',
+  source: 'claudeCode',
+  authStatus: 'unknown',
+})
+
 const mergeState = (stored: Partial<IslandAppState>): IslandAppState => {
   const base = createMockIslandState()
   return withDerivedAlerts({
@@ -54,6 +64,7 @@ const mergeState = (stored: Partial<IslandAppState>): IslandAppState => {
     cost: { ...base.cost, ...stored.cost },
     settings: { ...base.settings, ...stored.settings },
     currentSession: { ...base.currentSession, ...stored.currentSession },
+    sessions: stored.sessions?.length ? stored.sessions : base.sessions,
     alerts: { ...base.alerts, ...stored.alerts },
   })
 }
@@ -161,10 +172,28 @@ export const useIslandStore = (): IslandStore => {
       updateState((current) => ({ ...current, settings: { ...current.settings, tokenCountMode } }))
     },
     setCurrentSession: (currentSession) => {
-      updateState((current) => ({ ...current, currentSession }))
+      updateState((current) => ({ ...current, currentSession, sessions: current.sessions.length > 0 ? current.sessions : [currentSession] }))
+    },
+    setSessions: (sessions) => {
+      updateState((current) => {
+        const nextSessions = sessions.length > 0 ? sessions : [current.currentSession]
+        return { ...current, sessions: nextSessions, currentSession: nextSessions[0] ?? current.currentSession }
+      })
     },
     patchCurrentSession: (currentSessionPatch) => {
-      updateState((current) => ({ ...current, currentSession: { ...current.currentSession, ...currentSessionPatch } }))
+      updateState((current) => {
+        const currentSession = { ...current.currentSession, ...currentSessionPatch }
+        const targetKey = currentSession.sessionKey ?? currentSession.sessionId ?? currentSession.transcriptPath
+        const sessions = current.sessions.length > 0
+          ? current.sessions.map((session, index) => {
+              const key = session.sessionKey ?? session.sessionId ?? session.transcriptPath
+              return key && targetKey && key === targetKey || (!targetKey && index === 0)
+                ? { ...session, ...currentSessionPatch }
+                : session
+            })
+          : [currentSession]
+        return { ...current, currentSession, sessions }
+      })
     },
     applyClaudeProviderPatch: (claudeProvider) => {
       updateState((current) => withDerivedAlerts({
@@ -178,19 +207,18 @@ export const useIslandStore = (): IslandStore => {
     },
     applyLiveUsageCostSnapshot: (snapshot) => {
       updateState((current) => {
-        const preserveClaudeCodeEstimate = current.providers.claude.source === 'claudeCode'
+        const useEndpointUsage = snapshot.claudeProvider.source === 'endpoint'
+        const nextClaudeProvider = useEndpointUsage
+          ? { ...current.providers.claude, ...snapshot.claudeProvider }
+          : current.providers.claude.source === 'claudeCode' && !current.providers.claude.stale
+            ? current.providers.claude
+            : { ...current.providers.claude, ...claudeCodeWaitingProvider() }
+
         return withDerivedAlerts({
           ...current,
           providers: {
             ...current.providers,
-            claude: preserveClaudeCodeEstimate
-              ? {
-                  ...current.providers.claude,
-                  plan: current.providers.claude.plan ?? 'Claude Code',
-                  accent: current.providers.claude.accent,
-                  visible: current.providers.claude.visible,
-                }
-              : { ...current.providers.claude, ...snapshot.claudeProvider },
+            claude: nextClaudeProvider,
             codex: { ...current.providers.codex, ...snapshot.codexProvider },
           },
           cost: {
@@ -198,7 +226,7 @@ export const useIslandStore = (): IslandStore => {
             codex: snapshot.codexCost,
           },
           dailyBuckets: snapshot.dailyBuckets.length > 0 ? snapshot.dailyBuckets : current.dailyBuckets,
-          lastUsageSyncLabel: preserveClaudeCodeEstimate ? current.lastUsageSyncLabel : snapshot.lastUsageSyncLabel,
+          lastUsageSyncLabel: useEndpointUsage ? snapshot.lastUsageSyncLabel : nextClaudeProvider.lastUpdatedLabel,
           lastCostSyncLabel: snapshot.lastCostSyncLabel,
         })
       })

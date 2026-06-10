@@ -46,9 +46,46 @@ const usagePercent = (value: number | null): number => {
   return Math.max(0, Math.min(1, value / 100))
 }
 
+const compactTokens = (tokens: number | null | undefined): string | null => {
+  if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens <= 0) return null
+  if (tokens < 1_000) return `${Math.round(tokens)} tokens`
+  if (tokens < 10_000) return `${(tokens / 1_000).toFixed(1)}K`
+  return `${Math.round(tokens / 1_000)}K`
+}
+
+const emptyCounts = () => ({
+  assistant: 0,
+  user: 0,
+  system: 0,
+  attachment: 0,
+  aiTitle: 0,
+  mode: 0,
+  permissionMode: 0,
+  queueOperation: 0,
+  fileHistorySnapshot: 0,
+  lastPrompt: 0,
+  other: 0,
+})
+
+const sessionKeyFromBridge = (bridge: ClaudeStatusBridgeState): string => {
+  const fallback = [bridge.projectSlug, bridge.sessionName, bridge.projectDir ?? bridge.cwd].filter(Boolean).join(' · ')
+  return (bridge.sessionKey ?? bridge.sessionId ?? bridge.transcriptPath ?? fallback) || bridge.updatedAt
+}
+
+const contextTokenLabelFromBridge = (bridge: ClaudeStatusBridgeState): string | null => {
+  const explicit = compactTokens(bridge.contextUsedTokens)
+  if (explicit) return `${explicit} context`
+
+  const total = [bridge.inputTokens, bridge.outputTokens, bridge.cacheCreationInputTokens, bridge.cacheReadInputTokens]
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+    .reduce((sum, value) => sum + value, 0)
+  return compactTokens(total)
+    ? `${compactTokens(total)} context`
+    : null
+}
+
 const projectSlugFromBridge = (bridge: ClaudeStatusBridgeState): string => {
-  if (bridge.projectSlug) return bridge.projectSlug
-  const source = bridge.projectDir ?? bridge.cwd ?? bridge.sessionName ?? 'Claude Code'
+  const source = bridge.projectDir ?? bridge.cwd ?? bridge.projectSlug ?? bridge.sessionName ?? 'Claude Code'
   return source.replaceAll('\\', '/').split('/').filter(Boolean).at(-1) ?? 'Claude Code'
 }
 
@@ -65,11 +102,17 @@ const activityFromBridge = (bridge: ClaudeStatusBridgeState): SessionActivitySta
 const sourceLabelFromBridge = (bridge: ClaudeStatusBridgeState): string => {
   const source = bridge.source === 'hook' ? 'Claude Code hook bridge' : 'Claude Code statusLine bridge'
   const model = bridge.modelName ?? bridge.modelId
-  const context = typeof bridge.contextUsedPercent === 'number' ? `ctx ${Math.round(bridge.contextUsedPercent)}%` : null
+  const context = contextTokenLabelFromBridge(bridge)
   return [source, model, context, bridge.statusText].filter(Boolean).join(' · ')
 }
 
 export const mapClaudeStatusBridgeToCurrentSessionPatch = (bridge: ClaudeStatusBridgeState): Partial<CurrentSessionState> => ({
+  sessionKey: sessionKeyFromBridge(bridge),
+  sessionId: bridge.sessionId,
+  sessionName: bridge.sessionName,
+  transcriptPath: bridge.transcriptPath,
+  projectDir: bridge.projectDir ?? bridge.cwd,
+  updatedAt: bridge.updatedAt,
   mode: 'live',
   activity: activityFromBridge(bridge),
   sourceLabel: sourceLabelFromBridge(bridge),
@@ -83,7 +126,39 @@ export const mapClaudeStatusBridgeToCurrentSessionPatch = (bridge: ClaudeStatusB
   activeToolName: bridge.toolName,
   modelLabel: bridge.modelName ?? bridge.modelId,
   contextUsedPercent: bridge.contextUsedPercent,
+  contextUsedTokens: bridge.contextUsedTokens,
   totalCostUsd: bridge.totalCostUsd,
+})
+
+export const mapClaudeStatusBridgeToCurrentSession = (bridge: ClaudeStatusBridgeState): CurrentSessionState => ({
+  mode: 'live',
+  activity: activityFromBridge(bridge),
+  sourceLabel: sourceLabelFromBridge(bridge),
+  projectSlug: projectSlugFromBridge(bridge),
+  lastEventLabel: relativeTimeLabel(bridge.updatedAt),
+  scannedAtLabel: relativeTimeLabel(bridge.updatedAt),
+  transcriptCount: 0,
+  totalEventCount: 0,
+  assistantEventCount: 0,
+  userEventCount: 0,
+  toolCallRecordCount: 0,
+  toolResultFileCount: 0,
+  privacyNote: bridge.privacyNote,
+  counts: emptyCounts(),
+  bridgeStatusText: bridge.statusText,
+  bridgeSource: bridge.source,
+  bridgeHookEventName: bridge.hookEventName,
+  activeToolName: bridge.toolName,
+  modelLabel: bridge.modelName ?? bridge.modelId,
+  contextUsedPercent: bridge.contextUsedPercent,
+  contextUsedTokens: bridge.contextUsedTokens,
+  totalCostUsd: bridge.totalCostUsd,
+  sessionKey: sessionKeyFromBridge(bridge),
+  sessionId: bridge.sessionId,
+  sessionName: bridge.sessionName,
+  transcriptPath: bridge.transcriptPath,
+  projectDir: bridge.projectDir ?? bridge.cwd,
+  updatedAt: bridge.updatedAt,
 })
 
 export const mapClaudeStatusBridgeToProviderPatch = (bridge: ClaudeStatusBridgeState): ProviderLiveState | null => {
@@ -118,6 +193,8 @@ const activityFromSummary = (summary: ClaudeCodeSummary): SessionActivityState =
 }
 
 export const mapClaudeCodeSummaryToCurrentSession = (summary: ClaudeCodeSummary): CurrentSessionState => ({
+  sessionKey: `summary:${summary.projectSlug}`,
+  updatedAt: summary.lastActivityAt ?? summary.scannedAt,
   mode: summary.mode,
   activity: activityFromSummary(summary),
   sourceLabel: summary.projectSource,
@@ -145,25 +222,43 @@ export const loadClaudeStatusBridgeState = async (): Promise<ClaudeStatusBridgeS
   }
 }
 
+export const loadClaudeStatusBridgeSessions = async (): Promise<ClaudeStatusBridgeState[]> => {
+  if (!isTauriRuntime()) return []
+
+  try {
+    return await invoke<ClaudeStatusBridgeState[]>('get_claude_status_bridge_sessions')
+  } catch (error) {
+    console.warn('Failed to load Claude Code status bridge sessions', error)
+    return []
+  }
+}
+
 export const loadClaudeStatusBridgePatch = async (): Promise<Partial<CurrentSessionState> | null> => {
   const bridge = await loadClaudeStatusBridgeState()
   return bridge && bridgeIsFresh(bridge) ? mapClaudeStatusBridgeToCurrentSessionPatch(bridge) : null
 }
 
-export const loadLiveCurrentSession = async (): Promise<CurrentSessionState | null> => {
-  if (!isTauriRuntime()) return null
+export const loadLiveSessions = async (): Promise<CurrentSessionState[]> => {
+  if (!isTauriRuntime()) return []
 
   try {
-    const [summary, bridge] = await Promise.all([
-      invoke<ClaudeCodeSummary>('get_claude_code_summary'),
-      invoke<ClaudeStatusBridgeState | null>('get_claude_status_bridge_state').catch(() => null),
+    const [summary, bridges] = await Promise.all([
+      invoke<ClaudeCodeSummary>('get_claude_code_summary').catch(() => null),
+      loadClaudeStatusBridgeSessions(),
     ])
-    const currentSession = mapClaudeCodeSummaryToCurrentSession(summary)
-    return bridge && bridgeIsFresh(bridge)
-      ? { ...currentSession, ...mapClaudeStatusBridgeToCurrentSessionPatch(bridge) }
-      : currentSession
+    const bridgeSessions = bridges
+      .filter(bridgeIsFresh)
+      .map(mapClaudeStatusBridgeToCurrentSession)
+
+    if (bridgeSessions.length > 0) return bridgeSessions
+    return summary ? [mapClaudeCodeSummaryToCurrentSession(summary)] : []
   } catch (error) {
-    console.warn('Failed to load Claude Code session summary', error)
-    return null
+    console.warn('Failed to load Claude Code sessions', error)
+    return []
   }
+}
+
+export const loadLiveCurrentSession = async (): Promise<CurrentSessionState | null> => {
+  const sessions = await loadLiveSessions()
+  return sessions[0] ?? null
 }

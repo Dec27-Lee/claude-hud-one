@@ -2,13 +2,14 @@ mod window;
 
 use tauri::Manager;
 use window::{
+    claude_global::ClaudeGlobalBridgeStatus,
     claude_session::ClaudeCodeSummary,
     claude_status::ClaudeStatusBridgeState,
     diagnostics::DiagnosticsSummary,
     display::DisplayInfo,
     fullscreen::{FullscreenState, FullscreenTracker},
     overlay::{HitRegion, OverlayTracker},
-    settings::AppSettings,
+    settings::{AppSettings, OverlayPosition},
     updater::UpdateState,
     usage_cost::LiveUsageCostSnapshot,
 };
@@ -81,6 +82,14 @@ fn center_overlay_on_display(
 }
 
 #[tauri::command]
+fn set_overlay_position(
+    app: tauri::AppHandle,
+    position: OverlayPosition,
+) -> Result<OverlayPosition, String> {
+    window::display::set_overlay_position(&app, &position)
+}
+
+#[tauri::command]
 fn set_fullscreen_avoidance_enabled(
     app: tauri::AppHandle,
     tracker: tauri::State<'_, FullscreenTracker>,
@@ -110,6 +119,36 @@ fn get_claude_code_summary() -> Result<ClaudeCodeSummary, String> {
 #[tauri::command]
 fn get_claude_status_bridge_state() -> Result<Option<ClaudeStatusBridgeState>, String> {
     Ok(window::claude_status::get_claude_status_bridge_state())
+}
+
+#[tauri::command]
+fn get_claude_status_bridge_sessions() -> Result<Vec<ClaudeStatusBridgeState>, String> {
+    Ok(window::claude_status::get_claude_status_bridge_sessions())
+}
+
+#[tauri::command]
+fn get_claude_global_bridge_status() -> Result<ClaudeGlobalBridgeStatus, String> {
+    Ok(window::claude_global::global_bridge_status())
+}
+
+#[tauri::command]
+fn ensure_claude_global_bridge() -> Result<ClaudeGlobalBridgeStatus, String> {
+    window::claude_global::ensure_global_bridge()
+}
+
+#[tauri::command]
+fn enable_claude_status_line_bridge() -> Result<ClaudeGlobalBridgeStatus, String> {
+    window::claude_global::enable_status_line_bridge()
+}
+
+#[tauri::command]
+fn restore_claude_status_line() -> Result<ClaudeGlobalBridgeStatus, String> {
+    window::claude_global::restore_status_line()
+}
+
+#[tauri::command]
+fn remove_claude_global_bridge_hooks() -> Result<ClaudeGlobalBridgeStatus, String> {
+    window::claude_global::remove_global_bridge_hooks()
 }
 
 #[tauri::command]
@@ -195,10 +234,17 @@ pub fn run() {
             close_settings_window,
             list_displays,
             center_overlay_on_display,
+            set_overlay_position,
             set_fullscreen_avoidance_enabled,
             get_fullscreen_state,
             get_claude_code_summary,
             get_claude_status_bridge_state,
+            get_claude_status_bridge_sessions,
+            get_claude_global_bridge_status,
+            ensure_claude_global_bridge,
+            enable_claude_status_line_bridge,
+            restore_claude_status_line,
+            remove_claude_global_bridge_hooks,
             open_diagnostics_dir,
             get_diagnostics_summary,
             open_app_data_dir,
@@ -214,10 +260,14 @@ pub fn run() {
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
                 let tracker = app.state::<OverlayTracker>().inner().clone();
-                window::overlay::configure_overlay_window(&window)?;
+                window::overlay::configure_overlay_window(&window, tracker.clone())?;
                 let settings = window::settings::load_app_settings();
-                let display_id = settings_target_display_id(&settings);
-                let _ = window::display::center_overlay_on_display(app.handle(), display_id, Some(settings.top_offset_px));
+                if let Some(position) = settings.overlay_position.as_ref() {
+                    let _ = window::display::set_overlay_position(app.handle(), position);
+                } else {
+                    let display_id = settings_target_display_id(&settings);
+                    let _ = window::display::center_overlay_on_display(app.handle(), display_id, Some(settings.top_offset_px));
+                }
                 window::overlay::start_hit_test_tracker(&window, tracker)?;
             }
 
@@ -234,10 +284,12 @@ pub fn run() {
             let fullscreen_tracker = app.state::<FullscreenTracker>().inner().clone();
             window::fullscreen::start_fullscreen_tracker(app.handle().clone(), fullscreen_tracker);
 
+            let _ = window::claude_global::ensure_global_bridge();
+
             window::tray::setup_tray(app.handle())?;
 
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Claude Island Win")
+        .expect("error while running Claude HUD One")
 }

@@ -17,7 +17,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&show, &settings, &hide, &quit])?;
 
     let mut builder = TrayIconBuilder::with_id("main-tray")
-        .tooltip("Claude Island Win")
+        .tooltip("Claude HUD One")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {

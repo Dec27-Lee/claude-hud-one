@@ -1,6 +1,6 @@
 # 工作区 Claude 规则
 
-Claude Island Win 是一款为 Windows 打造的 Claude Code 动态岛 HUD，将当前会话状态、工具调用、上下文用量与任务进展。默认用中文沟通，低风险本地操作可直接执行。
+Claude HUD One 是一款为 Windows 打造的 Claude Code 动态岛 HUD，将当前会话状态、工具调用、上下文用量与任务进展。默认用中文沟通，低风险本地操作可直接执行。
 
 ## 上下文读取顺序
 

@@ -1,6 +1,6 @@
 use std::{env, path::PathBuf, process::Command};
 
-const APP_NAME: &str = "Claude Island Win";
+const APP_NAME: &str = "Claude HUD One";
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 

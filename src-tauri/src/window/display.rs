@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, PhysicalPosition};
 
+use super::settings::OverlayPosition;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RectInfo {
     pub x: i32,
@@ -10,6 +12,7 @@ pub struct RectInfo {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DisplayInfo {
     pub id: String,
     pub name: String,
@@ -59,6 +62,21 @@ pub fn list_displays(app: &AppHandle) -> tauri::Result<Vec<DisplayInfo>> {
             })
             .collect()
     })
+}
+
+pub fn set_overlay_position(
+    app: &AppHandle,
+    position: &OverlayPosition,
+) -> Result<OverlayPosition, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+
+    window
+        .set_position(PhysicalPosition::new(position.x, position.y))
+        .map_err(|error| error.to_string())?;
+
+    Ok(position.clone())
 }
 
 pub fn center_overlay_on_display(

@@ -147,7 +147,7 @@ fn save_snapshot_cache(snapshot: &LiveUsageCostSnapshot) -> Result<(), String> {
 fn usage_cache_path() -> Option<PathBuf> {
     env::var_os("APPDATA")
         .map(PathBuf::from)
-        .map(|appdata| appdata.join("Claude Island Win").join("usage-cost-cache.json"))
+        .map(|appdata| appdata.join("Claude HUD One").join("usage-cost-cache.json"))
 }
 
 fn mark_cached_snapshot(mut snapshot: LiveUsageCostSnapshot) -> LiveUsageCostSnapshot {

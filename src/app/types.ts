@@ -6,6 +6,7 @@ export type CostStyle = 'usd' | 'value' | 'tokens' | 'trend'
 export type TokenCountMode = 'all' | 'billable'
 export type AppLanguage = 'auto' | 'en' | 'zh-CN'
 export type TargetDisplay = 'auto' | 'primary' | { id: string; label: string }
+export type OverlayPosition = { x: number; y: number }
 export type SessionMode = 'mock' | 'live'
 export type SessionActivityState = 'idle' | 'active' | 'running' | 'waiting' | 'error'
 export type ProviderSource = 'mock' | 'localEstimate' | 'claudeCode' | 'endpoint' | 'cache'
@@ -71,6 +72,12 @@ export type TranscriptEventCounts = {
 }
 
 export type CurrentSessionState = {
+  sessionKey?: string | null
+  sessionId?: string | null
+  sessionName?: string | null
+  transcriptPath?: string | null
+  projectDir?: string | null
+  updatedAt?: string | null
   mode: SessionMode
   activity: SessionActivityState
   sourceLabel: string
@@ -91,6 +98,7 @@ export type CurrentSessionState = {
   activeToolName?: string | null
   modelLabel?: string | null
   contextUsedPercent?: number | null
+  contextUsedTokens?: number | null
   totalCostUsd?: number | null
 }
 
@@ -111,9 +119,11 @@ export type ClaudeCodeSummary = {
 export type ClaudeStatusBridgeState = {
   schemaVersion: number
   updatedAt: string
+  activityStartedAt?: string
   event: string
   activity: SessionActivityState
   statusText: string
+  sessionKey?: string | null
   sessionId: string | null
   sessionName: string | null
   cwd: string | null
@@ -127,6 +137,7 @@ export type ClaudeStatusBridgeState = {
   contextUsedPercent: number | null
   contextRemainingPercent: number | null
   contextWindowSize: number | null
+  contextUsedTokens: number | null
   inputTokens: number | null
   outputTokens: number | null
   cacheCreationInputTokens: number | null
@@ -181,6 +192,7 @@ export type SettingsState = {
   criticalThreshold: number
   targetDisplay: TargetDisplay
   topOffsetPx: number
+  overlayPosition: OverlayPosition | null
   islandWidthMode: 'compact' | 'notch' | 'custom'
   chartStyle: ChartStyle
   costStyle: CostStyle
@@ -198,6 +210,7 @@ export type IslandAppState = {
   cost: Record<ProviderId, CostSummaryState>
   dailyBuckets: DailyTokenBucket[]
   currentSession: CurrentSessionState
+  sessions: CurrentSessionState[]
   settings: SettingsState
   alerts: AlertState
   lastUsageSyncLabel: string

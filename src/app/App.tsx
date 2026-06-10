@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import type { ProviderId, SettingsState } from './types'
+import type { OverlayPosition, ProviderId, SettingsState } from './types'
 import {
   centerOverlayOnDisplay,
   closeSettingsWindow,
@@ -11,21 +11,59 @@ import {
   saveAppSettings,
   setFullscreenAvoidanceEnabled,
   setLaunchAtLoginEnabled,
+  setOverlayPosition,
   type DisplayInfo,
 } from './overlayBridge'
 import { IslandRoot } from '../components/island/IslandRoot'
 import { SettingsView } from '../components/settings/SettingsView'
-import { loadClaudeStatusBridgeState, loadLiveCurrentSession, mapClaudeStatusBridgeToCurrentSessionPatch, mapClaudeStatusBridgeToProviderPatch } from '../providers/claudeCodeSummary'
+import { loadClaudeStatusBridgeSessions, loadClaudeStatusBridgeState, loadLiveSessions, mapClaudeStatusBridgeToProviderPatch } from '../providers/claudeCodeSummary'
 import { loadLiveUsageCostSnapshot } from '../providers/liveUsageCost'
 import { useIslandStore } from '../stores/useIslandStore'
 
 const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-const currentWindowLabel = isTauriRuntime()
-  ? getCurrentWindow().label
-  : new URLSearchParams(window.location.search).get('window') ?? 'main'
+
+type AppWindowLabel = 'main' | 'settings'
+
+const validWindowLabel = (value: string | null | undefined): AppWindowLabel | null => {
+  return value === 'settings' || value === 'main' ? value : null
+}
+
+const documentWindowLabel = (): AppWindowLabel | null => {
+  if (typeof document === 'undefined') return null
+
+  return validWindowLabel(document.querySelector<HTMLMetaElement>('meta[name="claude-hud-one-window"]')?.content)
+}
+
+const queryWindowLabel = (): AppWindowLabel | null => {
+  if (typeof window === 'undefined') return null
+
+  return validWindowLabel(new URLSearchParams(window.location.search).get('window'))
+}
+
+const pathWindowLabel = (): AppWindowLabel | null => {
+  if (typeof window === 'undefined') return null
+
+  return window.location.pathname.toLowerCase().endsWith('/settings.html') ? 'settings' : null
+}
+
+const resolveWindowLabel = (): AppWindowLabel => {
+  const staticLabel = documentWindowLabel() ?? queryWindowLabel() ?? pathWindowLabel()
+  if (staticLabel) return staticLabel
+
+  if (isTauriRuntime()) {
+    try {
+      return getCurrentWindow().label === 'settings' ? 'settings' : 'main'
+    } catch (error) {
+      console.warn('Failed to resolve Tauri window label', error)
+    }
+  }
+
+  return 'main'
+}
 
 export function App() {
   const store = useIslandStore()
+  const [currentWindowLabel] = useState<AppWindowLabel>(() => resolveWindowLabel())
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
   const [isRefreshing, setIsRefreshing] = useState(false)
 
@@ -39,8 +77,12 @@ export function App() {
 
       if (settings) {
         store.patchSettings(settings)
-        const displayId = typeof settings.targetDisplay === 'string' ? settings.targetDisplay : settings.targetDisplay.id
-        void centerOverlayOnDisplay(displayId, settings.topOffsetPx)
+        if (settings.overlayPosition) {
+          void setOverlayPosition(settings.overlayPosition)
+        } else {
+          const displayId = typeof settings.targetDisplay === 'string' ? settings.targetDisplay : settings.targetDisplay.id
+          void centerOverlayOnDisplay(displayId, settings.topOffsetPx)
+        }
       }
       setDisplays(nativeDisplays)
     }
@@ -57,9 +99,9 @@ export function App() {
 
     let cancelled = false
     const refreshSession = async (): Promise<void> => {
-      const currentSession = await loadLiveCurrentSession()
-      if (!cancelled && currentSession) {
-        store.setCurrentSession(currentSession)
+      const sessions = await loadLiveSessions()
+      if (!cancelled && sessions.length > 0) {
+        store.setSessions(sessions)
       }
     }
 
@@ -77,11 +119,15 @@ export function App() {
 
     let cancelled = false
     const refreshStatusBridge = async (): Promise<void> => {
-      const bridge = await loadClaudeStatusBridgeState()
-      if (cancelled || !bridge) return
+      const bridges = await loadClaudeStatusBridgeSessions()
+      if (cancelled || bridges.length === 0) return
 
-      store.patchCurrentSession(mapClaudeStatusBridgeToCurrentSessionPatch(bridge))
-      const claudeProviderPatch = mapClaudeStatusBridgeToProviderPatch(bridge)
+      const sessions = await loadLiveSessions()
+      if (!cancelled && sessions.length > 0) {
+        store.setSessions(sessions)
+      }
+
+      const claudeProviderPatch = mapClaudeStatusBridgeToProviderPatch(bridges[0])
       if (claudeProviderPatch) {
         store.applyClaudeProviderPatch(claudeProviderPatch)
       }
@@ -124,19 +170,18 @@ export function App() {
 
     setIsRefreshing(true)
     try {
-      const [currentSession, bridge, snapshot, nativeDisplays] = await Promise.all([
-        loadLiveCurrentSession(),
+      const [sessions, bridge, snapshot, nativeDisplays] = await Promise.all([
+        loadLiveSessions(),
         loadClaudeStatusBridgeState(),
         loadLiveUsageCostSnapshot(),
         listDisplays(),
       ])
 
-      if (currentSession) {
-        store.setCurrentSession(currentSession)
+      if (sessions.length > 0) {
+        store.setSessions(sessions)
       }
 
       if (bridge) {
-        store.patchCurrentSession(mapClaudeStatusBridgeToCurrentSessionPatch(bridge))
         const claudeProviderPatch = mapClaudeStatusBridgeToProviderPatch(bridge)
         if (claudeProviderPatch) {
           store.applyClaudeProviderPatch(claudeProviderPatch)
@@ -156,8 +201,10 @@ export function App() {
   }
 
   const patchSettings = (settings: Partial<SettingsState>): void => {
-    const nextSettings = { ...store.state.settings, ...settings }
-    store.patchSettings(settings)
+    const placementChanged = 'targetDisplay' in settings || 'topOffsetPx' in settings
+    const settingsPatch: Partial<SettingsState> = placementChanged ? { ...settings, overlayPosition: null } : settings
+    const nextSettings = { ...store.state.settings, ...settingsPatch }
+    store.patchSettings(settingsPatch)
     void saveAppSettings(nextSettings)
 
     if (typeof settings.launchAtLogin === 'boolean') {
@@ -168,10 +215,23 @@ export function App() {
       void setFullscreenAvoidanceEnabled(settings.fullscreenAvoidance)
     }
 
-    if ('targetDisplay' in settings || 'topOffsetPx' in settings) {
+    if (placementChanged) {
       const displayId = typeof nextSettings.targetDisplay === 'string' ? nextSettings.targetDisplay : nextSettings.targetDisplay.id
       void centerOverlayOnDisplay(displayId, nextSettings.topOffsetPx)
+    } else if ('overlayPosition' in settingsPatch) {
+      if (nextSettings.overlayPosition) {
+        void setOverlayPosition(nextSettings.overlayPosition)
+      } else {
+        const displayId = typeof nextSettings.targetDisplay === 'string' ? nextSettings.targetDisplay : nextSettings.targetDisplay.id
+        void centerOverlayOnDisplay(displayId, nextSettings.topOffsetPx)
+      }
     }
+  }
+
+  const saveOverlayPosition = (overlayPosition: OverlayPosition): void => {
+    const nextSettings = { ...store.state.settings, overlayPosition }
+    store.patchSettings({ overlayPosition })
+    void saveAppSettings(nextSettings)
   }
 
   const saveSettingsPatch = (settings: Partial<SettingsState>): void => {
@@ -220,6 +280,7 @@ export function App() {
       onToggleProvider={toggleProviderVisible}
       onRefreshNow={() => void refreshAll()}
       isRefreshing={isRefreshing}
+      onOverlayPositionChange={saveOverlayPosition}
     />
   )
 }

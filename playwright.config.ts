@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 
-const webServer = process.env.CLAUDE_ISLAND_EXTERNAL_SERVER === '1'
+const webServer = process.env.CLAUDE_HUD_ONE_EXTERNAL_SERVER === '1'
   ? undefined
   : {
       command: 'npm run dev -- --host 127.0.0.1',

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Claude Island Win",
+  "productName": "Claude HUD One",
   "version": "0.1.0",
-  "identifier": "com.dec27.claude-island-win",
+  "identifier": "com.dec27.claude-hud-one",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
@@ -14,7 +14,8 @@
     "windows": [
       {
         "label": "main",
-        "title": "Claude Island Win",
+        "url": "index.html",
+        "title": "Claude HUD One",
         "width": 900,
         "height": 520,
         "transparent": true,
@@ -27,10 +28,12 @@
       },
       {
         "label": "settings",
-        "title": "Claude Island Win Settings",
-        "width": 460,
-        "height": 680,
-        "minWidth": 420,
+        "url": "settings.html",
+        "title": "Claude HUD One Settings",
+        "width": 960,
+        "height": 660,
+        "minWidth": 960,
+        "maxWidth": 960,
         "minHeight": 560,
         "transparent": false,
         "decorations": true,
@@ -48,10 +51,18 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": ["nsis"],
+    "resources": {
+      "resources/cleanup-claude-hud-one.ps1": "resources/cleanup-claude-hud-one.ps1"
+    },
     "icon": ["icons/icon.ico"],
     "publisher": "Dec27-Lee",
     "shortDescription": "Claude Code dynamic island HUD for Windows",
-    "longDescription": "Claude Island Win is a Windows 11 dynamic island HUD for Claude Code usage estimates, cost, overview, and current session status. Codex support is reserved for a later release."
+    "longDescription": "Claude HUD One is a Windows 11 dynamic island HUD for Claude Code usage estimates, cost, overview, and current session status. Codex support is reserved for a later release.",
+    "windows": {
+      "nsis": {
+        "installerHooks": "installer-hooks.nsh"
+      }
+    }
   }
 }

@@ -51,7 +51,7 @@ pub fn open_app_data_dir() -> Result<String, String> {
 fn app_data_dir() -> Option<PathBuf> {
     env::var_os("APPDATA")
         .map(PathBuf::from)
-        .map(|appdata| appdata.join("Claude Island Win"))
+        .map(|appdata| appdata.join("Claude HUD One"))
 }
 
 fn claude_projects_root() -> Option<PathBuf> {

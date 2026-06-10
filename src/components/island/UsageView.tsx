@@ -25,6 +25,11 @@ const authLabels: Record<NonNullable<ProviderState['authStatus']>, string> = {
   notConfigured: 'Auth not configured',
 }
 
+const resetText = (label: '5h' | '7d', resetAtLabel: string): string => {
+  if (resetAtLabel === 'rate limits unavailable') return `${label} rate limits unavailable`
+  return `${label} resets in ${resetAtLabel}`
+}
+
 const usageStatus = (provider: ProviderState, warningThreshold: number, criticalThreshold: number): 'live' | 'warning' | 'critical' | 'stale' | 'error' => {
   if (provider.fiveHour.error || provider.weekly.error) return 'error'
   if (provider.stale) return 'stale'
@@ -62,11 +67,11 @@ export function UsageView({ providers, chartStyle, warningThreshold, criticalThr
             <div className="usage-window-grid">
               <div className="usage-window">
                 {provider.fiveHour.error ? <span className="usage-error">{provider.fiveHour.error}</span> : <UsageChart usage={provider.fiveHour} accent={provider.accent} style={chartStyle} label="5h" />}
-                <span>5h resets in {provider.fiveHour.resetAtLabel}</span>
+                <span>{resetText('5h', provider.fiveHour.resetAtLabel)}</span>
               </div>
               <div className="usage-window">
                 {provider.weekly.error ? <span className="usage-error">{provider.weekly.error}</span> : <UsageChart usage={provider.weekly} accent={provider.accent} style={chartStyle} label="7d" />}
-                <span>7d resets in {provider.weekly.resetAtLabel}</span>
+                <span>{resetText('7d', provider.weekly.resetAtLabel)}</span>
               </div>
             </div>
             <footer>

@@ -22,8 +22,7 @@ Invoke-Step "UI screenshots" { npm run test:ui }
 Invoke-Step "Tauri release build" { npm run tauri:build }
 Invoke-Step "Installer artifacts" {
   $artifacts = @(
-    "src-tauri\target\release\bundle\nsis\Claude Island Win_0.1.0_x64-setup.exe",
-    "src-tauri\target\release\bundle\msi\Claude Island Win_0.1.0_x64_en-US.msi"
+    "src-tauri\target\release\bundle\nsis\Claude HUD One_0.1.0_x64-setup.exe"
   )
 
   foreach ($artifact in $artifacts) {
@@ -41,7 +40,7 @@ Invoke-Step "Installer artifacts" {
   }
 }
 Invoke-Step "Release exe smoke" {
-  $exe = "src-tauri\target\release\claude-island-win.exe"
+  $exe = "src-tauri\target\release\claude-hud-one.exe"
   if (-not (Test-Path $exe)) {
     throw "Release exe not found: $exe"
   }

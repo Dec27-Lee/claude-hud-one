@@ -119,7 +119,7 @@ try {
 
   const playwrightArgs = ['playwright', 'test', ...process.argv.slice(2)]
   const exitCode = await runCommand('npx', playwrightArgs, {
-    env: { ...process.env, CLAUDE_ISLAND_EXTERNAL_SERVER: '1' },
+    env: { ...process.env, CLAUDE_HUD_ONE_EXTERNAL_SERVER: '1' },
   })
   if (exitCode !== 0) process.exitCode = exitCode
 } finally {
