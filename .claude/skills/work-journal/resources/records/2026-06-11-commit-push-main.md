@@ -24,11 +24,15 @@
 - 已核对 Git 身份：`Dec27-Lee <lipengyue31@163.com>`。
 - 已确认当前分支：`main...origin/main`。
 - 已向用户确认 Claude 协作者署名，用户选择“确认提交推送”。
+- 提交前执行 `git diff --check`，仅出现 Windows 工作区 LF/CRLF 提示，未发现 whitespace error。
+- 首次提交时发现旧的 `.git/index.lock`，已确认其为 0 字节且写入时间较早；移除后继续提交。
+- 已创建提交：`0ac7e64 Polish settings launch and tab organization`。
+- 已推送到远程：`origin/main`，范围 `0ab169b..0ac7e64`。
 
 ## 检查
 
-- 需求覆盖：提交与推送待执行。
-- 产物路径：待提交 commit hash。
-- 验证情况：待执行提交前检查与推送。
+- 需求覆盖：已提交当前工作区改动并推送到远程 `main`。
+- 产物路径：远程分支 `origin/main`；提交 `0ac7e64`。
+- 验证情况：提交前 `git diff --check` 无 whitespace error；此前相关代码验证 `npm run build`、`npm run test:ui`、`cargo check`、`npm run tauri:build` 均已通过。
 - 风险：直接推送到远程 `main` 是外部可见操作；已获得用户确认。
-- 结论：in_progress。
+- 结论：done。
