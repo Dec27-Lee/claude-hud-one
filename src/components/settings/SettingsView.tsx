@@ -21,7 +21,7 @@ type SettingsViewProps = {
 }
 
 type UILanguage = 'en' | 'zh-CN'
-type SettingsTab = 'general' | 'appearance' | 'placement' | 'terminal' | 'desktop' | 'claude' | 'updates' | 'about'
+type SettingsTab = 'general' | 'desktop' | 'terminal' | 'claude' | 'about'
 
 const chartStyles: ChartStyle[] = ['ring', 'bar', 'stepped', 'numeric', 'sparkline']
 const costStyles: CostStyle[] = ['usd', 'value', 'tokens', 'trend']
@@ -36,16 +36,13 @@ const settingsMessages = {
     close: 'Close settings',
     tabs: {
       general: 'General',
-      appearance: 'Appearance',
-      placement: 'Placement',
       terminal: 'Terminal HUD',
       desktop: 'Desktop HUD',
       claude: 'Claude',
-      updates: 'Updates',
       about: 'About',
     },
-    preferences: 'General',
-    preferencesHint: 'Choose language, startup behavior, refresh cadence, and window behavior.',
+    preferences: 'App basics',
+    preferencesHint: 'Choose language, startup behavior, refresh cadence, and performance mode.',
     language: 'Interface language',
     languageHint: 'Preview immediately; saved settings keep it for next launch.',
     languageOptions: { auto: 'System', en: 'English', 'zh-CN': '简体中文' },
@@ -54,16 +51,16 @@ const settingsMessages = {
     lowPowerMode: 'Low power mode',
     fullscreenAvoidance: 'Hide on fullscreen apps',
     refreshInterval: 'Refresh interval',
-    appearance: 'Appearance',
-    appearanceHint: 'Control island width, usage chart, and cost display style.',
+    appearance: 'Island display',
+    appearanceHint: 'Merge desktop island width, usage chart, and cost display style in one place.',
     islandWidth: 'Island width',
     chartStyle: 'Usage chart',
     costStyle: 'Cost display',
     widthModes: { compact: 'Compact', notch: 'Notch', custom: 'Custom' },
     chartStyles: { ring: 'Ring', bar: 'Bar', stepped: 'Stepped', numeric: 'Numeric', sparkline: 'Sparkline' },
     costStyles: { usd: 'USD', value: 'Value', tokens: 'Tokens', trend: 'Trend' },
-    placement: 'Placement',
-    placementHint: 'Pick a display, top offset, or reset a manually dragged position.',
+    placement: 'Desktop placement',
+    placementHint: 'Pick a display, top offset, fullscreen behavior, or reset a manually dragged position.',
     targetDisplay: 'Target display',
     auto: 'Auto',
     primaryDisplay: 'Primary display',
@@ -73,8 +70,8 @@ const settingsMessages = {
     displayDefault: 'Display default',
     dragTip: 'Long-press the island capsule, then drag to move it. The dropped position is saved automatically.',
     resetPosition: 'Reset to target display',
-    alertsProviders: 'Alerts & providers',
-    alertsProvidersHint: 'Choose alert thresholds and visible local providers.',
+    alertsProviders: 'Usage data & alerts',
+    alertsProvidersHint: 'Keep provider visibility, token counting, and usage thresholds together for desktop cards.',
     enableUsageAlerts: 'Enable usage alerts',
     warningThreshold: 'Warning threshold',
     criticalThreshold: 'Critical threshold',
@@ -164,16 +161,13 @@ const settingsMessages = {
     close: '关闭设置',
     tabs: {
       general: '通用',
-      appearance: '外观',
-      placement: '位置',
       terminal: '终端 HUD',
       desktop: '桌面 HUD',
       claude: 'Claude',
-      updates: '更新',
       about: '关于',
     },
-    preferences: '通用设置',
-    preferencesHint: '设置语言、开机启动、刷新频率和窗口行为。',
+    preferences: '应用基础',
+    preferencesHint: '设置语言、开机启动、刷新频率和性能策略。',
     language: '界面语言',
     languageHint: '切换后立即预览界面语言，保存后下次继续生效。',
     languageOptions: { auto: '跟随系统', en: 'English', 'zh-CN': '简体中文' },
@@ -182,16 +176,16 @@ const settingsMessages = {
     lowPowerMode: '低功耗模式',
     fullscreenAvoidance: '全屏应用时隐藏',
     refreshInterval: '刷新频率',
-    appearance: '外观',
-    appearanceHint: '调整动态岛宽度、用量图表和成本展示方式。',
+    appearance: '桌面展示',
+    appearanceHint: '把动态岛宽度、用量图表和成本展示方式合并在桌面 HUD 里统一调整。',
     islandWidth: '动态岛宽度',
     chartStyle: '用量图表',
     costStyle: '成本展示',
     widthModes: { compact: '紧凑', notch: '灵动岛', custom: '自定义' },
     chartStyles: { ring: '环形', bar: '柱状', stepped: '阶梯', numeric: '数字', sparkline: '趋势线' },
     costStyles: { usd: '美元', value: '金额', tokens: 'Token', trend: '趋势' },
-    placement: '位置',
-    placementHint: '选择显示器、顶部偏移，或重置手动拖拽后的位置。',
+    placement: '桌面位置',
+    placementHint: '选择显示器、顶部偏移、全屏行为，或重置手动拖拽后的位置。',
     targetDisplay: '目标显示器',
     auto: '自动',
     primaryDisplay: '主显示器',
@@ -201,8 +195,8 @@ const settingsMessages = {
     displayDefault: '使用显示器默认位置',
     dragTip: '长按动态岛胶囊后拖动即可移动，松手后会自动保存位置。',
     resetPosition: '重置为显示器默认位置',
-    alertsProviders: '提醒与数据源',
-    alertsProvidersHint: '设置用量提醒阈值，并选择可见的本地 provider。',
+    alertsProviders: '用量数据与提醒',
+    alertsProvidersHint: '把 provider 可见性、Token 口径和用量阈值归在桌面卡片的数据层里。',
     enableUsageAlerts: '启用用量提醒',
     warningThreshold: '警告阈值',
     criticalThreshold: '严重阈值',
@@ -338,12 +332,9 @@ const displayLabel = (display: DisplayInfo, copy: SettingsCopy): string => {
 
 const settingsTabs = (copy: SettingsCopy): Array<{ id: SettingsTab; label: string }> => [
   { id: 'general', label: copy.tabs.general },
-  { id: 'appearance', label: copy.tabs.appearance },
-  { id: 'placement', label: copy.tabs.placement },
-  { id: 'terminal', label: copy.tabs.terminal },
   { id: 'desktop', label: copy.tabs.desktop },
+  { id: 'terminal', label: copy.tabs.terminal },
   { id: 'claude', label: copy.tabs.claude },
-  { id: 'updates', label: copy.tabs.updates },
   { id: 'about', label: copy.tabs.about },
 ]
 
@@ -461,9 +452,7 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
               </div>
               <div className="settings-check-grid settings-check-grid--compact">
                 <label className="setting-check"><input type="checkbox" checked={state.settings.launchAtLogin} onChange={(event) => onPatchSettings({ launchAtLogin: event.currentTarget.checked })} /> <span>{copy.launchAtLogin}</span></label>
-                <label className="setting-check"><input type="checkbox" checked={state.settings.alwaysShowUsage} onChange={(event) => onPatchSettings({ alwaysShowUsage: event.currentTarget.checked })} /> <span>{copy.alwaysShowUsage}</span></label>
                 <label className="setting-check"><input type="checkbox" checked={state.settings.lowPowerMode} onChange={(event) => onPatchSettings({ lowPowerMode: event.currentTarget.checked })} /> <span>{copy.lowPowerMode}</span></label>
-                <label className="setting-check"><input type="checkbox" checked={state.settings.fullscreenAvoidance} onChange={(event) => onPatchSettings({ fullscreenAvoidance: event.currentTarget.checked })} /> <span>{copy.fullscreenAvoidance}</span></label>
               </div>
             </section>
 
@@ -476,6 +465,66 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
                   <button key={minutes} className={state.settings.refreshIntervalMinutes === minutes ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => onPatchSettings({ refreshIntervalMinutes: minutes as 5 | 15 | 30 })}>{minutes}m</button>
                 ))}
               </div>
+            </section>
+          </div>
+        ) : null}
+
+        {activeTab === 'desktop' ? (
+          <div className="settings-tab-panel" role="tabpanel">
+            <section className="settings-section settings-section--flat">
+              <div className="settings-section__heading">
+                <h3>{copy.appearance}</h3>
+                <p>{copy.appearanceHint}</p>
+              </div>
+              <div className="settings-check-grid settings-check-grid--compact">
+                <label className="setting-check"><input type="checkbox" checked={state.settings.alwaysShowUsage} onChange={(event) => onPatchSettings({ alwaysShowUsage: event.currentTarget.checked })} /> <span>{copy.alwaysShowUsage}</span></label>
+                <label className="setting-check"><input type="checkbox" checked={state.settings.fullscreenAvoidance} onChange={(event) => onPatchSettings({ fullscreenAvoidance: event.currentTarget.checked })} /> <span>{copy.fullscreenAvoidance}</span></label>
+              </div>
+              <div className="setting-group">
+                <span className="setting-row__label">{copy.islandWidth}</span>
+                <div className="option-group option-group--wide">
+                  {widthModes.map((mode) => <button key={mode} className={state.settings.islandWidthMode === mode ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => onPatchSettings({ islandWidthMode: mode })}>{copy.widthModes[mode]}</button>)}
+                </div>
+              </div>
+              <div className="setting-group">
+                <span className="setting-row__label">{copy.chartStyle}</span>
+                <div className="option-group option-group--wide">
+                  {chartStyles.map((style) => <button key={style} className={state.settings.chartStyle === style ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => onSetChartStyle(style)}>{copy.chartStyles[style]}</button>)}
+                </div>
+              </div>
+              <div className="setting-group">
+                <span className="setting-row__label">{copy.costStyle}</span>
+                <div className="option-group option-group--wide">
+                  {costStyles.map((style) => <button key={style} className={state.settings.costStyle === style ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => onSetCostStyle(style)}>{copy.costStyles[style]}</button>)}
+                </div>
+              </div>
+            </section>
+
+            <section className="settings-section settings-section--flat">
+              <div className="settings-section__heading">
+                <h3>{copy.placement}</h3>
+                <p>{copy.placementHint}</p>
+              </div>
+              <label className="setting-row setting-row--stacked">
+                <span className="setting-row__label">{copy.targetDisplay}</span>
+                <select value={targetDisplayValue} onChange={(event) => onPatchSettings({ targetDisplay: toTargetDisplay(event.currentTarget.value, displays) })}>
+                  <option value="auto">{copy.auto}</option>
+                  <option value="primary">{copy.primaryDisplay}</option>
+                  {displays.map((display) => (
+                    <option value={display.id} key={display.id}>{displayLabel(display, copy)}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="setting-slider">
+                <div className="setting-slider__head"><span>{copy.topOffset}</span><strong>{state.settings.topOffsetPx}px</strong></div>
+                <input type="range" min="0" max="120" value={state.settings.topOffsetPx} onChange={(event) => onPatchSettings({ topOffsetPx: Number(event.currentTarget.value) })} />
+              </div>
+              <div className="placement-hint">
+                <span>{copy.dragPosition}</span>
+                <strong>{state.settings.overlayPosition ? `${state.settings.overlayPosition.x}, ${state.settings.overlayPosition.y}` : copy.displayDefault}</strong>
+              </div>
+              <p className="settings-note">{copy.dragTip}</p>
+              {state.settings.overlayPosition ? <button className="secondary-button" onClick={() => onPatchSettings({ overlayPosition: null })}>{copy.resetPosition}</button> : null}
             </section>
 
             <section className="settings-section settings-section--flat">
@@ -507,72 +556,12 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
                 </div>
               </div>
             </section>
-          </div>
-        ) : null}
 
-        {activeTab === 'appearance' ? (
-          <div className="settings-tab-panel" role="tabpanel">
-            <section className="settings-section settings-section--flat">
-              <div className="settings-section__heading">
-                <h3>{copy.appearance}</h3>
-                <p>{copy.appearanceHint}</p>
-              </div>
-              <div className="setting-group">
-                <span className="setting-row__label">{copy.islandWidth}</span>
-                <div className="option-group option-group--wide">
-                  {widthModes.map((mode) => <button key={mode} className={state.settings.islandWidthMode === mode ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => onPatchSettings({ islandWidthMode: mode })}>{copy.widthModes[mode]}</button>)}
-                </div>
-              </div>
-              <div className="setting-group">
-                <span className="setting-row__label">{copy.chartStyle}</span>
-                <div className="option-group option-group--wide">
-                  {chartStyles.map((style) => <button key={style} className={state.settings.chartStyle === style ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => onSetChartStyle(style)}>{copy.chartStyles[style]}</button>)}
-                </div>
-              </div>
-              <div className="setting-group">
-                <span className="setting-row__label">{copy.costStyle}</span>
-                <div className="option-group option-group--wide">
-                  {costStyles.map((style) => <button key={style} className={state.settings.costStyle === style ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => onSetCostStyle(style)}>{copy.costStyles[style]}</button>)}
-                </div>
-              </div>
-            </section>
-          </div>
-        ) : null}
-
-        {activeTab === 'placement' ? (
-          <div className="settings-tab-panel" role="tabpanel">
-            <section className="settings-section settings-section--flat">
-              <div className="settings-section__heading">
-                <h3>{copy.placement}</h3>
-                <p>{copy.placementHint}</p>
-              </div>
-              <label className="setting-row setting-row--stacked">
-                <span className="setting-row__label">{copy.targetDisplay}</span>
-                <select value={targetDisplayValue} onChange={(event) => onPatchSettings({ targetDisplay: toTargetDisplay(event.currentTarget.value, displays) })}>
-                  <option value="auto">{copy.auto}</option>
-                  <option value="primary">{copy.primaryDisplay}</option>
-                  {displays.map((display) => (
-                    <option value={display.id} key={display.id}>{displayLabel(display, copy)}</option>
-                  ))}
-                </select>
-              </label>
-              <div className="setting-slider">
-                <div className="setting-slider__head"><span>{copy.topOffset}</span><strong>{state.settings.topOffsetPx}px</strong></div>
-                <input type="range" min="0" max="120" value={state.settings.topOffsetPx} onChange={(event) => onPatchSettings({ topOffsetPx: Number(event.currentTarget.value) })} />
-              </div>
-              <div className="placement-hint">
-                <span>{copy.dragPosition}</span>
-                <strong>{state.settings.overlayPosition ? `${state.settings.overlayPosition.x}, ${state.settings.overlayPosition.y}` : copy.displayDefault}</strong>
-              </div>
-              <p className="settings-note">{copy.dragTip}</p>
-              {state.settings.overlayPosition ? <button className="secondary-button" onClick={() => onPatchSettings({ overlayPosition: null })}>{copy.resetPosition}</button> : null}
-            </section>
+            <DesktopHudPanel config={state.settings.desktopHud} language={uiLanguage} onPatchSettings={onPatchSettings} />
           </div>
         ) : null}
 
         {activeTab === 'terminal' ? <TerminalHudPanel config={state.settings.terminalHud} language={uiLanguage} previewState={normalizedHudState} claudeContextWindowSize={globalBridge?.contextWindowSizeEnv ?? null} onPatchSettings={onPatchSettings} /> : null}
-
-        {activeTab === 'desktop' ? <DesktopHudPanel config={state.settings.desktopHud} language={uiLanguage} onPatchSettings={onPatchSettings} /> : null}
 
         {activeTab === 'claude' ? (
           <div className="settings-tab-panel" role="tabpanel">
@@ -606,7 +595,7 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
           </div>
         ) : null}
 
-        {activeTab === 'updates' ? (
+        {activeTab === 'about' ? (
           <div className="settings-tab-panel" role="tabpanel">
             <section className="settings-section settings-section--flat">
               <div className="settings-section__heading">
@@ -631,11 +620,7 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
                 <button className="secondary-button" disabled={!updateState?.manualUpdateAvailable} onClick={() => void handleOpenReleasePage()}>{copy.openReleasePage}</button>
               </div>
             </section>
-          </div>
-        ) : null}
 
-        {activeTab === 'about' ? (
-          <div className="settings-tab-panel" role="tabpanel">
             <section className="settings-section settings-section--flat">
               <div className="settings-section__heading">
                 <h3>{copy.diagnostics}</h3>

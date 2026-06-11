@@ -30,7 +30,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_tray_icon_event(|tray, event| match event {
             TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. }
             | TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } => {
-                show_main_window(tray.app_handle());
+                show_main_and_settings(tray.app_handle());
             }
             _ => {}
         });
@@ -41,6 +41,11 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
 
     builder.build(app)?;
     Ok(())
+}
+
+pub fn show_main_and_settings(app: &AppHandle) {
+    show_main_window(app);
+    show_settings_window(app);
 }
 
 fn show_main_window(app: &AppHandle) {

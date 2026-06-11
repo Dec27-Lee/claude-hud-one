@@ -334,10 +334,14 @@ pub fn run() {
                         let _ = settings_window_for_close.hide();
                     }
                 });
+
+                let _ = settings_window.show();
+                let _ = settings_window.set_focus();
             }
 
             let fullscreen_tracker = app.state::<FullscreenTracker>().inner().clone();
             window::fullscreen::start_fullscreen_tracker(app.handle().clone(), fullscreen_tracker);
+            window::single_instance::start_open_settings_listener(app.handle().clone());
 
             let _ = window::claude_global::ensure_global_bridge();
 

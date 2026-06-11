@@ -5,7 +5,8 @@ use windows::{
     core::w,
     Win32::{
         Foundation::{CloseHandle, GetLastError, HANDLE, ERROR_ALREADY_EXISTS},
-        System::Threading::CreateMutexW,
+        System::Threading::{CreateMutexW, OpenEventW, SetEvent, EVENT_MODIFY_STATE},
+        UI::WindowsAndMessaging::{FindWindowW, SetForegroundWindow, ShowWindow, SW_SHOWNORMAL},
     },
 };
 
@@ -30,10 +31,35 @@ fn acquire_single_instance() -> Option<SingleInstanceGuard> {
         unsafe {
             let _ = CloseHandle(mutex);
         }
+        signal_existing_instance();
         return None;
     }
 
     Some(SingleInstanceGuard(mutex))
+}
+
+#[cfg(windows)]
+fn signal_existing_instance() {
+    if let Ok(event) = unsafe { OpenEventW(EVENT_MODIFY_STATE, false, w!("Local\\ClaudeHUDOne.OpenSettings")) } {
+        unsafe {
+            let _ = SetEvent(event);
+            let _ = CloseHandle(event);
+        }
+    }
+
+    raise_existing_settings_window();
+}
+
+#[cfg(windows)]
+fn raise_existing_settings_window() {
+    let Ok(window) = (unsafe { FindWindowW(None, w!("Claude HUD One Settings")) }) else {
+        return;
+    };
+
+    unsafe {
+        let _ = ShowWindow(window, SW_SHOWNORMAL);
+        let _ = SetForegroundWindow(window);
+    }
 }
 
 fn main() {

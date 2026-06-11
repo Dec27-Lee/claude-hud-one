@@ -460,7 +460,7 @@ button { color: inherit; }
 
 .settings-tab-list {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 4px;
   flex: 0 0 auto;
   margin-bottom: 26px;

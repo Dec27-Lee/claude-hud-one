@@ -9,6 +9,10 @@
 | 2026-06-11 | Terminal HUD parity、上下文窗口配置与默认配置 | done | Terminal HUD parity、activityLine、sessionTokens、颜色、sessionTime、Todo、CLAUDE_HUD_CONTEXT_WINDOW_SIZE、默认 terminalHud | `records/2026-06-11-terminal-hud-parity-and-config.md` | 记录多轮 HUD Plus parity 复核、context window 同步链路和安装初始化默认配置。 |
 | 2026-06-11 | 扩展屏透明遮罩吞点击根因级修复 | done | 扩展屏、透明遮罩、点击穿透、Window Region、overlay hit-test、hover 抖动、Win32、Tauri | `records/2026-06-11-overlay-click-through-root-fix.md` | 主 overlay 从大透明窗口改为固定槽位/内容包围盒 + 原生 Window Region；hover 抖动已解决。 |
 | 2026-06-11 | 工作日志结构纠偏与全量重整 | done | work-journal、工作日志、索引整理、records 拆分、记录重写、规范纠偏 | `records/2026-06-11-work-journal-structure-correction.md` | 本次按技能要求全量重整 records 目录和二级索引。 |
+| 2026-06-11 | Claude Code rust-analyzer LSP 报错修复 | done | /doctor、LSP、rust-analyzer-lsp、rustup、rust-analyzer、Claude Code 插件 | `records/2026-06-11-claude-code-rust-analyzer-lsp-fix.md` | 已补装 rustup 的 rust-analyzer 与 rust-src 组件，语言服务器可执行文件恢复可用。 |
+| 2026-06-11 | 启动后自动打开设置页 | done | 启动、设置窗口、悬浮窗、Tauri setup、open settings on launch | `records/2026-06-11-open-settings-on-launch.md` | 点击应用启动时除显示悬浮窗外，同时打开并聚焦 Settings 页面。 |
+| 2026-06-11 | 设置页面 Tab 重组 | done | Settings、设置页、tab、通用、桌面HUD、终端HUD、Claude、关于、配置项合并 | `records/2026-06-11-settings-tabs-reorganization.md` | 将设置页从多 tab 收敛为 5 个主 tab，并重新归类非终端 HUD 配置；构建、UI smoke、重新打包安装已通过。 |
+| 2026-06-11 | 提交并推送 main | in_progress | git、commit、push、origin/main、Claude 协作者署名 | `records/2026-06-11-commit-push-main.md` | 用户确认使用当前 Git 身份并带 Claude 协作者署名提交当前工作区改动后推送到远程 main。 |
 
 ## 状态说明
 
