@@ -131,6 +131,18 @@ function Install-ClaudeHudOneBridge {
   $bridgeCommand = "node `"$bridgePath`""
   $hookCommand = "$bridgeCommand --hook"
   $previousStatusLine = $settings.statusLine.command
+  $contextWindowSize = $null
+  try {
+    $contextWindowSize = [string]$settings.env.CLAUDE_HUD_CONTEXT_WINDOW_SIZE
+    if ([string]::IsNullOrWhiteSpace($contextWindowSize)) { $contextWindowSize = [string]$settings.statusLine.env.CLAUDE_HUD_CONTEXT_WINDOW_SIZE }
+    if ([string]::IsNullOrWhiteSpace($contextWindowSize)) { $contextWindowSize = $null }
+  } catch {
+    $contextWindowSize = $null
+  }
+  if ($contextWindowSize) {
+    $envObject = Ensure-ObjectProperty $settings 'env'
+    $envObject | Add-Member -MemberType NoteProperty -Name CLAUDE_HUD_CONTEXT_WINDOW_SIZE -Value $contextWindowSize -Force
+  }
 
   Save-UpstreamStatusLine $appDataDir $previousStatusLine $bridgeCommand
 

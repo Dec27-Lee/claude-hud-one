@@ -32,6 +32,7 @@ export const normalizeHudState = (
       activity: safeActivity(bridge?.activity ?? session.activity),
       sourceLabel: session.sourceLabel,
       statusText,
+      permissionMode: bridge?.permissionMode ?? session.permissionMode ?? null,
       lastEventLabel: session.lastEventLabel,
       scannedAtLabel: session.scannedAtLabel,
       startedAt: bridge?.sessionStartedAt ?? session.sessionStartedAt ?? null,
@@ -49,7 +50,7 @@ export const normalizeHudState = (
     context: {
       usedPercent: bridge?.contextUsedPercent ?? session.contextUsedPercent ?? null,
       remainingPercent: bridge?.contextRemainingPercent ?? null,
-      windowSize: bridge?.contextWindowSize ?? null,
+      windowSize: bridge?.contextWindowSize ?? session.contextWindowSize ?? null,
       usedTokens: bridge?.contextUsedTokens ?? session.contextUsedTokens ?? null,
     },
     workspace: {
@@ -61,12 +62,12 @@ export const normalizeHudState = (
       gitBehind: bridge?.gitBehind ?? session.gitBehind ?? null,
     },
     tokens: {
-      input: bridge?.inputTokens ?? null,
-      output: bridge?.outputTokens ?? null,
-      cacheCreationInput: bridge?.cacheCreationInputTokens ?? null,
-      cacheReadInput: bridge?.cacheReadInputTokens ?? null,
-      sessionInput: bridge?.inputTokens ?? null,
-      sessionOutput: bridge?.outputTokens ?? null,
+      input: bridge?.inputTokens ?? session.inputTokens ?? null,
+      output: bridge?.outputTokens ?? session.outputTokens ?? null,
+      cacheCreationInput: bridge?.cacheCreationInputTokens ?? session.cacheCreationInputTokens ?? null,
+      cacheReadInput: bridge?.cacheReadInputTokens ?? session.cacheReadInputTokens ?? null,
+      sessionInput: bridge?.inputTokens ?? session.inputTokens ?? null,
+      sessionOutput: bridge?.outputTokens ?? session.outputTokens ?? null,
     },
     usage: {
       fiveHourUsedPercent: bridge?.fiveHourUsedPercent ?? null,
@@ -84,7 +85,8 @@ export const normalizeHudState = (
     activity: {
       ...zeroCounts,
       activeToolName: bridge?.toolName ?? session.activeToolName ?? null,
-      toolsCount: session.toolCallRecordCount,
+      toolsCount: safeCount(bridge?.toolsCount ?? session.toolsCount ?? session.toolCallRecordCount),
+      toolsRunningCount: safeCount(bridge?.toolsRunningCount ?? session.toolsRunningCount ?? (bridge?.toolName || session.activeToolName ? 1 : 0)),
       agentsCount: safeCount(bridge?.agentsCount ?? session.agentsCount),
       agentsRunningCount: safeCount(bridge?.agentsRunningCount ?? session.agentsRunningCount),
       todosCount: safeCount(bridge?.todosTotalCount ?? session.todosTotalCount),

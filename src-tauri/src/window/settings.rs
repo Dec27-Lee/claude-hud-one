@@ -45,18 +45,18 @@ fn default_terminal_hud() -> Value {
     serde_json::from_str(
         r##"{
             "enabled": true,
-            "preset": "hud-plus-default",
+            "preset": "custom",
             "language": "en",
             "rows": [
                 ["model", "contextBar", "contextValue"],
                 ["project", "addedDirs", "git"],
-                ["sessionTokens"],
+                ["sessionTokens", "sessionTime"],
                 ["activity"]
             ],
             "rowOverflow": "truncate",
             "activityLine": {
                 "mode": "auto",
-                "maxWidthRatio": 0.9,
+                "maxWidthRatio": 1,
                 "toolNameFormat": "short",
                 "items": {
                     "todos": true,
@@ -65,9 +65,9 @@ fn default_terminal_hud() -> Value {
                     "sessionTime": false
                 },
                 "warnings": {
-                    "usage": true,
-                    "memory": true,
-                    "environment": true,
+                    "usage": false,
+                    "memory": false,
+                    "environment": false,
                     "promptCache": false
                 }
             },
@@ -78,8 +78,8 @@ fn default_terminal_hud() -> Value {
             "gitStatus": {
                 "enabled": true,
                 "showDirty": true,
-                "showAheadBehind": false,
-                "showFileStats": false,
+                "showAheadBehind": true,
+                "showFileStats": true,
                 "branchOverflow": "truncate",
                 "pushWarningThreshold": 0,
                 "pushCriticalThreshold": 0
@@ -94,9 +94,9 @@ fn default_terminal_hud() -> Value {
                 "project": "#FBBF24",
                 "git": "#C084FC",
                 "gitBranch": "#22D3EE",
-                "label": "dim",
-                "labelTitle": "dim",
-                "labelValue": "dim",
+                "label": "#38BDF8",
+                "labelTitle": "#38BDF8",
+                "labelValue": "#b8eaff",
                 "custom": 208,
                 "barFilled": "█",
                 "barEmpty": "░",
@@ -125,14 +125,14 @@ fn default_terminal_hud() -> Value {
                 "showTodos": true,
                 "showSessionName": false,
                 "showClaudeCodeVersion": false,
-                "showEffortLevel": false,
+                "showEffortLevel": true,
                 "showMemoryUsage": false,
                 "showEnvironment": false,
                 "showPromptCache": false,
                 "promptCacheTtlSeconds": 300,
                 "showSessionTokens": true,
                 "showOutputStyle": false,
-                "showSessionStartDate": false,
+                "showSessionStartDate": true,
                 "showLastResponseAt": false,
                 "mergeGroups": [["context", "usage"]],
                 "autocompactBuffer": "enabled",
@@ -145,6 +145,8 @@ fn default_terminal_hud() -> Value {
                 "externalUsageFreshnessMs": 300000,
                 "modelFormat": "full",
                 "modelOverride": "",
+                "contextWindowSizeOverride": "",
+                "contextWindowSizeOverrideManaged": true,
                 "customLine": "",
                 "timeFormat": "relative"
             }

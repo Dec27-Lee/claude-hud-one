@@ -20,7 +20,15 @@ const compactTokens = (tokens: number | null | undefined): string | null => {
   if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens <= 0) return null
   if (tokens < 1_000) return `${Math.round(tokens)} tokens`
   if (tokens < 10_000) return `${(tokens / 1_000).toFixed(1)}K`
-  return `${Math.round(tokens / 1_000)}K`
+  if (tokens < 1_000_000) return `${Math.round(tokens / 1_000)}K`
+  return `${(tokens / 1_000_000).toFixed(1)}M`
+}
+
+const sessionTokenTotal = (session: CurrentSessionState): number | null => {
+  const total = [session.inputTokens, session.outputTokens, session.cacheCreationInputTokens, session.cacheReadInputTokens]
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+    .reduce((sum, value) => sum + value, 0)
+  return total > 0 ? total : null
 }
 
 const positiveCount = (value: number | null | undefined): number => (
@@ -80,7 +88,7 @@ const panelItemLabel = (session: CurrentSessionState, item: HudDisplayItemId, is
     case 'model': return session.modelLabel ?? null
     case 'tools': return session.activeToolName ? `Tool ${session.activeToolName}` : null
     case 'contextValue': return compactTokens(session.contextUsedTokens) ? `${compactTokens(session.contextUsedTokens)} context` : null
-    case 'sessionTokens': return compactTokens(session.contextUsedTokens) ? `${compactTokens(session.contextUsedTokens)} tokens` : null
+    case 'sessionTokens': return compactTokens(sessionTokenTotal(session)) ? `${compactTokens(sessionTokenTotal(session))} tokens` : null
     case 'cost': return typeof session.totalCostUsd === 'number' && session.totalCostUsd > 0 ? `$${session.totalCostUsd.toFixed(session.totalCostUsd < 10 ? 2 : 1)}` : null
     case 'git': return session.gitBranch ? `git ${session.gitBranch}${session.gitDirty ? '*' : ''}` : null
     case 'addedDirs': return session.addedDirSlugs?.length ? `dirs ${session.addedDirSlugs.join(', ')}` : null

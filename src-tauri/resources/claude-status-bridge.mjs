@@ -18,6 +18,13 @@ const APPDATA_SESSIONS_DIR = process.env.APPDATA
 const APPDATA_SETTINGS_PATH = process.env.APPDATA
   ? resolve(process.env.APPDATA, 'Claude HUD One', 'settings.json')
   : null
+const CLAUDE_SETTINGS_PATH = (() => {
+  const configDir = typeof process.env.CLAUDE_CONFIG_DIR === 'string' ? process.env.CLAUDE_CONFIG_DIR.split(',')[0]?.trim() : ''
+  if (configDir) return resolve(configDir, 'settings.json')
+  if (process.env.USERPROFILE) return resolve(process.env.USERPROFILE, '.claude', 'settings.json')
+  if (process.env.HOME) return resolve(process.env.HOME, '.claude', 'settings.json')
+  return null
+})()
 const RUNNING_HOOK_HOLD_MS = Number(process.env.CLAUDE_HUD_ONE_RUNNING_HOOK_HOLD_MS ?? 15 * 60_000)
 const TERMINAL_HOOK_HOLD_MS = Number(process.env.CLAUDE_HUD_ONE_TERMINAL_HOOK_HOLD_MS ?? 8_000)
 
@@ -85,12 +92,20 @@ const sumPositive = (...values) => {
   return numbers.reduce((sum, value) => sum + value, 0)
 }
 
-const formatTokenK = (tokens) => {
-  const number = positiveNumberOrNull(tokens)
-  if (number === null) return null
+const sumNonNegative = (...values) => {
+  const numbers = values.map(numberOrNull).filter((value) => value !== null && value >= 0)
+  if (numbers.length === 0) return null
+  return numbers.reduce((sum, value) => sum + value, 0)
+}
+
+const formatTokenK = (tokens, allowZero = false) => {
+  const number = numberOrNull(tokens)
+  if (number === null || number < 0 || (!allowZero && number === 0)) return null
+  if (number === 0) return '0'
   if (number < 1_000) return `${Math.round(number)} tokens`
   if (number < 10_000) return `${(number / 1_000).toFixed(1)}K`
-  return `${Math.round(number / 1_000)}K`
+  if (number < 1_000_000) return `${Math.round(number / 1_000)}K`
+  return `${(number / 1_000_000).toFixed(1)}M`
 }
 
 const nonNegativeIntegerOrNull = (value) => {
@@ -207,21 +222,21 @@ const readEnvironmentSummary = (cwd) => {
 
 const DEFAULT_TERMINAL_HUD_CONFIG = {
   enabled: true,
-  preset: 'hud-plus-default',
+  preset: 'custom',
   language: 'en',
   rows: [
     ['model', 'contextBar', 'contextValue'],
     ['project', 'addedDirs', 'git'],
-    ['sessionTokens'],
+    ['sessionTokens', 'sessionTime'],
     ['activity'],
   ],
   rowOverflow: 'truncate',
   activityLine: {
     mode: 'auto',
-    maxWidthRatio: 0.9,
+    maxWidthRatio: 1,
     toolNameFormat: 'short',
     items: { todos: true, agents: true, tools: true, sessionTime: false },
-    warnings: { usage: true, memory: true, environment: true, promptCache: false },
+    warnings: { usage: false, memory: false, environment: false, promptCache: false },
   },
   showSeparators: false,
   pathLevels: 1,
@@ -230,8 +245,8 @@ const DEFAULT_TERMINAL_HUD_CONFIG = {
   gitStatus: {
     enabled: true,
     showDirty: true,
-    showAheadBehind: false,
-    showFileStats: false,
+    showAheadBehind: true,
+    showFileStats: true,
     branchOverflow: 'truncate',
     pushWarningThreshold: 0,
     pushCriticalThreshold: 0,
@@ -246,9 +261,9 @@ const DEFAULT_TERMINAL_HUD_CONFIG = {
     project: '#FBBF24',
     git: '#C084FC',
     gitBranch: '#22D3EE',
-    label: 'dim',
-    labelTitle: 'dim',
-    labelValue: 'dim',
+    label: '#38BDF8',
+    labelTitle: '#38BDF8',
+    labelValue: '#b8eaff',
     custom: 208,
     barFilled: '█',
     barEmpty: '░',
@@ -277,14 +292,14 @@ const DEFAULT_TERMINAL_HUD_CONFIG = {
     showTodos: true,
     showSessionName: false,
     showClaudeCodeVersion: false,
-    showEffortLevel: false,
+    showEffortLevel: true,
     showMemoryUsage: false,
     showEnvironment: false,
     showPromptCache: false,
     promptCacheTtlSeconds: 300,
     showSessionTokens: true,
     showOutputStyle: false,
-    showSessionStartDate: false,
+    showSessionStartDate: true,
     showLastResponseAt: false,
     mergeGroups: [['context', 'usage']],
     autocompactBuffer: 'enabled',
@@ -297,6 +312,8 @@ const DEFAULT_TERMINAL_HUD_CONFIG = {
     externalUsageFreshnessMs: 300000,
     modelFormat: 'full',
     modelOverride: '',
+    contextWindowSizeOverride: '',
+    contextWindowSizeOverrideManaged: true,
     customLine: '',
     timeFormat: 'relative',
   },
@@ -336,13 +353,69 @@ const mergeTerminalHudConfig = (config) => ({
   },
 })
 
+let appSettingsCache
+let contextWindowSettingsSynced = false
+
+const readAppSettings = () => {
+  if (typeof appSettingsCache !== 'undefined') return appSettingsCache
+  try {
+    appSettingsCache = APPDATA_SETTINGS_PATH ? JSON.parse(readFileSync(APPDATA_SETTINGS_PATH, 'utf8').replace(/^﻿/, '')) : null
+  } catch {
+    appSettingsCache = null
+  }
+  return appSettingsCache
+}
+
 const readTerminalHudConfig = () => {
   if (process.env.CLAUDE_HUD_ONE_TERMINAL_HUD === '0') return { ...DEFAULT_TERMINAL_HUD_CONFIG, enabled: false }
   try {
-    const settings = APPDATA_SETTINGS_PATH ? JSON.parse(readFileSync(APPDATA_SETTINGS_PATH, 'utf8')) : null
-    return mergeTerminalHudConfig(settings?.terminalHud)
+    const settings = readAppSettings()
+    const config = mergeTerminalHudConfig(settings?.terminalHud)
+    if (settings?.terminalHud?.preset === 'hud-plus-default') return mergeTerminalHudConfig(DEFAULT_TERMINAL_HUD_CONFIG)
+    return config
   } catch {
     return DEFAULT_TERMINAL_HUD_CONFIG
+  }
+}
+
+const appContextWindowOverrideState = () => {
+  const display = readAppSettings()?.terminalHud?.display
+  const managed = display?.contextWindowSizeOverrideManaged === true
+  if (!managed) return { managed: false, value: null }
+  const value = positiveNumberOrNull(display?.contextWindowSizeOverride)
+  return { managed: true, value: value === null ? null : Math.round(value) }
+}
+
+const syncContextWindowOverrideToClaudeSettings = () => {
+  if (contextWindowSettingsSynced) return
+  contextWindowSettingsSynced = true
+  const state = appContextWindowOverrideState()
+  if (!state.managed || !CLAUDE_SETTINGS_PATH) return
+  try {
+    const settings = existsSync(CLAUDE_SETTINGS_PATH)
+      ? JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, 'utf8').replace(/^﻿/, ''))
+      : { $schema: 'https://json.schemastore.org/claude-code-settings.json' }
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return
+    const before = JSON.stringify(settings)
+    if (state.value === null) {
+      if (settings.env && typeof settings.env === 'object' && !Array.isArray(settings.env)) {
+        delete settings.env.CLAUDE_HUD_CONTEXT_WINDOW_SIZE
+        if (Object.keys(settings.env).length === 0) delete settings.env
+      }
+    } else {
+      if (!settings.env || typeof settings.env !== 'object' || Array.isArray(settings.env)) settings.env = {}
+      settings.env.CLAUDE_HUD_CONTEXT_WINDOW_SIZE = String(state.value)
+    }
+    if (settings.statusLine?.env && typeof settings.statusLine.env === 'object' && !Array.isArray(settings.statusLine.env)) {
+      delete settings.statusLine.env.CLAUDE_HUD_CONTEXT_WINDOW_SIZE
+      if (Object.keys(settings.statusLine.env).length === 0) delete settings.statusLine.env
+    }
+    if (JSON.stringify(settings) !== before) {
+      mkdirSync(dirname(CLAUDE_SETTINGS_PATH), { recursive: true })
+      writeFileSync(CLAUDE_SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf8')
+    }
+  } catch {
+    // StatusLine rendering must never fail because config sync failed.
   }
 }
 
@@ -511,6 +584,14 @@ const formatConfiguredTime = (value, mode) => {
   return relative
 }
 
+const formatDateMinute = (value) => {
+  const timestamp = millisOrNull(value)
+  if (timestamp === null) return null
+  const date = new Date(timestamp)
+  const pad = (input) => String(input).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 const colorKeyForBand = (value, config, kind) => {
   const percent = compactPercent(value)
   if (percent === null) return kind === 'usage' ? 'usage' : 'context'
@@ -584,14 +665,14 @@ const renderBar = (percent, config, width = 10, kind = 'context') => {
 
 const renderContextValue = (state, config) => {
   const mode = config.display.contextValue
-  const usedTokens = positiveNumberOrNull(state.contextUsedTokens)
+  const usedTokens = nonNegativeIntegerOrNull(state.contextUsedTokens)
   const windowTokens = positiveNumberOrNull(state.contextWindowSize)
   const usedPercent = contextUsedPercent(state)
   const remainingPercent = compactPercent(state.contextRemainingPercent)
     ?? (usedPercent === null ? null : Math.max(0, 100 - usedPercent))
   const remainingTokens = usedTokens !== null && windowTokens !== null ? Math.max(0, windowTokens - usedTokens) : null
   const tokenLabel = usedTokens !== null
-    ? (windowTokens !== null ? `${formatTokenK(usedTokens)}/${formatTokenK(windowTokens)}` : formatTokenK(usedTokens))
+    ? (windowTokens !== null ? `${formatTokenK(usedTokens, true)}/${formatTokenK(windowTokens, true)}` : formatTokenK(usedTokens, true))
     : null
   const percentLabel = usedPercent === null ? null : `${usedPercent}%`
   const remainingLabel = remainingTokens !== null ? `${formatTokenK(remainingTokens)} left` : (remainingPercent === null ? null : `${remainingPercent}% left`)
@@ -605,14 +686,19 @@ const renderContextValue = (state, config) => {
 
 const renderSessionTokens = (state, config) => {
   if (!config.display.showSessionTokens) return null
-  const parts = [
-    state.inputTokens ? `in ${formatTokenK(state.inputTokens)}` : null,
-    state.outputTokens ? `out ${formatTokenK(state.outputTokens)}` : null,
-    config.display.showTokenBreakdown && (state.cacheCreationInputTokens || state.cacheReadInputTokens)
-      ? `cache ${formatTokenK(sumPositive(state.cacheCreationInputTokens, state.cacheReadInputTokens))}`
-      : null,
-  ].filter(Boolean)
-  return parts.length ? `${dim(config, 'tokens')} ${parts.join(' ')}` : null
+  const input = nonNegativeIntegerOrNull(state.inputTokens) ?? 0
+  const output = nonNegativeIntegerOrNull(state.outputTokens) ?? 0
+  const cache = (nonNegativeIntegerOrNull(state.cacheCreationInputTokens) ?? 0) + (nonNegativeIntegerOrNull(state.cacheReadInputTokens) ?? 0)
+  const total = input + output + cache
+  if (!total) return null
+  const value = (text) => themed(config, 'labelValue', '37', text)
+  const title = (text) => themed(config, 'labelTitle', '2', text)
+  const parts = config.display.showTokenBreakdown ? [
+    input ? `${title('in:')} ${value(formatTokenK(input))}` : null,
+    output ? `${title('out:')} ${value(formatTokenK(output))}` : null,
+    cache ? `${title('cache:')} ${value(formatTokenK(cache))}` : null,
+  ].filter(Boolean) : []
+  return `${title('Tokens')} ${value(formatTokenK(total))}${parts.length ? ` (${parts.join(', ')})` : ''}`
 }
 
 const renderUsage = (state, config) => {
@@ -651,10 +737,10 @@ const renderGit = (state, config) => {
     themed(config, 'gitBranch', '36', `${branch}${config.gitStatus?.showDirty !== false && state.gitDirty ? '*' : ''}`),
     config.gitStatus?.showAheadBehind ? (nonNegativeIntegerOrNull(state.gitAhead) ? `↑${state.gitAhead}` : null) : null,
     config.gitStatus?.showAheadBehind ? (nonNegativeIntegerOrNull(state.gitBehind) ? `↓${state.gitBehind}` : null) : null,
-    config.gitStatus?.showFileStats && nonNegativeIntegerOrNull(state.totalLinesAdded) ? `+${state.totalLinesAdded}` : null,
-    config.gitStatus?.showFileStats && nonNegativeIntegerOrNull(state.totalLinesRemoved) ? `-${state.totalLinesRemoved}` : null,
+    config.gitStatus?.showFileStats && nonNegativeIntegerOrNull(state.totalLinesAdded) ? color('32', `+${state.totalLinesAdded}`) : null,
+    config.gitStatus?.showFileStats && nonNegativeIntegerOrNull(state.totalLinesRemoved) ? color('31', `-${state.totalLinesRemoved}`) : null,
   ].filter(Boolean)
-  return `${themed(config, 'git', '35', 'git:')} ${parts.join(' ')}`
+  return `${themed(config, 'git', '35', 'git:')}(${parts.join(' ')})`
 }
 
 const renderPromptCache = (state, config) => {
@@ -692,32 +778,82 @@ const renderEnvironment = (state, config) => {
   return parts.length ? `${dim(config, 'env')} ${parts.join(' · ')}` : null
 }
 
-const renderAgents = (state, config) => {
-  if (!config.display.showAgents) return null
+const renderAgents = (state, config, summary = false, respectDisplay = true) => {
+  if (respectDisplay && !config.display.showAgents) return null
   const total = nonNegativeIntegerOrNull(state.agentsCount) ?? 0
   const running = nonNegativeIntegerOrNull(state.agentsRunningCount) ?? 0
   if (!total && !running) return null
-  return `${dim(config, 'agents')} ${total || running}${running ? ` (${running} running)` : ''}`
+  const count = total || running
+  return `${running ? '◐' : '✓'} ${themed(config, 'labelTitle', '2', 'Agents')} ${count}${running ? ` (${running} running)` : ''}`
 }
 
-const renderTodos = (state, config) => {
-  if (!config.display.showTodos) return null
+const shortToolName = (toolName, activityLine) => {
+  if (activityLine.toolNameFormat === 'full') return toolName
+  const match = /^mcp__([^_]+(?:-[^_]+)*)__([\w-]+)$/i.exec(toolName)
+  if (match) return `${match[1].replace(/^plugin[-_]?/i, '')}.${match[2]}`
+  return toolName.replace(/^mcp__/i, '')
+}
+
+const renderTools = (state, config, summary = false, respectDisplay = true) => {
+  if (respectDisplay && !config.display.showTools) return null
+  const activityLine = config.activityLine ?? DEFAULT_TERMINAL_HUD_CONFIG.activityLine
+  const tool = isRegularToolName(state.toolName) ? stringOrNull(state.toolName) : null
+  const total = nonNegativeIntegerOrNull(state.toolsCount) ?? 0
+  const explicitRunning = nonNegativeIntegerOrNull(state.toolsRunningCount) ?? 0
+  const errors = nonNegativeIntegerOrNull(state.toolsErrorCount) ?? 0
+  const runningTools = Array.isArray(state.toolsRunning)
+    ? state.toolsRunning.filter((item) => isRegularToolName(item?.name))
+    : []
+  const counts = state.toolCountsByName && typeof state.toolCountsByName === 'object' ? state.toolCountsByName : null
+  const runningNames = [...(tool ? [tool] : []), ...runningTools.map((item) => item.name)]
+    .filter((name, index, names) => stringOrNull(name) && names.indexOf(name) === index)
+    .slice(-2)
+  const running = Math.max(explicitRunning, runningNames.length)
+  if (!total && !running && !counts && !errors) return null
+  if (!summary) {
+    const parts = runningNames.map((name) => `◐ ${shortToolName(name, activityLine)}`)
+    if (counts) {
+      parts.push(...Object.entries(counts)
+        .filter(([name, count]) => isRegularToolName(name) && nonNegativeIntegerOrNull(count))
+        .sort((left, right) => (nonNegativeIntegerOrNull(right[1]) ?? 0) - (nonNegativeIntegerOrNull(left[1]) ?? 0))
+        .slice(0, 4)
+        .map(([name, count]) => `✓ ${shortToolName(name, activityLine)} ×${nonNegativeIntegerOrNull(count)}`))
+    }
+    if (parts.length) return parts.join(' ')
+  }
+  const count = total || running || 1
+  const icon = running ? '◐' : errors ? '⚠' : '✓'
+  return `${icon} ${themed(config, 'labelTitle', '2', 'Tools')} ${count}${running ? ` (${running} running)` : ''}`
+}
+
+const renderTodos = (state, config, summary = false, respectDisplay = true) => {
+  if (respectDisplay && !config.display.showTodos) return null
   const total = nonNegativeIntegerOrNull(state.todosTotalCount) ?? 0
   const active = nonNegativeIntegerOrNull(state.todosActiveCount) ?? 0
   const completed = nonNegativeIntegerOrNull(state.todosCompletedCount) ?? 0
   if (!total && !active && !completed) return null
-  return total ? `${dim(config, 'todos')} ${completed}/${total}${active ? ` · ${active} active` : ''}` : `${dim(config, 'todos')} ${active || completed}`
+  const effectiveTotal = total || active + completed
+  const progress = effectiveTotal ? `(${completed}/${effectiveTotal})` : ''
+  if (summary) {
+    if (active) return `▸ ${themed(config, 'labelTitle', '2', 'Todo')} ${progress}`.trim()
+    if (effectiveTotal && completed >= effectiveTotal) return `✓ ${themed(config, 'labelTitle', '2', 'Todos')} ${progress}`.trim()
+    return `Todo ${progress}`.trim()
+  }
+  if (active) return `▸ ${themed(config, 'labelTitle', '2', 'Todo')} ${progress}`.trim()
+  if (effectiveTotal && completed >= effectiveTotal) return `✓ All todos complete ${progress}`.trim()
+  return null
 }
 
 const renderSessionTime = (state, config) => {
   const mode = config.display.timeFormat ?? 'relative'
-  const startTime = formatConfiguredTime(state.sessionStartedAt, mode)
   const lastResponse = formatConfiguredTime(state.lastAssistantResponseAt, mode)
+  const value = (text) => themed(config, 'labelValue', '37', text)
+  const title = (text) => themed(config, 'labelTitle', '2', text)
   const parts = [
-    config.display.showSessionStartDate && startTime ? `start ${startTime}` : null,
-    config.display.showLastResponseAt && lastResponse ? `last ${lastResponse}` : null,
+    config.display.showSessionStartDate && state.sessionStartedAt ? `${title('Started:')} ${value(formatDateMinute(state.sessionStartedAt))}` : null,
+    config.display.showLastResponseAt && lastResponse ? `${title('Last reply:')} ${value(lastResponse)}` : null,
   ].filter(Boolean)
-  return parts.length ? parts.join(' · ') : null
+  return parts.length ? parts.join(' │ ') : null
 }
 
 const renderSpeed = (state, config) => {
@@ -726,39 +862,49 @@ const renderSpeed = (state, config) => {
   return `${speed >= 10 ? Math.round(speed) : speed.toFixed(1)} tok/s`
 }
 
+const meaningfulStatusText = (state) => {
+  const text = stringOrNull(state.statusText)
+  if (!text) return null
+  if (/^(active|claude code active|claude hud one)$/i.test(text)) return null
+  if (/context$/i.test(text) && (state.modelName ? text.includes(state.modelName) : true)) return null
+  return text
+}
+
 const renderActivity = (state, config) => {
   const activityLine = config.activityLine ?? DEFAULT_TERMINAL_HUD_CONFIG.activityLine
   const items = activityLine.items ?? DEFAULT_TERMINAL_HUD_CONFIG.activityLine.items
   const warnings = activityLine.warnings ?? DEFAULT_TERMINAL_HUD_CONFIG.activityLine.warnings
-  const details = []
-  if (items.tools !== false) {
-    const tool = stringOrNull(state.toolName)
-    if (tool) details.push(`${dim(config, 'tool')} ${activityLine.toolNameFormat === 'short' ? tool.replace(/^mcp__/i, '') : tool}`)
-  }
-  if (items.agents !== false) {
-    const agents = renderAgents(state, config)
-    if (agents) details.push(agents)
-  }
-  if (items.todos !== false) {
-    const todos = renderTodos(state, config)
-    if (todos) details.push(todos)
-  }
-  if (items.sessionTime === true) {
-    const sessionTime = renderSessionTime(state, config)
-    if (sessionTime) details.push(sessionTime)
-  }
   const warningParts = []
-  if (warnings.usage && compactPercent(state.fiveHourUsedPercent) !== null && compactPercent(state.fiveHourUsedPercent) >= (positiveNumberOrNull(config.display.usageThreshold) ?? 100)) warningParts.push(themed(config, 'usageWarning', '95', `usage ${formatPercent(state.fiveHourUsedPercent)}`))
-  if (warnings.memory && compactPercent(state.memoryUsedPercent) !== null && compactPercent(state.memoryUsedPercent) >= 90) warningParts.push(themed(config, 'warning', '33', `RAM ${formatPercent(state.memoryUsedPercent)}`))
-  if (warnings.environment && positiveNumberOrNull(config.display.environmentThreshold) && nonNegativeIntegerOrNull(state.mcpCount) >= config.display.environmentThreshold) warningParts.push(themed(config, 'warning', '33', `env ${state.mcpCount}`))
+  if (warnings.usage && compactPercent(state.fiveHourUsedPercent) !== null && compactPercent(state.fiveHourUsedPercent) >= (positiveNumberOrNull(config.display.usageThreshold) ?? 100)) warningParts.push(themed(config, 'usageWarning', '95', `⚠ Usage ${formatPercent(state.fiveHourUsedPercent)}`))
+  if (warnings.memory && compactPercent(state.memoryUsedPercent) !== null && compactPercent(state.memoryUsedPercent) >= 90) warningParts.push(themed(config, 'warning', '33', `⚠ RAM ${formatPercent(state.memoryUsedPercent)}`))
+  if (warnings.environment && positiveNumberOrNull(config.display.environmentThreshold) && nonNegativeIntegerOrNull(state.mcpCount) >= config.display.environmentThreshold) warningParts.push(themed(config, 'warning', '33', `⚠ Env ${state.mcpCount}`))
   if (warnings.promptCache) {
     const cache = renderPromptCache(state, { ...config, display: { ...config.display, showPromptCache: true } })
     if (cache) warningParts.push(cache)
   }
-  const status = [state.activity, state.statusText].filter(Boolean).join(' · ')
-  if (activityLine.mode === 'summary') return [status, ...warningParts].filter(Boolean).join(' · ') || null
-  if (activityLine.mode === 'details') return [...details, ...warningParts].filter(Boolean).join(' · ') || status || null
-  return [status, ...details, ...warningParts].filter(Boolean).join(' · ') || null
+  const detailParts = [
+    ...warningParts,
+    items.todos !== false ? renderTodos(state, config, false, false) : null,
+    items.agents !== false ? renderAgents(state, config, false, false) : null,
+    items.tools !== false ? renderTools(state, config, false, false) : null,
+    items.sessionTime === true ? renderSessionTime(state, config) : null,
+  ].filter(Boolean)
+  const summaryParts = [
+    ...warningParts,
+    items.todos !== false ? renderTodos(state, config, true, false) : null,
+    items.agents !== false ? renderAgents(state, config, true, false) : null,
+    items.tools !== false ? renderTools(state, config, true, false) : null,
+    items.sessionTime === true ? renderSessionTime(state, config) : null,
+  ].filter(Boolean)
+  const details = detailParts.join(' ')
+  const summary = summaryParts.join(' | ')
+  const status = meaningfulStatusText(state)
+  if (activityLine.mode === 'summary') return summary || status
+  if (activityLine.mode === 'details') return details || status
+  const maxWidth = terminalWidth(config)
+  const allowed = Math.max(20, Math.floor(maxWidth * (positiveNumberOrNull(activityLine.maxWidthRatio) ?? 0.9)))
+  if (details && cellWidth(details) <= allowed) return details
+  return summary || details || status
 }
 
 const renderTerminalRowItem = (state, item, config) => {
@@ -776,7 +922,7 @@ const renderTerminalRowItem = (state, item, config) => {
     case 'git':
       return renderGit(state, config)
     case 'tools':
-      return config.display.showTools && state.toolName ? `Tool ${state.toolName}` : null
+      return renderTools(state, config)
     case 'agents':
       return renderAgents(state, config)
     case 'todos':
@@ -875,6 +1021,184 @@ const statusTextFromHook = (hookEvent, toolName) => {
   }
 }
 
+const firstNumber = (...values) => {
+  for (const value of values) {
+    const number = numberOrNull(value)
+    if (number !== null) return number
+  }
+  return null
+}
+
+const contextWindowOverrideSize = () => {
+  const appOverride = appContextWindowOverrideState()
+  if (appOverride.managed) {
+    syncContextWindowOverrideToClaudeSettings()
+    return appOverride.value
+  }
+  const value = positiveNumberOrNull(process.env.CLAUDE_HUD_CONTEXT_WINDOW_SIZE)
+  return value === null ? null : Math.round(value)
+}
+
+const safeUsageCount = (value) => {
+  const number = numberOrNull(value)
+  return number !== null && number > 0 ? Math.trunc(number) : 0
+}
+
+const emptySessionTokenUsage = () => ({
+  inputTokens: null,
+  outputTokens: null,
+  cacheCreationInputTokens: null,
+  cacheReadInputTokens: null,
+})
+
+const sessionTokenTotal = (tokens) => [
+  tokens?.inputTokens,
+  tokens?.outputTokens,
+  tokens?.cacheCreationInputTokens,
+  tokens?.cacheReadInputTokens,
+].map(safeUsageCount).reduce((sum, value) => sum + value, 0)
+
+const extractExplicitSessionTokens = (input) => {
+  const transcriptTokens = input?.transcript?.sessionTokens ?? input?.transcript?.session_tokens ?? input?.sessionTokens ?? input?.session_tokens ?? input?.usage?.sessionTokens ?? input?.usage?.session_tokens ?? {}
+  return {
+    inputTokens: firstNumber(transcriptTokens?.inputTokens, transcriptTokens?.input_tokens, input?.tokens?.input, input?.tokens?.input_tokens),
+    outputTokens: firstNumber(transcriptTokens?.outputTokens, transcriptTokens?.output_tokens, input?.tokens?.output, input?.tokens?.output_tokens),
+    cacheCreationInputTokens: firstNumber(transcriptTokens?.cacheCreationTokens, transcriptTokens?.cacheCreationInputTokens, transcriptTokens?.cache_creation_tokens, transcriptTokens?.cache_creation_input_tokens, input?.tokens?.cacheCreationInputTokens, input?.tokens?.cache_creation_input_tokens),
+    cacheReadInputTokens: firstNumber(transcriptTokens?.cacheReadTokens, transcriptTokens?.cacheReadInputTokens, transcriptTokens?.cache_read_tokens, transcriptTokens?.cache_read_input_tokens, input?.tokens?.cacheReadInputTokens, input?.tokens?.cache_read_input_tokens),
+  }
+}
+
+const ACTIVITY_NON_TOOL_NAMES = new Set(['Task', 'Agent', 'TodoWrite', 'TodoRead', 'TaskCreate', 'TaskUpdate'])
+const AGENT_TOOL_NAMES = new Set(['Task', 'Agent'])
+const TODO_TOOL_NAMES = new Set(['TodoWrite', 'TodoRead', 'TaskCreate', 'TaskUpdate'])
+const isRegularToolName = (name) => Boolean(stringOrNull(name)) && !ACTIVITY_NON_TOOL_NAMES.has(name)
+
+const safeContentArray = (entry) => {
+  const content = entry?.message?.content ?? entry?.content
+  return Array.isArray(content) ? content : []
+}
+
+const todoStatusCounts = (statuses) => {
+  const normalized = statuses.map(stringOrNull).filter(Boolean)
+  if (normalized.length === 0) return null
+  return {
+    total: normalized.length,
+    active: normalized.filter((status) => status === 'in_progress' || status === 'active').length,
+    completed: normalized.filter((status) => status === 'completed' || status === 'done').length,
+  }
+}
+
+const readTranscriptSummary = (transcriptPath) => {
+  if (!transcriptPath || !existsSync(transcriptPath)) return { sessionTokens: emptySessionTokenUsage() }
+  try {
+    const tokens = { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }
+    let sawUsage = false
+    const toolById = new Map()
+    const toolCountsByName = {}
+    let toolsCount = 0
+    let toolsErrorCount = 0
+    let agentsCount = 0
+    let todoOperationCount = 0
+    let firstTimestamp = null
+    let lastAssistantResponseAt = null
+    let latestTodoListCounts = null
+    const taskStatusById = new Map()
+    const lines = readFileSync(transcriptPath, 'utf8').split(/\r?\n/)
+    for (const line of lines) {
+      const cleanLine = line.replace(/^﻿/, '')
+      if (!cleanLine.trim()) continue
+      let entry = null
+      try {
+        entry = JSON.parse(cleanLine)
+      } catch {
+        continue
+      }
+      const timestamp = safeIsoString(entry?.timestamp ?? entry?.message?.timestamp ?? entry?.created_at ?? entry?.createdAt)
+      if (timestamp) {
+        if (!firstTimestamp) firstTimestamp = timestamp
+        if (entry?.type === 'assistant') lastAssistantResponseAt = timestamp
+      }
+      const usage = entry?.type === 'assistant' ? entry?.message?.usage : null
+      if (usage && typeof usage === 'object') {
+        sawUsage = true
+        tokens.inputTokens += safeUsageCount(usage.input_tokens)
+        tokens.outputTokens += safeUsageCount(usage.output_tokens)
+        tokens.cacheCreationInputTokens += safeUsageCount(usage.cache_creation_input_tokens)
+        tokens.cacheReadInputTokens += safeUsageCount(usage.cache_read_input_tokens)
+      }
+      for (const item of safeContentArray(entry)) {
+        if (item?.type === 'tool_use' && stringOrNull(item?.name)) {
+          const name = stringOrNull(item.name)
+          const id = stringOrNull(item.id)
+          const isAgent = AGENT_TOOL_NAMES.has(name)
+          const isTodo = TODO_TOOL_NAMES.has(name)
+          if (isAgent) {
+            agentsCount += 1
+            if (id) toolById.set(id, { name, kind: 'agent' })
+            continue
+          }
+          if (isTodo) {
+            todoOperationCount += 1
+            const toolInput = item?.input && typeof item.input === 'object' ? item.input : null
+            const todoItems = Array.isArray(toolInput?.todos) ? toolInput.todos : Array.isArray(toolInput?.items) ? toolInput.items : null
+            const todoCounts = todoItems ? todoStatusCounts(todoItems.map((todo) => todo?.status)) : null
+            if (todoCounts) latestTodoListCounts = todoCounts
+            const taskId = stringOrNull(toolInput?.taskId ?? toolInput?.task_id ?? toolInput?.id)
+            const status = stringOrNull(toolInput?.status)
+            if (taskId && status) taskStatusById.set(taskId, status)
+            if (id) toolById.set(id, { name, kind: 'todo' })
+            continue
+          }
+          if (isRegularToolName(name)) {
+            toolsCount += 1
+            if (id) toolById.set(id, { name, kind: 'tool' })
+          }
+        }
+        if (item?.type === 'tool_result' && stringOrNull(item?.tool_use_id)) {
+          const tool = toolById.get(item.tool_use_id)
+          if (!tool) continue
+          if (tool.kind === 'tool') {
+            toolCountsByName[tool.name] = (toolCountsByName[tool.name] ?? 0) + 1
+            if (item.is_error === true) toolsErrorCount += 1
+          }
+          toolById.delete(item.tool_use_id)
+        }
+      }
+    }
+    const runningTools = Array.from(toolById.values()).filter((tool) => tool.kind === 'tool').slice(-2)
+    const runningAgents = Array.from(toolById.values()).filter((tool) => tool.kind === 'agent')
+    const taskTodoCounts = todoStatusCounts(Array.from(taskStatusById.values()))
+    const todoCounts = latestTodoListCounts ?? taskTodoCounts
+    return {
+      sessionTokens: sawUsage ? tokens : emptySessionTokenUsage(),
+      toolsCount: toolsCount || null,
+      toolsRunningCount: runningTools.length || null,
+      toolsErrorCount: toolsErrorCount || null,
+      toolCountsByName: Object.keys(toolCountsByName).length ? toolCountsByName : null,
+      toolsRunning: runningTools.length ? runningTools : null,
+      agentsCount: agentsCount || null,
+      agentsRunningCount: runningAgents.length || null,
+      todoOperationCount: todoOperationCount || null,
+      todosActiveCount: todoCounts?.active ?? null,
+      todosCompletedCount: todoCounts?.completed ?? null,
+      todosTotalCount: todoCounts?.total ?? null,
+      firstTimestamp,
+      lastAssistantResponseAt,
+    }
+  } catch {
+    return { sessionTokens: emptySessionTokenUsage() }
+  }
+}
+
+const extractPermissionMode = (input) => stringOrNull(
+  input?.permission_mode
+  ?? input?.permissionMode
+  ?? input?.permissions?.mode
+  ?? input?.permission?.mode
+  ?? input?.session?.permission_mode
+  ?? input?.session?.permissionMode
+)
+
 const summarizeStatusLine = (input) => {
   const context = input?.context_window ?? {}
   const currentUsage = context?.current_usage ?? {}
@@ -882,20 +1206,23 @@ const summarizeStatusLine = (input) => {
   const model = input?.model ?? {}
   const workspace = input?.workspace ?? {}
   const rateLimits = input?.rate_limits ?? {}
-  const usedPercentage = compactPercent(context?.used_percentage)
-  const contextWindowSize = numberOrNull(context?.context_window_size)
-  const currentUsageTokens = sumPositive(
+  const contextWindowSize = contextWindowOverrideSize() ?? positiveNumberOrNull(context?.context_window_size)
+  const contextUsageTokens = sumNonNegative(
     currentUsage?.input_tokens,
-    currentUsage?.output_tokens,
     currentUsage?.cache_creation_input_tokens,
     currentUsage?.cache_read_input_tokens,
-  )
-  const totalUsageTokens = sumPositive(context?.total_input_tokens, context?.total_output_tokens)
+  ) ?? numberOrNull(context?.total_input_tokens)
+  const usedPercentage = contextWindowOverrideSize() !== null && contextUsageTokens !== null && contextWindowSize !== null
+    ? compactPercent((contextUsageTokens / contextWindowSize) * 100)
+    : compactPercent(context?.used_percentage) ?? (contextUsageTokens !== null && contextWindowSize !== null ? compactPercent((contextUsageTokens / contextWindowSize) * 100) : null)
   const percentUsageTokens = usedPercentage !== null && contextWindowSize !== null
     ? (contextWindowSize * usedPercentage) / 100
     : null
-  const contextUsedTokens = currentUsageTokens ?? totalUsageTokens ?? percentUsageTokens
-  const contextTokenLabel = formatTokenK(contextUsedTokens)
+  const contextUsedTokens = contextUsageTokens ?? percentUsageTokens
+  const transcriptPath = stringOrNull(input?.transcript_path)
+  const transcriptSummary = readTranscriptSummary(transcriptPath)
+  const explicitSessionTokens = extractExplicitSessionTokens(input)
+  const sessionTokens = sessionTokenTotal(transcriptSummary.sessionTokens) > 0 ? transcriptSummary.sessionTokens : explicitSessionTokens
   const modelName = stringOrNull(model?.display_name) ?? stringOrNull(model?.id)
   const projectDir = stringOrNull(workspace?.project_dir) ?? stringOrNull(input?.cwd)
   const projectSlug = baseName(projectDir) ?? stringOrNull(input?.session_name) ?? 'Claude Code'
@@ -904,18 +1231,20 @@ const summarizeStatusLine = (input) => {
   const memorySummary = readMemorySummary()
   const environmentSummary = readEnvironmentSummary(projectDir)
   const totalDurationMs = numberOrNull(cost?.total_duration_ms)
-  const outputTokens = numberOrNull(currentUsage?.output_tokens ?? context?.total_output_tokens)
+  const outputTokens = numberOrNull(sessionTokens.outputTokens)
   const outputSpeed = positiveNumberOrNull(input?.speed?.output_tokens_per_second ?? input?.output_speed)
     ?? (outputTokens !== null && totalDurationMs !== null && totalDurationMs > 0 ? outputTokens / (totalDurationMs / 1000) : null)
-  const agentsCount = firstCount(input?.agents?.total, input?.agent?.total, input?.agent?.count)
-  const agentsRunningCount = firstCount(input?.agents?.running, input?.agent?.running)
-  const todosActiveCount = firstCount(input?.todos?.active, input?.todos?.in_progress, input?.todos?.pending)
-  const todosCompletedCount = firstCount(input?.todos?.completed)
-  const todosTotalCount = firstCount(input?.todos?.total)
-  const statusText = [
-    modelName,
-    contextTokenLabel ? `${contextTokenLabel} context` : null,
-  ].filter(Boolean).join(' · ') || 'Claude Code active'
+  const activeToolName = isRegularToolName(input?.tool?.name ?? input?.toolName ?? input?.tool_name) ? stringOrNull(input?.tool?.name ?? input?.toolName ?? input?.tool_name) : null
+  const toolsCount = firstCount(transcriptSummary.toolsCount, input?.tools?.total, input?.tools?.count, input?.tool_calls?.total, input?.toolCalls?.total, input?.toolCallRecordCount)
+  const toolsRunningCount = firstCount(input?.tools?.running, input?.tool?.running, transcriptSummary.toolsRunningCount)
+  const toolsErrorCount = firstCount(input?.tools?.errors, input?.tools?.error, transcriptSummary.toolsErrorCount)
+  const agentsCount = firstCount(transcriptSummary.agentsCount, input?.agents?.total, input?.agent?.total, input?.agent?.count)
+  const agentsRunningCount = firstCount(input?.agents?.running, input?.agent?.running, transcriptSummary.agentsRunningCount)
+  const todosActiveCount = firstCount(input?.todos?.active, input?.todos?.in_progress, input?.todos?.pending, transcriptSummary.todosActiveCount)
+  const todosCompletedCount = firstCount(input?.todos?.completed, transcriptSummary.todosCompletedCount)
+  const todosTotalCount = firstCount(input?.todos?.total, transcriptSummary.todosTotalCount, transcriptSummary.todoOperationCount)
+  const statusText = stringOrNull(input?.status_text ?? input?.statusText) ?? 'Claude Code active'
+  const permissionMode = extractPermissionMode(input)
 
   return {
     schemaVersion: 1,
@@ -929,7 +1258,7 @@ const summarizeStatusLine = (input) => {
     cwd: stringOrNull(input?.cwd),
     projectDir,
     projectSlug,
-    transcriptPath: stringOrNull(input?.transcript_path),
+    transcriptPath,
     modelId: stringOrNull(model?.id),
     modelName,
     version: stringOrNull(input?.version),
@@ -937,11 +1266,12 @@ const summarizeStatusLine = (input) => {
     contextUsedPercent: usedPercentage,
     contextRemainingPercent: compactPercent(context?.remaining_percentage),
     contextWindowSize,
-    contextUsedTokens: positiveNumberOrNull(contextUsedTokens),
-    inputTokens: numberOrNull(currentUsage?.input_tokens ?? context?.total_input_tokens),
+    contextUsedTokens: numberOrNull(contextUsedTokens),
+    permissionMode,
+    inputTokens: numberOrNull(sessionTokens.inputTokens),
     outputTokens,
-    cacheCreationInputTokens: numberOrNull(currentUsage?.cache_creation_input_tokens),
-    cacheReadInputTokens: numberOrNull(currentUsage?.cache_read_input_tokens),
+    cacheCreationInputTokens: numberOrNull(sessionTokens.cacheCreationInputTokens),
+    cacheReadInputTokens: numberOrNull(sessionTokens.cacheReadInputTokens),
     totalCostUsd: numberOrNull(cost?.total_cost_usd),
     totalDurationMs,
     totalApiDurationMs: numberOrNull(cost?.total_api_duration_ms),
@@ -952,8 +1282,13 @@ const summarizeStatusLine = (input) => {
     ...gitSummary,
     ...memorySummary,
     ...environmentSummary,
-    sessionStartedAt: safeIsoString(input?.session_started_at ?? input?.session?.started_at ?? input?.started_at),
-    lastAssistantResponseAt: safeIsoString(input?.last_assistant_response_at ?? input?.last_response_at ?? input?.message?.timestamp),
+    sessionStartedAt: safeIsoString(input?.session_started_at ?? input?.session?.started_at ?? input?.started_at) ?? transcriptSummary.firstTimestamp,
+    lastAssistantResponseAt: safeIsoString(input?.last_assistant_response_at ?? input?.last_response_at ?? input?.session?.last_assistant_response_at ?? input?.session?.lastResponseAt ?? input?.message?.timestamp) ?? transcriptSummary.lastAssistantResponseAt,
+    toolsCount,
+    toolsRunningCount,
+    toolsErrorCount,
+    toolCountsByName: transcriptSummary.toolCountsByName ?? null,
+    toolsRunning: transcriptSummary.toolsRunning ?? null,
     agentsCount,
     agentsRunningCount,
     todosActiveCount,
@@ -967,7 +1302,7 @@ const summarizeStatusLine = (input) => {
     thinkingEnabled: boolOrNull(input?.thinking?.enabled),
     agentName: stringOrNull(input?.agent?.name),
     hookEventName: null,
-    toolName: null,
+    toolName: activeToolName,
     source: 'statusLine',
     privacyNote: 'Claude HUD One bridge stores only sanitized status metrics. It does not store prompt, transcript, tool-result or credential content.',
   }
@@ -975,15 +1310,16 @@ const summarizeStatusLine = (input) => {
 
 const summarizeHook = (input) => {
   const hookEvent = sanitizeHookEvent(input) ?? 'Hook'
-  const toolName = sanitizeToolName(input)
+  const rawToolName = sanitizeToolName(input)
+  const toolName = isRegularToolName(rawToolName) ? rawToolName : null
   const cwd = stringOrNull(input?.cwd)
   const projectDir = stringOrNull(input?.workspace?.project_dir) ?? cwd
   const addedDirs = sanitizeAddedDirs(input?.workspace)
   const gitSummary = readGitSummary(projectDir)
   const memorySummary = readMemorySummary()
   const environmentSummary = readEnvironmentSummary(projectDir)
-  const isAgentTool = toolName === 'Task' || toolName === 'Agent'
-  const isTodoTool = toolName === 'TodoWrite' || toolName === 'TaskCreate' || toolName === 'TaskUpdate'
+  const isAgentTool = AGENT_TOOL_NAMES.has(rawToolName)
+  const isTodoTool = TODO_TOOL_NAMES.has(rawToolName)
 
   return {
     schemaVersion: 1,
@@ -991,7 +1327,7 @@ const summarizeHook = (input) => {
     activityStartedAt: new Date().toISOString(),
     event: 'hook',
     activity: activityFromHook(hookEvent),
-    statusText: statusTextFromHook(hookEvent, toolName),
+    statusText: statusTextFromHook(hookEvent, rawToolName),
     sessionId: stringOrNull(input?.session_id),
     sessionName: stringOrNull(input?.session_name),
     cwd,
@@ -1006,6 +1342,7 @@ const summarizeHook = (input) => {
     contextRemainingPercent: null,
     contextWindowSize: null,
     contextUsedTokens: null,
+    permissionMode: extractPermissionMode(input),
     inputTokens: null,
     outputTokens: null,
     cacheCreationInputTokens: null,
@@ -1022,6 +1359,8 @@ const summarizeHook = (input) => {
     ...environmentSummary,
     sessionStartedAt: safeIsoString(input?.session_started_at ?? input?.session?.started_at ?? input?.started_at),
     lastAssistantResponseAt: null,
+    toolsCount: toolName ? 1 : null,
+    toolsRunningCount: hookEvent === 'PreToolUse' && toolName ? 1 : null,
     agentsCount: isAgentTool ? 1 : null,
     agentsRunningCount: isAgentTool ? 1 : null,
     todosActiveCount: isTodoTool ? 1 : null,
@@ -1064,10 +1403,10 @@ const mergeWithPrevious = (nextState, previousState) => {
   if (!previousState || typeof previousState !== 'object') return nextState
 
   const keepFromPrevious = [
-    'modelId', 'modelName', 'contextUsedPercent', 'contextRemainingPercent', 'contextWindowSize', 'contextUsedTokens',
+    'modelId', 'modelName', 'contextUsedPercent', 'contextRemainingPercent', 'contextWindowSize', 'contextUsedTokens', 'permissionMode',
     'inputTokens', 'outputTokens', 'cacheCreationInputTokens', 'cacheReadInputTokens',
     'totalCostUsd', 'totalDurationMs', 'totalApiDurationMs', 'totalLinesAdded', 'totalLinesRemoved', 'outputSpeed',
-    'sessionStartedAt', 'lastAssistantResponseAt', 'agentsCount', 'agentsRunningCount', 'todosActiveCount', 'todosCompletedCount', 'todosTotalCount',
+    'sessionStartedAt', 'lastAssistantResponseAt', 'toolsCount', 'toolsRunningCount', 'toolsErrorCount', 'toolCountsByName', 'toolsRunning', 'agentsCount', 'agentsRunningCount', 'todosActiveCount', 'todosCompletedCount', 'todosTotalCount',
     'fiveHourUsedPercent', 'fiveHourResetAt', 'sevenDayUsedPercent', 'sevenDayResetAt', 'effortLevel', 'thinkingEnabled', 'agentName',
   ]
 

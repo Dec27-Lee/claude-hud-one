@@ -95,6 +95,7 @@ export type NormalizedHudState = {
     activity: HudActivityState
     sourceLabel: string
     statusText: string
+    permissionMode?: string | null
     lastEventLabel: string
     scannedAtLabel: string
     startedAt?: string | null
@@ -147,6 +148,7 @@ export type NormalizedHudState = {
   activity: {
     activeToolName?: string | null
     toolsCount: number
+    toolsRunningCount: number
     agentsCount: number
     agentsRunningCount: number
     todosCount: number

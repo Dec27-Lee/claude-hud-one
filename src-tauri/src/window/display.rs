@@ -1,7 +1,18 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, PhysicalPosition};
 
-use super::settings::OverlayPosition;
+use super::{
+    overlay::{self, HitRegion},
+    settings::OverlayPosition,
+};
+
+const OVERLAY_HORIZONTAL_PADDING_CSS: f64 = 24.0;
+const OVERLAY_BOTTOM_PADDING_CSS: f64 = 24.0;
+const OVERLAY_PEEK_SLOT_WIDTH_CSS: f64 = 596.0;
+const OVERLAY_EXPANDED_SLOT_WIDTH_CSS: f64 = 808.0;
+const OVERLAY_MIN_HEIGHT_CSS: f64 = 80.0;
+const OVERLAY_REGION_PADDING_CSS: f64 = 2.0;
+const OVERLAY_RECT_EPSILON_PX: i32 = 1;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RectInfo {
@@ -79,6 +90,82 @@ pub fn set_overlay_position(
     Ok(position.clone())
 }
 
+pub fn fit_overlay_to_content(
+    app: &AppHandle,
+    content_bounds: &HitRegion,
+    regions: Vec<HitRegion>,
+) -> Result<Vec<HitRegion>, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+
+    if !is_valid_region(content_bounds) {
+        return Ok(regions.into_iter().filter(is_valid_region).collect());
+    }
+
+    let scale_factor = window
+        .scale_factor()
+        .map_err(|error| error.to_string())?
+        .max(0.1);
+    let position = window.outer_position().map_err(|error| error.to_string())?;
+    let current_size = window.outer_size().map_err(|error| error.to_string())?;
+
+    let desired_slot_width_css = if content_bounds.width > OVERLAY_PEEK_SLOT_WIDTH_CSS {
+        OVERLAY_EXPANDED_SLOT_WIDTH_CSS
+    } else {
+        OVERLAY_PEEK_SLOT_WIDTH_CSS
+    };
+    let desired_width_css = desired_slot_width_css + (OVERLAY_HORIZONTAL_PADDING_CSS * 2.0);
+    let desired_height_css = (content_bounds.y + content_bounds.height + OVERLAY_BOTTOM_PADDING_CSS)
+        .max(OVERLAY_MIN_HEIGHT_CSS);
+    let desired_content_left_css = ((desired_width_css - content_bounds.width) / 2.0).max(0.0);
+
+    let desired_width = (desired_width_css * scale_factor).round().max(1.0) as u32;
+    let desired_height = (desired_height_css * scale_factor).round().max(1.0) as u32;
+    let content_center_x = position.x as f64
+        + ((content_bounds.x + (content_bounds.width / 2.0)) * scale_factor);
+    let content_top_y = position.y as f64 + (content_bounds.y * scale_factor);
+    let desired_x = (content_center_x - (desired_width as f64 / 2.0)).round() as i32;
+    let desired_y = (content_top_y - (content_bounds.y * scale_factor)).round() as i32;
+
+    let position_changed = (position.x - desired_x).abs() > OVERLAY_RECT_EPSILON_PX
+        || (position.y - desired_y).abs() > OVERLAY_RECT_EPSILON_PX;
+    let size_changed = physical_delta(current_size.width, desired_width) > OVERLAY_RECT_EPSILON_PX
+        || physical_delta(current_size.height, desired_height) > OVERLAY_RECT_EPSILON_PX;
+
+    if position_changed || size_changed {
+        overlay::set_window_rect_no_activate(
+            &window,
+            desired_x,
+            desired_y,
+            desired_width,
+            desired_height,
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    let fitted_content_bounds = HitRegion {
+        x: (desired_content_left_css - OVERLAY_REGION_PADDING_CSS).max(0.0),
+        y: (content_bounds.y - OVERLAY_REGION_PADDING_CSS).max(0.0),
+        width: content_bounds.width + (OVERLAY_REGION_PADDING_CSS * 2.0),
+        height: content_bounds.height + (OVERLAY_REGION_PADDING_CSS * 2.0),
+    };
+    overlay::set_window_input_region(&window, Some(fitted_content_bounds), scale_factor)
+        .map_err(|error| error.to_string())?;
+
+    Ok(regions
+        .into_iter()
+        .filter(is_valid_region)
+        .map(|region| HitRegion {
+            x: desired_content_left_css + (region.x - content_bounds.x),
+            y: region.y,
+            width: region.width,
+            height: region.height,
+        })
+        .filter(is_valid_region)
+        .collect())
+}
+
 pub fn center_overlay_on_display(
     app: &AppHandle,
     display_id: Option<String>,
@@ -105,6 +192,19 @@ pub fn center_overlay_on_display(
         .map_err(|error| error.to_string())?;
 
     Ok(display)
+}
+
+fn is_valid_region(region: &HitRegion) -> bool {
+    region.x.is_finite()
+        && region.y.is_finite()
+        && region.width.is_finite()
+        && region.height.is_finite()
+        && region.width > 0.0
+        && region.height > 0.0
+}
+
+fn physical_delta(left: u32, right: u32) -> i32 {
+    left.abs_diff(right) as i32
 }
 
 fn select_display<'a>(displays: &'a [DisplayInfo], display_id: Option<&str>) -> Option<&'a DisplayInfo> {

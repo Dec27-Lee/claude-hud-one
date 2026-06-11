@@ -1,12 +1,16 @@
 import type { TerminalHudConfig } from './config'
 import type { HudDisplayItemId, NormalizedHudState } from './types'
 
-const compactTokens = (tokens: number | null | undefined): string | null => {
-  if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens <= 0) return null
+const formatTokenCount = (tokens: number | null | undefined, allowZero = false): string | null => {
+  if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens < 0) return null
+  if (tokens === 0) return allowZero ? '0' : null
   if (tokens < 1_000) return `${Math.round(tokens)} tokens`
   if (tokens < 10_000) return `${(tokens / 1_000).toFixed(1)}K`
-  return `${Math.round(tokens / 1_000)}K`
+  if (tokens < 1_000_000) return `${Math.round(tokens / 1_000)}K`
+  return `${(tokens / 1_000_000).toFixed(1)}M`
 }
+
+const compactTokens = (tokens: number | null | undefined): string | null => formatTokenCount(tokens)
 
 const clampPercent = (value: number | null | undefined): number | null => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
@@ -54,6 +58,15 @@ const clockTime = (value: string | null | undefined): string | null => {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+const absoluteDateMinute = (value: string | null | undefined): string | null => {
+  if (!value) return null
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return null
+  const date = new Date(timestamp)
+  const pad = (input: number): string => String(input).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 const configuredTime = (value: string | null | undefined, config: TerminalHudConfig): string | null => {
   if (config.display.timeFormat === 'absolute') return clockTime(value)
   if (config.display.timeFormat === 'both') return [clockTime(value), relativeTime(value)].filter(Boolean).join(' / ') || null
@@ -63,7 +76,7 @@ const configuredTime = (value: string | null | undefined, config: TerminalHudCon
 const contextUsedPercent = (state: NormalizedHudState): number | null => {
   const direct = clampPercent(state.context.usedPercent)
   if (direct !== null) return direct
-  if (typeof state.context.usedTokens === 'number' && Number.isFinite(state.context.usedTokens) && state.context.usedTokens > 0 &&
+  if (typeof state.context.usedTokens === 'number' && Number.isFinite(state.context.usedTokens) && state.context.usedTokens >= 0 &&
     typeof state.context.windowSize === 'number' && Number.isFinite(state.context.windowSize) && state.context.windowSize > 0) {
     return clampPercent((state.context.usedTokens / state.context.windowSize) * 100)
   }
@@ -161,14 +174,16 @@ const renderContextValue = (state: NormalizedHudState, config: TerminalHudConfig
   const windowTokens = state.context.windowSize
   const usedPercent = contextUsedPercent(state)
   const remainingPercent = clampPercent(state.context.remainingPercent) ?? (usedPercent == null ? null : Math.max(0, 100 - usedPercent))
-  const remainingTokens = typeof usedTokens === 'number' && typeof windowTokens === 'number'
+  const remainingTokens = typeof usedTokens === 'number' && Number.isFinite(usedTokens) && typeof windowTokens === 'number' && Number.isFinite(windowTokens)
     ? Math.max(0, windowTokens - usedTokens)
     : null
   const tokenLabel = typeof usedTokens === 'number' && Number.isFinite(usedTokens)
-    ? (typeof windowTokens === 'number' && Number.isFinite(windowTokens) ? `${compactTokens(usedTokens)}/${compactTokens(windowTokens)}` : compactTokens(usedTokens))
+    ? (typeof windowTokens === 'number' && Number.isFinite(windowTokens)
+        ? `${formatTokenCount(usedTokens, true)}/${formatTokenCount(windowTokens, true)}`
+        : formatTokenCount(usedTokens, true))
     : null
   const percentLabel = percent(usedPercent)
-  const remainingLabel = remainingTokens != null ? `${compactTokens(remainingTokens)} left` : (remainingPercent == null ? null : `${remainingPercent}% left`)
+  const remainingLabel = remainingTokens != null ? `${formatTokenCount(remainingTokens, true)} left` : (remainingPercent == null ? null : `${remainingPercent}% left`)
 
   switch (config.display.contextValue) {
     case 'tokens': return tokenLabel
@@ -199,19 +214,25 @@ const renderGit = (state: NormalizedHudState, config: TerminalHudConfig): string
     config.gitStatus.showFileStats && positiveCount(state.cost.totalLinesAdded) ? `+${positiveCount(state.cost.totalLinesAdded)}` : null,
     config.gitStatus.showFileStats && positiveCount(state.cost.totalLinesRemoved) ? `-${positiveCount(state.cost.totalLinesRemoved)}` : null,
   ].filter(Boolean)
-  return `git: ${parts.join(' ')}`
+  return `git:(${parts.join(' ')})`
 }
 
 const renderSessionTokens = (state: NormalizedHudState, config: TerminalHudConfig): string | null => {
   if (!config.display.showSessionTokens) return null
-  const parts = [
-    state.tokens.input ? `in ${compactTokens(state.tokens.input)}` : null,
-    state.tokens.output ? `out ${compactTokens(state.tokens.output)}` : null,
-    config.display.showTokenBreakdown && (state.tokens.cacheCreationInput || state.tokens.cacheReadInput)
-      ? `cache ${compactTokens((state.tokens.cacheCreationInput ?? 0) + (state.tokens.cacheReadInput ?? 0))}`
-      : null,
-  ].filter(Boolean)
-  return parts.length ? `tokens ${parts.join(' ')}` : null
+  const input = positiveCount(state.tokens.input)
+  const output = positiveCount(state.tokens.output)
+  const cache = positiveCount(state.tokens.cacheCreationInput) + positiveCount(state.tokens.cacheReadInput)
+  const total = input + output + cache
+  if (!total) return null
+
+  const detailParts = config.display.showTokenBreakdown
+    ? [
+        input ? `in: ${formatTokenCount(input)}` : null,
+        output ? `out: ${formatTokenCount(output)}` : null,
+        cache ? `cache: ${formatTokenCount(cache)}` : null,
+      ].filter(Boolean)
+    : []
+  return `Tokens ${formatTokenCount(total)}${detailParts.length ? ` (${detailParts.join(', ')})` : ''}`
 }
 
 const formatReset = (value: string | null | undefined): string | null => {
@@ -274,30 +295,60 @@ const renderEnvironment = (state: NormalizedHudState, config: TerminalHudConfig)
   return parts.length ? `env ${parts.join(' · ')}` : null
 }
 
-const renderAgents = (state: NormalizedHudState, config: TerminalHudConfig): string | null => {
-  if (!config.display.showAgents) return null
+const renderAgents = (state: NormalizedHudState, config: TerminalHudConfig, summary = false, respectDisplay = true): string | null => {
+  if (respectDisplay && !config.display.showAgents) return null
   const total = positiveCount(state.activity.agentsCount)
   const running = positiveCount(state.activity.agentsRunningCount)
   if (!total && !running) return null
-  return `agents ${total || running}${running ? ` (${running} running)` : ''}`
+  const count = total || running
+  if (summary) return `${running ? '◐' : '✓'} Agents ${count}${running ? ` (${running} running)` : ''}`
+  return `${running ? '◐' : '✓'} Agents ${count}${running ? ` (${running} running)` : ''}`
 }
 
-const renderTodos = (state: NormalizedHudState, config: TerminalHudConfig): string | null => {
-  if (!config.display.showTodos) return null
+const ACTIVITY_NON_TOOL_NAMES = new Set(['Task', 'Agent', 'TodoWrite', 'TodoRead', 'TaskCreate', 'TaskUpdate'])
+const isRegularToolName = (name: string | null | undefined): name is string => {
+  const text = name?.trim()
+  if (!text) return false
+  return !ACTIVITY_NON_TOOL_NAMES.has(text)
+}
+
+const renderTools = (state: NormalizedHudState, config: TerminalHudConfig, summary = false, respectDisplay = true): string | null => {
+  if (respectDisplay && !config.display.showTools) return null
+  const total = positiveCount(state.activity.toolsCount)
+  const tool = isRegularToolName(state.activity.activeToolName) ? state.activity.activeToolName.trim() : null
+  const running = Math.max(positiveCount(state.activity.toolsRunningCount), tool ? 1 : 0)
+  if (!total && !running && !tool) return null
+  if (!summary && tool) return `◐ ${shortToolName(tool, config)}${total ? ` · ✓ Tools ${total}` : ''}`
+  const count = total || running || 1
+  return `${running ? '◐' : '✓'} Tools ${count}${running ? ` (${running} running)` : ''}`
+}
+
+const renderTodos = (state: NormalizedHudState, config: TerminalHudConfig, summary = false, respectDisplay = true): string | null => {
+  if (respectDisplay && !config.display.showTodos) return null
   const total = positiveCount(state.activity.todosCount)
   const active = positiveCount(state.activity.todosActiveCount)
   const completed = positiveCount(state.activity.todosCompletedCount)
   if (!total && !active && !completed) return null
-  if (total) return `todos ${completed}/${total}${active ? ` · ${active} active` : ''}`
-  return `todos ${active || completed}`
+  const effectiveTotal = total || active + completed
+  const progress = effectiveTotal ? `(${completed}/${effectiveTotal})` : ''
+  if (summary) {
+    if (active) return `▸ Todo ${progress}`.trim()
+    if (effectiveTotal && completed >= effectiveTotal) return `✓ Todos ${progress}`.trim()
+    return `Todo ${progress}`.trim()
+  }
+  if (active) return `▸ Todo ${progress}`.trim()
+  if (effectiveTotal && completed >= effectiveTotal) return `✓ All todos complete ${progress}`.trim()
+  return null
 }
 
 const renderSessionTime = (state: NormalizedHudState, config: TerminalHudConfig): string | null => {
+  const started = absoluteDateMinute(state.session.startedAt)
+  const last = configuredTime(state.session.lastAssistantResponseAt, config)
   const parts = [
-    config.display.showSessionStartDate ? `start ${configuredTime(state.session.startedAt, config)}` : null,
-    config.display.showLastResponseAt ? `last ${configuredTime(state.session.lastAssistantResponseAt, config)}` : null,
+    config.display.showSessionStartDate && started ? `Started: ${started}` : null,
+    config.display.showLastResponseAt && last ? `Last reply: ${last}` : null,
   ].filter(Boolean)
-  return parts.length ? `session ${parts.join(' · ')}` : null
+  return parts.length ? parts.join(' │ ') : null
 }
 
 const renderSpeed = (state: NormalizedHudState, config: TerminalHudConfig): string | null => {
@@ -305,31 +356,61 @@ const renderSpeed = (state: NormalizedHudState, config: TerminalHudConfig): stri
   return `${state.session.outputSpeed >= 10 ? Math.round(state.session.outputSpeed) : state.session.outputSpeed.toFixed(1)} tok/s`
 }
 
+const shortToolName = (toolName: string, config: TerminalHudConfig): string => {
+  if (config.activityLine.toolNameFormat === 'full') return toolName
+  const mcp = /^mcp__([^_]+(?:-[^_]+)*)__([\w-]+)$/i.exec(toolName)
+  if (mcp) return `${mcp[1].replace(/^plugin[-_]?/i, '')}.${mcp[2]}`
+  return toolName.replace(/^mcp__/i, '')
+}
+
+const meaningfulStatusText = (state: NormalizedHudState): string | null => {
+  const text = state.session.statusText?.trim()
+  if (!text) return null
+  if (/^(active|claude code active|claude hud one)$/i.test(text)) return null
+  if (/context$/i.test(text) && (state.model.label ? text.includes(state.model.label) : true)) return null
+  return text
+}
+
 const renderActivity = (state: NormalizedHudState, config: TerminalHudConfig): string | null => {
   const items = config.activityLine.items
   const warnings = config.activityLine.warnings
-  const details = [
-    items.tools !== false && state.activity.activeToolName ? `tool ${config.activityLine.toolNameFormat === 'short' ? state.activity.activeToolName.replace(/^mcp__/i, '') : state.activity.activeToolName}` : null,
-    items.agents !== false ? renderAgents(state, config) : null,
-    items.todos !== false ? renderTodos(state, config) : null,
-    items.sessionTime === true ? renderSessionTime(state, config) : null,
-  ].filter(Boolean)
   const warningParts = [
     warnings.usage && clampPercent(state.usage.fiveHourUsedPercent) !== null && clampPercent(state.usage.fiveHourUsedPercent)! >= config.display.usageThreshold && config.display.usageThreshold > 0
-      ? `usage ${percent(state.usage.fiveHourUsedPercent)}`
+      ? `⚠ Usage ${percent(state.usage.fiveHourUsedPercent)}`
       : null,
     warnings.memory && clampPercent(state.system.memoryUsedPercent) !== null && clampPercent(state.system.memoryUsedPercent)! >= 90
-      ? `RAM ${percent(state.system.memoryUsedPercent)}`
+      ? `⚠ RAM ${percent(state.system.memoryUsedPercent)}`
       : null,
     warnings.environment && config.display.environmentThreshold > 0 && state.system.mcpCount >= config.display.environmentThreshold
-      ? `env ${state.system.mcpCount}`
+      ? `⚠ Env ${state.system.mcpCount}`
       : null,
     warnings.promptCache ? renderPromptCache(state, { ...config, display: { ...config.display, showPromptCache: true } }) : null,
   ].filter(Boolean)
-  const status = [state.session.activity, state.session.statusText].filter(Boolean).join(' · ')
-  if (config.activityLine.mode === 'summary') return [status, ...warningParts].filter(Boolean).join(' · ') || null
-  if (config.activityLine.mode === 'details') return [...details, ...warningParts].filter(Boolean).join(' · ') || status || null
-  return [status, ...details, ...warningParts].filter(Boolean).join(' · ') || null
+  const detailParts = [
+    ...warningParts,
+    items.todos !== false ? renderTodos(state, config, false, false) : null,
+    items.agents !== false ? renderAgents(state, config, false, false) : null,
+    items.tools !== false ? renderTools(state, config, false, false) : null,
+    items.sessionTime === true ? renderSessionTime(state, config) : null,
+  ].filter(Boolean)
+  const summaryParts = [
+    ...warningParts,
+    items.todos !== false ? renderTodos(state, config, true, false) : null,
+    items.agents !== false ? renderAgents(state, config, true, false) : null,
+    items.tools !== false ? renderTools(state, config, true, false) : null,
+    items.sessionTime === true ? renderSessionTime(state, config) : null,
+  ].filter(Boolean)
+  const status = meaningfulStatusText(state)
+  const details = detailParts.join(' ')
+  const summary = summaryParts.join(' | ')
+
+  if (config.activityLine.mode === 'summary') return summary || status
+  if (config.activityLine.mode === 'details') return details || status
+
+  const maxWidth = config.maxWidth ?? 100
+  const allowed = Math.max(20, Math.floor(maxWidth * config.activityLine.maxWidthRatio))
+  if (details && cellWidth(details) <= allowed) return details
+  return summary || details || status
 }
 
 export const renderTerminalHudItem = (state: NormalizedHudState, item: HudDisplayItemId, config: TerminalHudConfig): string | null => {
@@ -340,7 +421,7 @@ export const renderTerminalHudItem = (state: NormalizedHudState, item: HudDispla
     case 'project': return config.display.showProject ? state.session.projectSlug : null
     case 'git': return renderGit(state, config)
     case 'addedDirs': return renderAddedDirs(state, config)
-    case 'tools': return config.display.showTools && state.activity.activeToolName ? `Tool ${state.activity.activeToolName}` : null
+    case 'tools': return renderTools(state, config)
     case 'activity': return renderActivity(state, config)
     case 'sessionTokens': return renderSessionTokens(state, config)
     case 'usage': return renderUsage(state, config)

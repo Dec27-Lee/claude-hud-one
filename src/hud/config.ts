@@ -128,6 +128,8 @@ export type TerminalHudConfig = {
     externalUsageFreshnessMs: number
     modelFormat: TerminalHudModelFormat
     modelOverride: string
+    contextWindowSizeOverride: string
+    contextWindowSizeOverrideManaged: boolean
     customLine: string
     timeFormat: TerminalHudTimeFormat
   }
@@ -163,18 +165,18 @@ export const DEFAULT_TERMINAL_HUD_MERGE_GROUPS: TerminalHudElement[][] = [
 
 export const DEFAULT_TERMINAL_HUD_CONFIG: TerminalHudConfig = {
   enabled: true,
-  preset: 'hud-plus-default',
+  preset: 'custom',
   language: 'en',
   rows: [
     ['model', 'contextBar', 'contextValue'],
     ['project', 'addedDirs', 'git'],
-    ['sessionTokens'],
+    ['sessionTokens', 'sessionTime'],
     ['activity'],
   ],
   rowOverflow: 'truncate',
   activityLine: {
     mode: 'auto',
-    maxWidthRatio: 0.9,
+    maxWidthRatio: 1,
     toolNameFormat: 'short',
     items: {
       todos: true,
@@ -183,9 +185,9 @@ export const DEFAULT_TERMINAL_HUD_CONFIG: TerminalHudConfig = {
       sessionTime: false,
     },
     warnings: {
-      usage: true,
-      memory: true,
-      environment: true,
+      usage: false,
+      memory: false,
+      environment: false,
       promptCache: false,
     },
   },
@@ -196,8 +198,8 @@ export const DEFAULT_TERMINAL_HUD_CONFIG: TerminalHudConfig = {
   gitStatus: {
     enabled: true,
     showDirty: true,
-    showAheadBehind: false,
-    showFileStats: false,
+    showAheadBehind: true,
+    showFileStats: true,
     branchOverflow: 'truncate',
     pushWarningThreshold: 0,
     pushCriticalThreshold: 0,
@@ -212,9 +214,9 @@ export const DEFAULT_TERMINAL_HUD_CONFIG: TerminalHudConfig = {
     project: '#FBBF24',
     git: '#C084FC',
     gitBranch: '#22D3EE',
-    label: 'dim',
-    labelTitle: 'dim',
-    labelValue: 'dim',
+    label: '#38BDF8',
+    labelTitle: '#38BDF8',
+    labelValue: '#b8eaff',
     custom: 208,
     barFilled: '█',
     barEmpty: '░',
@@ -243,14 +245,14 @@ export const DEFAULT_TERMINAL_HUD_CONFIG: TerminalHudConfig = {
     showTodos: true,
     showSessionName: false,
     showClaudeCodeVersion: false,
-    showEffortLevel: false,
+    showEffortLevel: true,
     showMemoryUsage: false,
     showEnvironment: false,
     showPromptCache: false,
     promptCacheTtlSeconds: 300,
     showSessionTokens: true,
     showOutputStyle: false,
-    showSessionStartDate: false,
+    showSessionStartDate: true,
     showLastResponseAt: false,
     mergeGroups: DEFAULT_TERMINAL_HUD_MERGE_GROUPS.map((group) => [...group]),
     autocompactBuffer: 'enabled',
@@ -263,6 +265,8 @@ export const DEFAULT_TERMINAL_HUD_CONFIG: TerminalHudConfig = {
     externalUsageFreshnessMs: 300000,
     modelFormat: 'full',
     modelOverride: '',
+    contextWindowSizeOverride: '',
+    contextWindowSizeOverrideManaged: true,
     customLine: '',
     timeFormat: 'relative',
   },
@@ -292,39 +296,43 @@ export const DEFAULT_DESKTOP_HUD_CONFIG: DesktopHudConfig = {
   tickerItems: ['activity', 'project', 'tools'],
 }
 
-export const mergeTerminalHudConfig = (base: TerminalHudConfig, patch?: Partial<TerminalHudConfig>): TerminalHudConfig => ({
-  ...base,
-  ...patch,
-  rows: patch?.rows ?? base.rows,
-  elementOrder: patch?.elementOrder ?? base.elementOrder,
-  activityLine: {
-    ...base.activityLine,
-    ...patch?.activityLine,
-    items: {
-      ...base.activityLine.items,
-      ...patch?.activityLine?.items,
+export const mergeTerminalHudConfig = (base: TerminalHudConfig, patch?: Partial<TerminalHudConfig>): TerminalHudConfig => {
+  const defaultPreset = patch?.preset === 'hud-plus-default'
+  const displayPatch = defaultPreset ? DEFAULT_TERMINAL_HUD_CONFIG.display : patch?.display
+  return {
+    ...base,
+    ...patch,
+    rows: defaultPreset ? DEFAULT_TERMINAL_HUD_CONFIG.rows : (patch?.rows ?? base.rows),
+    elementOrder: patch?.elementOrder ?? base.elementOrder,
+    activityLine: {
+      ...base.activityLine,
+      ...(defaultPreset ? DEFAULT_TERMINAL_HUD_CONFIG.activityLine : patch?.activityLine),
+      items: {
+        ...base.activityLine.items,
+        ...(defaultPreset ? DEFAULT_TERMINAL_HUD_CONFIG.activityLine.items : patch?.activityLine?.items),
+      },
+      warnings: {
+        ...base.activityLine.warnings,
+        ...(defaultPreset ? DEFAULT_TERMINAL_HUD_CONFIG.activityLine.warnings : patch?.activityLine?.warnings),
+      },
     },
-    warnings: {
-      ...base.activityLine.warnings,
-      ...patch?.activityLine?.warnings,
+    gitStatus: {
+      ...base.gitStatus,
+      ...(defaultPreset ? DEFAULT_TERMINAL_HUD_CONFIG.gitStatus : patch?.gitStatus),
     },
-  },
-  gitStatus: {
-    ...base.gitStatus,
-    ...patch?.gitStatus,
-  },
-  colors: {
-    ...base.colors,
-    ...patch?.colors,
-    contextBands: patch?.colors?.contextBands ?? base.colors.contextBands,
-    usageBands: patch?.colors?.usageBands ?? base.colors.usageBands,
-  },
-  display: {
-    ...base.display,
-    ...patch?.display,
-    mergeGroups: patch?.display?.mergeGroups ?? base.display.mergeGroups,
-  },
-})
+    colors: {
+      ...base.colors,
+      ...patch?.colors,
+      contextBands: patch?.colors?.contextBands ?? base.colors.contextBands,
+      usageBands: patch?.colors?.usageBands ?? base.colors.usageBands,
+    },
+    display: {
+      ...base.display,
+      ...displayPatch,
+      mergeGroups: displayPatch?.mergeGroups ?? base.display.mergeGroups,
+    },
+  }
+}
 
 export const mergeDesktopHudConfig = (base: DesktopHudConfig, patch?: Partial<DesktopHudConfig>): DesktopHudConfig => ({
   ...base,

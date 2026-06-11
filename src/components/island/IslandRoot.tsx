@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent, PointerEvent } from 'react'
 import { cursorPosition, getCurrentWindow } from '@tauri-apps/api/window'
-import { setOverlayPosition, updateOverlayHitRegions, type OverlayHitRegion } from '../../app/overlayBridge'
+import { setOverlayPosition, updateOverlayHitRegions, updateOverlayLayout, type OverlayHitRegion } from '../../app/overlayBridge'
 import type { CurrentSessionState, IslandAppState, IslandPage, IslandViewState, OverlayPosition, ProviderId } from '../../app/types'
 import type { HudDisplayItemId } from '../../hud/types'
 import { displayedProviderOrder } from '../../app/types'
@@ -79,7 +79,15 @@ const compactTokens = (tokens: number | null | undefined): string | null => {
   if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens <= 0) return null
   if (tokens < 1_000) return `${Math.round(tokens)} tokens`
   if (tokens < 10_000) return `${(tokens / 1_000).toFixed(1)}K`
-  return `${Math.round(tokens / 1_000)}K`
+  if (tokens < 1_000_000) return `${Math.round(tokens / 1_000)}K`
+  return `${(tokens / 1_000_000).toFixed(1)}M`
+}
+
+const sessionTokenTotal = (session: CurrentSessionState): number | null => {
+  const total = [session.inputTokens, session.outputTokens, session.cacheCreationInputTokens, session.cacheReadInputTokens]
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+    .reduce((sum, value) => sum + value, 0)
+  return total > 0 ? total : null
 }
 
 const positiveCount = (value: number | null | undefined): number => (
@@ -129,7 +137,7 @@ const desktopItemLabel = (session: CurrentSessionState, item: HudDisplayItemId, 
     case 'model': return session.modelLabel ?? null
     case 'tools': return session.activeToolName ? `Tool ${session.activeToolName}` : null
     case 'contextValue': return compactTokens(session.contextUsedTokens) ? `${compactTokens(session.contextUsedTokens)} context` : null
-    case 'sessionTokens': return compactTokens(session.contextUsedTokens) ? `${compactTokens(session.contextUsedTokens)} tokens` : null
+    case 'sessionTokens': return compactTokens(sessionTokenTotal(session)) ? `${compactTokens(sessionTokenTotal(session))} tokens` : null
     case 'cost': return typeof session.totalCostUsd === 'number' && session.totalCostUsd > 0 ? `$${session.totalCostUsd.toFixed(session.totalCostUsd < 10 ? 2 : 1)}` : null
     case 'git': return session.gitBranch ? `git ${session.gitBranch}${session.gitDirty ? '*' : ''}` : null
     case 'addedDirs': return session.addedDirSlugs?.length ? `dirs ${session.addedDirSlugs.join(', ')}` : null
@@ -165,17 +173,15 @@ const browserPreviewPage = (fallback: IslandPage): IslandPage => {
   return value === 'cost' || value === 'overview' || value === 'usage' ? value : fallback
 }
 
-const rectToHitRegion = (rect: DOMRect): OverlayHitRegion => {
-  const scaleFactor = window.devicePixelRatio || 1
-  return {
-    x: Math.round(rect.left * scaleFactor),
-    y: Math.round(rect.top * scaleFactor),
-    width: Math.round(rect.width * scaleFactor),
-    height: Math.round(rect.height * scaleFactor),
-  }
-}
+const rectToHitRegion = (rect: DOMRect): OverlayHitRegion => ({
+  x: Math.round(rect.left),
+  y: Math.round(rect.top),
+  width: Math.round(rect.width),
+  height: Math.round(rect.height),
+})
 
 export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshNow, isRefreshing, onOverlayPositionChange }: IslandRootProps) {
+  const shellRef = useRef<HTMLElement | null>(null)
   const capsuleRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const dragTimerRef = useRef<number | null>(null)
@@ -208,6 +214,20 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
   const effectiveActivePage = pageVisible[activePage] ? activePage : visiblePages[0] ?? 'overview'
   const shouldAutoPeek = viewState === 'compact' && (sessionActivity === 'running' || sessionActivity === 'waiting' || sessionActivity === 'error')
   const effectiveViewState = shouldAutoPeek ? 'peek' : viewState
+  const updateHitRegions = useCallback((): void => {
+    const elements = [capsuleRef.current, panelRef.current].filter((element): element is HTMLButtonElement | HTMLDivElement => Boolean(element))
+    const regions = elements
+      .map((element) => rectToHitRegion(element.getBoundingClientRect()))
+      .filter((region) => region.width > 0 && region.height > 0)
+    const contentBounds = shellRef.current ? rectToHitRegion(shellRef.current.getBoundingClientRect()) : null
+
+    if (contentBounds && contentBounds.width > 0 && contentBounds.height > 0) {
+      void updateOverlayLayout(contentBounds, regions)
+      return
+    }
+
+    void updateOverlayHitRegions(regions)
+  }, [])
 
   const openExpanded = (): void => setViewState('expanded')
   const restState = (): IslandViewState => (state.settings.alwaysShowUsage ? 'peek' : 'compact')
@@ -268,6 +288,7 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
       }
       latestDragPositionRef.current = nextPosition
       await setOverlayPosition(nextPosition)
+      window.requestAnimationFrame(updateHitRegions)
     } catch (error) {
       console.warn('Failed to move overlay while dragging', error)
     } finally {
@@ -301,6 +322,7 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
     }
 
     dragSessionRef.current = false
+    window.requestAnimationFrame(updateHitRegions)
   }
 
   const handleCapsulePointerEnd = (event: PointerEvent<HTMLButtonElement>): void => {
@@ -351,29 +373,30 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
   }, [sessions.length, tickerIndex])
 
   useLayoutEffect(() => {
-    const observedElements = [capsuleRef.current, panelRef.current].filter((element): element is HTMLButtonElement | HTMLDivElement => Boolean(element))
+    const observedElements = [shellRef.current, capsuleRef.current, panelRef.current]
+      .filter((element): element is HTMLElement => Boolean(element))
+    const shellElement = shellRef.current
 
-    const updateRegions = (): void => {
-      const regions = observedElements
-        .map((element) => rectToHitRegion(element.getBoundingClientRect()))
-        .filter((region) => region.width > 0 && region.height > 0)
-
-      if (regions.length > 0) {
-        void updateOverlayHitRegions(regions)
-      }
-    }
-
-    updateRegions()
-
-    const resizeObserver = new ResizeObserver(updateRegions)
+    updateHitRegions()
+    const animationFrameId = window.requestAnimationFrame(updateHitRegions)
+    const calibrationIntervalId = window.setInterval(updateHitRegions, 1_000)
+    const resizeObserver = new ResizeObserver(updateHitRegions)
     observedElements.forEach((element) => resizeObserver.observe(element))
-    window.addEventListener('resize', updateRegions)
+    shellElement?.addEventListener('transitionend', updateHitRegions)
+    window.addEventListener('resize', updateHitRegions)
+    window.visualViewport?.addEventListener('resize', updateHitRegions)
+    window.visualViewport?.addEventListener('scroll', updateHitRegions)
 
     return () => {
+      window.cancelAnimationFrame(animationFrameId)
+      window.clearInterval(calibrationIntervalId)
       resizeObserver.disconnect()
-      window.removeEventListener('resize', updateRegions)
+      shellElement?.removeEventListener('transitionend', updateHitRegions)
+      window.removeEventListener('resize', updateHitRegions)
+      window.visualViewport?.removeEventListener('resize', updateHitRegions)
+      window.visualViewport?.removeEventListener('scroll', updateHitRegions)
     }
-  }, [effectiveActivePage, effectiveViewState, sessions.length, visiblePages.length])
+  }, [desktopHud.enabled, effectiveActivePage, effectiveViewState, sessions.length, tickerKey, updateHitRegions, visiblePages.length])
 
   useEffect(() => {
     if (!desktopHud.enabled) void updateOverlayHitRegions([])
@@ -384,6 +407,7 @@ export function IslandRoot({ state, onOpenSettings, onToggleProvider, onRefreshN
   return (
     <main className="desktop-stage">
       <section
+        ref={shellRef}
         className={`island-shell island-shell--${effectiveViewState}${alertClass}${powerClass}`}
         onMouseEnter={() => setViewState((current) => (current === 'expanded' ? current : 'peek'))}
         onMouseLeave={() => setViewState((current) => (current === 'expanded' ? restState() : restState()))}

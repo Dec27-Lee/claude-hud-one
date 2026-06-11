@@ -67,6 +67,10 @@ impl OverlayTracker {
             .unwrap_or_default()
     }
 
+    pub fn set_click_through_state(&self, enabled: bool) {
+        self.click_through.store(enabled, Ordering::Relaxed);
+    }
+
     fn replace_click_through(&self, enabled: bool) -> bool {
         self.click_through.swap(enabled, Ordering::Relaxed)
     }
@@ -114,6 +118,49 @@ pub fn demote_no_activate(window: &WebviewWindow) -> tauri::Result<()> {
     {
         window.show()
     }
+}
+
+pub fn set_window_rect_no_activate(
+    window: &WebviewWindow,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> tauri::Result<()> {
+    #[cfg(windows)]
+    {
+        let hwnd = window.hwnd()?;
+        set_hwnd_rect_no_activate(hwnd.0 as isize, x, y, width, height);
+        Ok(())
+    }
+
+    #[cfg(not(windows))]
+    {
+        window.set_position(tauri::PhysicalPosition::new(x, y))?;
+        window.set_size(tauri::PhysicalSize::new(width, height))?;
+        Ok(())
+    }
+}
+
+pub fn set_window_input_region(
+    window: &WebviewWindow,
+    region: Option<HitRegion>,
+    scale_factor: f64,
+) -> tauri::Result<()> {
+    #[cfg(windows)]
+    {
+        let hwnd = window.hwnd()?;
+        set_hwnd_input_region(hwnd.0 as isize, region, scale_factor);
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        let _ = region;
+        let _ = scale_factor;
+    }
+
+    Ok(())
 }
 
 pub fn start_hit_test_tracker(window: &WebviewWindow, tracker: OverlayTracker) -> tauri::Result<()> {
@@ -206,7 +253,13 @@ fn install_mouse_activate_guard(
     let hit_regions = tracker.hit_regions.clone();
     let ref_data = Box::into_raw(Box::new(hit_regions)) as usize;
     unsafe {
-        let _ = SetWindowSubclass(hwnd, Some(subclass_proc), OVERLAY_SUBCLASS_ID, ref_data);
+        let installed = SetWindowSubclass(hwnd, Some(subclass_proc), OVERLAY_SUBCLASS_ID, ref_data);
+        if !installed.as_bool() {
+            drop(Box::from_raw(ref_data as *mut Arc<Mutex<Vec<HitRegion>>>));
+            tracker.set_click_through_state(true);
+            apply_native_overlay_styles(window, true, true)?;
+            eprintln!("Claude HUD One overlay hit-test subclass install failed; keeping overlay click-through");
+        }
     }
 
     Ok(())
@@ -230,9 +283,9 @@ fn apply_native_overlay_styles_hwnd(
         Foundation::HWND,
         UI::WindowsAndMessaging::{
             GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST,
-            SET_WINDOW_POS_FLAGS, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-            SWP_SHOWWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-            WS_EX_TRANSPARENT,
+            SET_WINDOW_POS_FLAGS, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+            SWP_NOSIZE, SWP_NOZORDER, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+            WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
         },
     };
 
@@ -251,7 +304,7 @@ fn apply_native_overlay_styles_hwnd(
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next_style as isize);
 
         let mut flags = SET_WINDOW_POS_FLAGS(
-            SWP_NOMOVE.0 | SWP_NOSIZE.0 | SWP_NOACTIVATE.0 | SWP_SHOWWINDOW.0,
+            SWP_NOMOVE.0 | SWP_NOSIZE.0 | SWP_NOACTIVATE.0 | SWP_FRAMECHANGED.0,
         );
         let insert_after = if preserve_z_order {
             flags = SET_WINDOW_POS_FLAGS(flags.0 | SWP_NOZORDER.0);
@@ -304,6 +357,61 @@ fn demote_hwnd_no_activate(hwnd_value: isize) {
 }
 
 #[cfg(windows)]
+fn set_hwnd_rect_no_activate(hwnd_value: isize, x: i32, y: i32, width: u32, height: u32) {
+    use windows::Win32::{
+        Foundation::HWND,
+        UI::WindowsAndMessaging::{
+            SetWindowPos, SET_WINDOW_POS_FLAGS, SWP_NOACTIVATE, SWP_NOZORDER,
+        },
+    };
+
+    let hwnd = HWND(hwnd_value as *mut core::ffi::c_void);
+    let flags = SET_WINDOW_POS_FLAGS(SWP_NOACTIVATE.0 | SWP_NOZORDER.0);
+
+    unsafe {
+        let _ = SetWindowPos(hwnd, None, x, y, width as i32, height as i32, flags);
+    }
+}
+
+#[cfg(windows)]
+fn set_hwnd_input_region(hwnd_value: isize, region: Option<HitRegion>, scale_factor: f64) {
+    use windows::Win32::{
+        Foundation::HWND,
+        Graphics::Gdi::{CreateRectRgn, DeleteObject, HGDIOBJ, SetWindowRgn},
+    };
+
+    let hwnd = HWND(hwnd_value as *mut core::ffi::c_void);
+
+    let Some(region) = region.filter(HitRegion::is_valid) else {
+        unsafe {
+            let _ = SetWindowRgn(hwnd, None, true);
+        }
+        return;
+    };
+
+    let scale_factor = scale_factor.max(0.1);
+    let left = (region.x * scale_factor).floor() as i32;
+    let top = (region.y * scale_factor).floor() as i32;
+    let right = ((region.x + region.width) * scale_factor).ceil() as i32;
+    let bottom = ((region.y + region.height) * scale_factor).ceil() as i32;
+
+    if right <= left || bottom <= top {
+        return;
+    }
+
+    unsafe {
+        let region_handle = CreateRectRgn(left, top, right, bottom);
+        if region_handle.is_invalid() {
+            return;
+        }
+
+        if SetWindowRgn(hwnd, Some(region_handle), true) == 0 {
+            let _ = DeleteObject(HGDIOBJ(region_handle.0));
+        }
+    }
+}
+
+#[cfg(windows)]
 fn cursor_inside_hit_regions(hwnd_value: isize, regions: Vec<HitRegion>) -> Option<bool> {
     use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
     use windows::Win32::Foundation::POINT;
@@ -340,14 +448,33 @@ fn point_inside_hit_regions(
         GetWindowRect(hwnd, &mut window_rect).ok()?;
     }
 
+    let scale_factor = window_scale_factor(hwnd).unwrap_or(1.0).max(0.1);
+
     Some(regions.iter().any(|region| {
-        let left = window_rect.left as f64 + region.x;
-        let top = window_rect.top as f64 + region.y;
-        let right = left + region.width;
-        let bottom = top + region.height;
+        // Hit regions are reported by the WebView in CSS pixels. Convert them to
+        // the current Win32 window DPI on every hit test instead of trusting a
+        // cached browser devicePixelRatio. This keeps mixed-DPI extended displays
+        // fail-open: stale or cross-monitor DPR values cannot expand a transparent
+        // WebView into a large click-swallowing physical region.
+        let left = window_rect.left as f64 + (region.x * scale_factor);
+        let top = window_rect.top as f64 + (region.y * scale_factor);
+        let right = left + (region.width * scale_factor);
+        let bottom = top + (region.height * scale_factor);
 
         cursor_x >= left && cursor_x <= right && cursor_y >= top && cursor_y <= bottom
     }))
+}
+
+#[cfg(windows)]
+fn window_scale_factor(hwnd: windows::Win32::Foundation::HWND) -> Option<f64> {
+    use windows::Win32::UI::HiDpi::GetDpiForWindow;
+
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    if dpi == 0 {
+        None
+    } else {
+        Some(dpi as f64 / 96.0)
+    }
 }
 
 #[cfg(windows)]

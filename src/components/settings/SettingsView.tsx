@@ -570,7 +570,7 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
           </div>
         ) : null}
 
-        {activeTab === 'terminal' ? <TerminalHudPanel config={state.settings.terminalHud} language={uiLanguage} previewState={normalizedHudState} onPatchSettings={onPatchSettings} /> : null}
+        {activeTab === 'terminal' ? <TerminalHudPanel config={state.settings.terminalHud} language={uiLanguage} previewState={normalizedHudState} claudeContextWindowSize={globalBridge?.contextWindowSizeEnv ?? null} onPatchSettings={onPatchSettings} /> : null}
 
         {activeTab === 'desktop' ? <DesktopHudPanel config={state.settings.desktopHud} language={uiLanguage} onPatchSettings={onPatchSettings} /> : null}
 

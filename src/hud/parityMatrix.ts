@@ -15,7 +15,7 @@ export const TERMINAL_HUD_PARITY_MATRIX: HudParityMatrixRow[] = [
   { item: 'tools', terminalStatus: 'ready', desktopStatus: 'partial', source: 'shared', notes: 'Desktop can show active sanitized tool name; full statistics are planned.' },
   { item: 'agents', terminalStatus: 'ready', desktopStatus: 'partial', source: 'hud-plus', notes: 'Bridge stores sanitized aggregate/running counts when available; desktop can render them as configurable chips.' },
   { item: 'todos', terminalStatus: 'ready', desktopStatus: 'partial', source: 'hud-plus', notes: 'Bridge stores sanitized aggregate counts when available; desktop can render them as configurable chips.' },
-  { item: 'activity', terminalStatus: 'ready', desktopStatus: 'partial', source: 'shared', notes: 'Desktop ticker approximates HUD Plus activity line.' },
+  { item: 'activity', terminalStatus: 'ready', desktopStatus: 'partial', source: 'shared', notes: 'Terminal uses HUD Plus style auto activity summaries for tools, agents, todos and warnings.' },
   { item: 'sessionTime', terminalStatus: 'ready', desktopStatus: 'planned', source: 'hud-plus', notes: 'Bridge projects session start/last response timestamps when available; Desktop visual is still planned.' },
   { item: 'customLine', terminalStatus: 'ready', desktopStatus: 'planned', source: 'hud-plus', notes: 'Desktop custom text slots are planned.' },
   { item: 'cost', terminalStatus: 'partial', desktopStatus: 'ready', source: 'shared', notes: 'HUD Plus supports cost as a display flag; Desktop already has CostView.' },

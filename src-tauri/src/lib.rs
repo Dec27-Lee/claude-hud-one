@@ -25,15 +25,38 @@ fn update_overlay_hit_region(
 
 #[tauri::command]
 fn update_overlay_hit_regions(
+    app: tauri::AppHandle,
     tracker: tauri::State<'_, OverlayTracker>,
     regions: Vec<HitRegion>,
 ) -> Result<Vec<HitRegion>, String> {
+    if regions.is_empty() {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window::overlay::set_window_input_region(&window, None, 1.0);
+        }
+    }
     tracker.set_hit_regions(regions.clone());
     Ok(regions)
 }
 
 #[tauri::command]
-fn set_overlay_click_through(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
+fn update_overlay_layout(
+    app: tauri::AppHandle,
+    tracker: tauri::State<'_, OverlayTracker>,
+    content_bounds: HitRegion,
+    regions: Vec<HitRegion>,
+) -> Result<Vec<HitRegion>, String> {
+    let fitted_regions = window::display::fit_overlay_to_content(&app, &content_bounds, regions)?;
+    tracker.set_hit_regions(fitted_regions.clone());
+    Ok(fitted_regions)
+}
+
+#[tauri::command]
+fn set_overlay_click_through(
+    app: tauri::AppHandle,
+    tracker: tauri::State<'_, OverlayTracker>,
+    enabled: bool,
+) -> Result<bool, String> {
+    tracker.set_click_through_state(enabled);
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
@@ -152,6 +175,11 @@ fn remove_claude_global_bridge_hooks() -> Result<ClaudeGlobalBridgeStatus, Strin
 }
 
 #[tauri::command]
+fn set_claude_hud_context_window_size(value: Option<String>) -> Result<ClaudeGlobalBridgeStatus, String> {
+    window::claude_global::set_context_window_size_env(value)
+}
+
+#[tauri::command]
 fn open_diagnostics_dir(kind: Option<String>) -> Result<String, String> {
     window::claude_session::open_diagnostics_dir(kind)
 }
@@ -195,7 +223,32 @@ fn load_app_settings() -> Result<AppSettings, String> {
 
 #[tauri::command]
 fn save_app_settings(settings: AppSettings) -> Result<AppSettings, String> {
-    window::settings::save_app_settings(settings)
+    let saved = window::settings::save_app_settings(settings)?;
+    if let Some(context_window_size) = terminal_context_window_size_override(&saved) {
+        let _ = window::claude_global::set_context_window_size_env(context_window_size);
+    }
+    Ok(saved)
+}
+
+fn terminal_context_window_size_override(settings: &AppSettings) -> Option<Option<String>> {
+    let display = settings
+        .terminal_hud
+        .get("display")
+        .and_then(serde_json::Value::as_object)?;
+    let managed = display
+        .get("contextWindowSizeOverrideManaged")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if !managed {
+        return None;
+    }
+    let value = display
+        .get("contextWindowSizeOverride")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    Some(if value.is_empty() { None } else { Some(value) })
 }
 
 #[tauri::command]
@@ -228,6 +281,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             update_overlay_hit_region,
             update_overlay_hit_regions,
+            update_overlay_layout,
             set_overlay_click_through,
             show_main_window,
             open_settings_window,
@@ -245,6 +299,7 @@ pub fn run() {
             enable_claude_status_line_bridge,
             restore_claude_status_line,
             remove_claude_global_bridge_hooks,
+            set_claude_hud_context_window_size,
             open_diagnostics_dir,
             get_diagnostics_summary,
             open_app_data_dir,

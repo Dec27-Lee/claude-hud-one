@@ -98,9 +98,15 @@ export type CurrentSessionState = {
   bridgeSource?: string
   bridgeHookEventName?: string | null
   activeToolName?: string | null
+  permissionMode?: string | null
   modelLabel?: string | null
   contextUsedPercent?: number | null
   contextUsedTokens?: number | null
+  contextWindowSize?: number | null
+  inputTokens?: number | null
+  outputTokens?: number | null
+  cacheCreationInputTokens?: number | null
+  cacheReadInputTokens?: number | null
   totalCostUsd?: number | null
   addedDirSlugs?: string[] | null
   addedDirsOverflowCount?: number | null
@@ -111,6 +117,8 @@ export type CurrentSessionState = {
   sessionStartedAt?: string | null
   lastAssistantResponseAt?: string | null
   outputSpeed?: number | null
+  toolsCount?: number | null
+  toolsRunningCount?: number | null
   agentsCount?: number | null
   agentsRunningCount?: number | null
   todosActiveCount?: number | null
@@ -161,6 +169,7 @@ export type ClaudeStatusBridgeState = {
   contextRemainingPercent: number | null
   contextWindowSize: number | null
   contextUsedTokens: number | null
+  permissionMode?: string | null
   inputTokens: number | null
   outputTokens: number | null
   cacheCreationInputTokens: number | null
@@ -198,6 +207,8 @@ export type ClaudeStatusBridgeState = {
   effortLevel: string | null
   thinkingEnabled: boolean | null
   agentName: string | null
+  toolsCount?: number | null
+  toolsRunningCount?: number | null
   hookEventName: string | null
   toolName: string | null
   source: string

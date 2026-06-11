@@ -50,7 +50,8 @@ const compactTokens = (tokens: number | null | undefined): string | null => {
   if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens <= 0) return null
   if (tokens < 1_000) return `${Math.round(tokens)} tokens`
   if (tokens < 10_000) return `${(tokens / 1_000).toFixed(1)}K`
-  return `${Math.round(tokens / 1_000)}K`
+  if (tokens < 1_000_000) return `${Math.round(tokens / 1_000)}K`
+  return `${(tokens / 1_000_000).toFixed(1)}M`
 }
 
 const emptyCounts = () => ({
@@ -74,14 +75,7 @@ const sessionKeyFromBridge = (bridge: ClaudeStatusBridgeState): string => {
 
 const contextTokenLabelFromBridge = (bridge: ClaudeStatusBridgeState): string | null => {
   const explicit = compactTokens(bridge.contextUsedTokens)
-  if (explicit) return `${explicit} context`
-
-  const total = [bridge.inputTokens, bridge.outputTokens, bridge.cacheCreationInputTokens, bridge.cacheReadInputTokens]
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
-    .reduce((sum, value) => sum + value, 0)
-  return compactTokens(total)
-    ? `${compactTokens(total)} context`
-    : null
+  return explicit ? `${explicit} context` : null
 }
 
 const projectSlugFromBridge = (bridge: ClaudeStatusBridgeState): string => {
@@ -127,6 +121,11 @@ export const mapClaudeStatusBridgeToCurrentSessionPatch = (bridge: ClaudeStatusB
   modelLabel: bridge.modelName ?? bridge.modelId,
   contextUsedPercent: bridge.contextUsedPercent,
   contextUsedTokens: bridge.contextUsedTokens,
+  contextWindowSize: bridge.contextWindowSize,
+  inputTokens: bridge.inputTokens,
+  outputTokens: bridge.outputTokens,
+  cacheCreationInputTokens: bridge.cacheCreationInputTokens,
+  cacheReadInputTokens: bridge.cacheReadInputTokens,
   totalCostUsd: bridge.totalCostUsd,
   addedDirSlugs: bridge.addedDirSlugs,
   addedDirsOverflowCount: bridge.addedDirsOverflowCount,
@@ -137,6 +136,8 @@ export const mapClaudeStatusBridgeToCurrentSessionPatch = (bridge: ClaudeStatusB
   sessionStartedAt: bridge.sessionStartedAt,
   lastAssistantResponseAt: bridge.lastAssistantResponseAt,
   outputSpeed: bridge.outputSpeed,
+  toolsCount: bridge.toolsCount,
+  toolsRunningCount: bridge.toolsRunningCount,
   agentsCount: bridge.agentsCount,
   agentsRunningCount: bridge.agentsRunningCount,
   todosActiveCount: bridge.todosActiveCount,
@@ -173,6 +174,11 @@ export const mapClaudeStatusBridgeToCurrentSession = (bridge: ClaudeStatusBridge
   modelLabel: bridge.modelName ?? bridge.modelId,
   contextUsedPercent: bridge.contextUsedPercent,
   contextUsedTokens: bridge.contextUsedTokens,
+  contextWindowSize: bridge.contextWindowSize,
+  inputTokens: bridge.inputTokens,
+  outputTokens: bridge.outputTokens,
+  cacheCreationInputTokens: bridge.cacheCreationInputTokens,
+  cacheReadInputTokens: bridge.cacheReadInputTokens,
   totalCostUsd: bridge.totalCostUsd,
   addedDirSlugs: bridge.addedDirSlugs,
   addedDirsOverflowCount: bridge.addedDirsOverflowCount,
@@ -183,6 +189,8 @@ export const mapClaudeStatusBridgeToCurrentSession = (bridge: ClaudeStatusBridge
   sessionStartedAt: bridge.sessionStartedAt,
   lastAssistantResponseAt: bridge.lastAssistantResponseAt,
   outputSpeed: bridge.outputSpeed,
+  toolsCount: bridge.toolsCount,
+  toolsRunningCount: bridge.toolsRunningCount,
   agentsCount: bridge.agentsCount,
   agentsRunningCount: bridge.agentsRunningCount,
   todosActiveCount: bridge.todosActiveCount,

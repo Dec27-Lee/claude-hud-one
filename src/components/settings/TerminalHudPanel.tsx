@@ -1,19 +1,31 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import { setClaudeHudContextWindowSize } from '../../app/overlayBridge'
 import type { SettingsState } from '../../app/types'
-import { DEFAULT_TERMINAL_HUD_CONFIG, mergeTerminalHudConfig, type TerminalHudConfig, type TerminalHudPreset } from '../../hud/config'
+import { DEFAULT_TERMINAL_HUD_CONFIG, mergeTerminalHudConfig, type TerminalHudColorValue, type TerminalHudConfig, type TerminalHudPreset } from '../../hud/config'
 import type { HudDisplayItemId, NormalizedHudState } from '../../hud/types'
 import { fieldSchemaBySurface } from '../../hud/fieldSchema'
 import { paritySummary, TERMINAL_HUD_PARITY_MATRIX } from '../../hud/parityMatrix'
 import { DISPLAY_ITEM_REGISTRY, terminalDisplayItemIds } from '../../hud/displayItemRegistry'
-import { renderTerminalHudPreviewLines } from '../../hud/terminalRenderer'
+import { renderTerminalHudItem, renderTerminalHudPreviewLines } from '../../hud/terminalRenderer'
 import { HudParityMatrixView } from './HudParityMatrixView'
 
 type TerminalHudPanelProps = {
   config: TerminalHudConfig
   language: 'en' | 'zh-CN'
   previewState: NormalizedHudState
+  claudeContextWindowSize?: string | null
   onPatchSettings: (settings: Partial<SettingsState>) => void
 }
+
+type BuilderWorkspace = 'components' | 'colors' | 'json' | 'diagnostics'
+type SelectionState = { rowIndex: number; itemIndex: number; item: HudDisplayItemId } | null
+type DragPayload = { item: HudDisplayItemId; fromRow?: number; fromIndex?: number }
+
+type TerminalHudDisplayBooleanKey = {
+  [Key in keyof TerminalHudConfig['display']]: TerminalHudConfig['display'][Key] extends boolean ? Key : never
+}[keyof TerminalHudConfig['display']]
+
+type TerminalHudColorKey = Exclude<keyof TerminalHudConfig['colors'], 'barFilled' | 'barEmpty' | 'contextBands' | 'usageBands'>
 
 const terminalPresets: TerminalHudPreset[] = ['hud-plus-default', 'minimal', 'custom']
 const rowOverflowModes: TerminalHudConfig['rowOverflow'][] = ['truncate', 'wrap']
@@ -24,41 +36,175 @@ const modelFormatModes: TerminalHudConfig['display']['modelFormat'][] = ['full',
 const timeFormatModes: TerminalHudConfig['display']['timeFormat'][] = ['relative', 'absolute', 'both']
 const activityModes: TerminalHudConfig['activityLine']['mode'][] = ['auto', 'details', 'summary']
 const toolNameFormats: TerminalHudConfig['activityLine']['toolNameFormat'][] = ['short', 'full']
-type TerminalHudDisplayBooleanKey = {
-  [Key in keyof TerminalHudConfig['display']]: TerminalHudConfig['display'][Key] extends boolean ? Key : never
-}[keyof TerminalHudConfig['display']]
-const displaySwitches = [
-  'showModel',
-  'showProject',
-  'showAddedDirs',
-  'showContextBar',
-  'showConfigCounts',
-  'showSessionTokens',
-  'showTokenBreakdown',
-  'showUsage',
-  'usageBarEnabled',
-  'showResetLabel',
-  'usageCompact',
-  'showTools',
-  'showAgents',
-  'showTodos',
-  'showPromptCache',
-  'showMemoryUsage',
-  'showEnvironment',
-  'showCost',
-  'showDuration',
-  'showSpeed',
-  'showOutputStyle',
-  'showSessionName',
-  'showClaudeCodeVersion',
-  'showEffortLevel',
-  'showSessionStartDate',
-  'showLastResponseAt',
-] as const satisfies readonly TerminalHudDisplayBooleanKey[]
-type TerminalHudDisplaySwitchKey = (typeof displaySwitches)[number]
-type TerminalHudColorKey = Exclude<keyof TerminalHudConfig['colors'], 'barFilled' | 'barEmpty' | 'contextBands' | 'usageBands'>
-const colorKeys: TerminalHudColorKey[] = ['model', 'project', 'context', 'usage', 'usageWarning', 'warning', 'critical', 'git', 'gitBranch', 'label', 'labelTitle', 'labelValue', 'custom']
+const branchOverflowModes: TerminalHudConfig['gitStatus']['branchOverflow'][] = ['truncate', 'wrap']
 const barKeys: Array<'barFilled' | 'barEmpty'> = ['barFilled', 'barEmpty']
+
+const colorGroups: Array<{ id: string; label: string; items: TerminalHudColorKey[] }> = [
+  { id: 'semantic', label: 'Semantic labels', items: ['label', 'labelTitle', 'labelValue'] },
+  { id: 'model', label: 'Model', items: ['model'] },
+  { id: 'project', label: 'Project', items: ['project'] },
+  { id: 'git', label: 'Git', items: ['git', 'gitBranch'] },
+  { id: 'context', label: 'Context', items: ['context', 'warning', 'critical'] },
+  { id: 'usage-memory', label: 'Usage / memory', items: ['usage', 'usageWarning'] },
+  { id: 'custom', label: 'Custom', items: ['custom'] },
+]
+
+const itemColorGroups: Partial<Record<HudDisplayItemId, string[]>> = {
+  model: ['model'],
+  project: ['project'],
+  customLine: ['custom'],
+  git: ['git'],
+  contextBar: ['context'],
+  contextValue: ['context'],
+  usage: ['usage-memory'],
+  memory: ['usage-memory'],
+  activity: ['semantic'],
+}
+
+const displayPresenceByItem: Partial<Record<HudDisplayItemId, TerminalHudDisplayBooleanKey>> = {
+  model: 'showModel',
+  project: 'showProject',
+  addedDirs: 'showAddedDirs',
+  contextBar: 'showContextBar',
+  sessionTokens: 'showSessionTokens',
+  usage: 'showUsage',
+  promptCache: 'showPromptCache',
+  memory: 'showMemoryUsage',
+  environment: 'showEnvironment',
+  tools: 'showTools',
+  agents: 'showAgents',
+  todos: 'showTodos',
+  cost: 'showCost',
+  duration: 'showDuration',
+  speed: 'showSpeed',
+  outputStyle: 'showOutputStyle',
+  claudeCodeVersion: 'showClaudeCodeVersion',
+  effortLevel: 'showEffortLevel',
+  sessionTime: 'showSessionStartDate',
+}
+
+const isHexColor = (value: unknown): value is string => typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value)
+
+const namedColorCss: Record<string, string> = {
+  dim: '#94a3b8',
+  red: '#ef4444',
+  green: '#22c55e',
+  yellow: '#f59e0b',
+  magenta: '#d946ef',
+  cyan: '#22d3ee',
+  brightBlue: '#60a5fa',
+  brightMagenta: '#f472b6',
+}
+
+const hex = (value: number): string => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')
+
+const ansiIndexToHex = (value: number): string => {
+  const index = Math.max(0, Math.min(255, Math.round(value)))
+  const base = ['#000000', '#800000', '#008000', '#808000', '#000080', '#800080', '#008080', '#c0c0c0', '#808080', '#ff0000', '#00ff00', '#ffff00', '#0000ff', '#ff00ff', '#00ffff', '#ffffff']
+  if (index < base.length) return base[index]
+  if (index >= 232) {
+    const level = 8 + (index - 232) * 10
+    return `#${hex(level)}${hex(level)}${hex(level)}`
+  }
+  const offset = index - 16
+  const levels = [0, 95, 135, 175, 215, 255]
+  const red = levels[Math.floor(offset / 36) % 6]
+  const green = levels[Math.floor(offset / 6) % 6]
+  const blue = levels[offset % 6]
+  return `#${hex(red)}${hex(green)}${hex(blue)}`
+}
+
+const colorValueToPickerHex = (value: TerminalHudColorValue | undefined, fallback = '#38bdf8'): string => {
+  if (typeof value === 'number' && Number.isFinite(value)) return ansiIndexToHex(value)
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) return fallback
+  if (isHexColor(text)) return text
+  if (namedColorCss[text]) return namedColorCss[text]
+  const numeric = Number(text)
+  return Number.isFinite(numeric) ? ansiIndexToHex(numeric) : fallback
+}
+
+const colorValueToCss = (value: TerminalHudColorValue | undefined, fallback = '#dbeafe'): string => colorValueToPickerHex(value, fallback)
+
+const previewPercent = (value: number | null | undefined): number | null => (
+  typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : null
+)
+
+const contextPreviewPercent = (state: NormalizedHudState): number | null => {
+  const direct = previewPercent(state.context.usedPercent)
+  if (direct !== null) return direct
+  const used = state.context.usedTokens
+  const windowSize = state.context.windowSize
+  return typeof used === 'number' && Number.isFinite(used) && typeof windowSize === 'number' && Number.isFinite(windowSize) && windowSize > 0
+    ? previewPercent((used / windowSize) * 100)
+    : null
+}
+
+const bandColorValue = (config: TerminalHudConfig, kind: 'context' | 'usage', percent: number | null): TerminalHudColorValue => {
+  const bands = kind === 'context' ? config.colors.contextBands : config.colors.usageBands
+  if (percent !== null) {
+    const matched = [...bands].sort((left, right) => right.min - left.min).find((band) => percent >= band.min)
+    if (matched) return matched.color
+  }
+  if (kind === 'context') {
+    if (percent !== null && percent >= config.display.contextCriticalThreshold) return config.colors.critical
+    if (percent !== null && percent >= config.display.contextWarningThreshold) return config.colors.warning
+    return config.colors.context
+  }
+  if (percent !== null && config.display.usageThreshold > 0 && percent >= config.display.usageThreshold) return config.colors.usageWarning
+  return config.colors.usage
+}
+
+const previewColorForItem = (item: HudDisplayItemId, config: TerminalHudConfig, state: NormalizedHudState): string => {
+  switch (item) {
+    case 'model': return colorValueToCss(config.colors.model)
+    case 'project': return colorValueToCss(config.colors.project)
+    case 'git': return colorValueToCss(config.colors.git)
+    case 'contextBar':
+    case 'contextValue': return colorValueToCss(bandColorValue(config, 'context', contextPreviewPercent(state)), colorValueToCss(config.colors.context))
+    case 'usage':
+    case 'memory': return colorValueToCss(bandColorValue(config, 'usage', previewPercent(state.usage.fiveHourUsedPercent ?? state.system.memoryUsedPercent)), colorValueToCss(config.colors.usage))
+    case 'customLine': return colorValueToCss(config.colors.custom)
+    case 'sessionTokens': return colorValueToCss(config.colors.labelValue)
+    case 'activity':
+    case 'tools':
+    case 'agents':
+    case 'todos': return colorValueToCss(config.colors.labelTitle)
+    default: return colorValueToCss(config.colors.labelValue)
+  }
+}
+
+type PreviewTextPart = { text: string; color: string }
+
+const splitPreviewText = (text: string, pattern: RegExp, colorForMatch: (match: string) => string, fallbackColor: string): PreviewTextPart[] => {
+  const parts: PreviewTextPart[] = []
+  let cursor = 0
+  for (const match of text.matchAll(pattern)) {
+    const value = match[0]
+    const index = match.index ?? 0
+    if (index > cursor) parts.push({ text: text.slice(cursor, index), color: fallbackColor })
+    parts.push({ text: value, color: colorForMatch(value) })
+    cursor = index + value.length
+  }
+  if (cursor < text.length) parts.push({ text: text.slice(cursor), color: fallbackColor })
+  return parts.length ? parts : [{ text, color: fallbackColor }]
+}
+
+const previewPartsForItem = (item: HudDisplayItemId, text: string, config: TerminalHudConfig, state: NormalizedHudState): PreviewTextPart[] => {
+  const fallback = previewColorForItem(item, config, state)
+  if (item === 'git') {
+    return splitPreviewText(text, /(git:|\+\d+|-\d+|[^\s()]+\*?)/g, (match) => {
+      if (match === 'git:') return colorValueToCss(config.colors.git)
+      if (match.startsWith('+')) return namedColorCss.green
+      if (match.startsWith('-')) return namedColorCss.red
+      return colorValueToCss(config.colors.gitBranch)
+    }, fallback)
+  }
+  if (item === 'sessionTokens' || item === 'sessionTime' || item === 'activity' || item === 'tools' || item === 'agents' || item === 'todos') {
+    return splitPreviewText(text, /(Tokens|in:|out:|cache:|Started:|Last reply:|Agents|Tools|Todos|Todo|All todos complete)/g, () => colorValueToCss(config.colors.labelTitle), colorValueToCss(config.colors.labelValue))
+  }
+  return [{ text, color: fallback }]
+}
 
 const presetPatch = (preset: TerminalHudPreset): Partial<TerminalHudConfig> => {
   if (preset === 'minimal') {
@@ -75,175 +221,157 @@ const presetPatch = (preset: TerminalHudPreset): Partial<TerminalHudConfig> => {
       },
     }
   }
-  if (preset === 'hud-plus-default') {
-    return { ...DEFAULT_TERMINAL_HUD_CONFIG, preset }
-  }
+  if (preset === 'hud-plus-default') return { ...DEFAULT_TERMINAL_HUD_CONFIG, preset }
   return { preset }
 }
 
-export function TerminalHudPanel({ config, language, previewState, onPatchSettings }: TerminalHudPanelProps) {
+export function TerminalHudPanel({ config, language, previewState, claudeContextWindowSize, onPatchSettings }: TerminalHudPanelProps) {
   const copy = language === 'zh-CN'
     ? {
         title: 'Terminal HUD',
-        hint: '内置 Claude HUD Plus 的终端 statusLine 能力。当前已支持安全预览、基础 rows builder、JSON validate 和 owner bridge 输出。',
+        hint: '复刻 Claude HUD Plus 的终端 HUD Builder：实时预览、拖拽 rows、组件 inspector、activityLine 与颜色工作台。',
         enabled: '启用 Terminal HUD',
         preset: '预设',
         rowOverflow: '行溢出策略',
+        maxWidth: '最大宽度',
         rows: 'Rows builder',
-        switches: '常用信息项开关',
-        advanced: 'HUD Plus 颗粒度配置',
-        preview: '终端预览',
-        registry: '已登记终端信息项',
-        fields: '首批配置字段',
-        parity: 'Terminal HUD parity matrix',
-        summary: '覆盖摘要',
-        ready: '已覆盖',
-        partial: '部分',
-        planned: '计划',
-        blocked: '阻塞',
+        palette: '组件库',
+        inspector: '组件参数',
+        colors: 'Color Workbench',
+        preview: '实时终端预览',
+        diagnostics: '诊断',
+        json: 'JSON / Validate',
+        components: '组件',
+        colorTab: '颜色',
+        jsonTab: 'JSON',
+        diagnosticTab: '诊断',
         addRow: '新增行',
         removeRow: '删除行',
         addItem: '添加 item',
         removeItem: '移除',
-        colors: 'Color Workbench',
-        barChars: '进度条字符',
-        diagnostics: '诊断',
+        moveUp: '上移',
+        moveDown: '下移',
+        moveLeft: '左移',
+        moveRight: '右移',
+        selectHint: '选择预览/行里的组件后，在右侧修改组件参数。也可以从左侧组件库拖入任意行。',
+        colorHint: '支持 hex、ANSI 颜色名或 0-255 色号；hex 值会同步显示颜色选择器。',
+        jsonValid: 'JSON 有效，可应用。',
+        jsonInvalid: 'JSON 无效',
+        jsonChanged: '当前草稿与已保存配置不同。',
+        applyJson: '验证并应用 JSON',
+        resetDefault: '重置 HUD Plus 默认',
+        selectedOnly: '只看当前组件颜色',
+        searchColor: '搜索颜色项',
         rowsConfigured: '已配置行数',
         itemsConfigured: '已配置 item',
         unknownItems: '未知 item',
         previewLines: '预览行数',
-        json: 'JSON / Validate',
-        applyJson: '验证并应用 JSON',
-        resetDefault: '重置默认',
-        jsonValid: 'JSON 有效，可应用。',
-        jsonInvalid: 'JSON 无效',
-        jsonChanged: '当前草稿与已保存配置不同。',
+        registry: '已登记终端信息项',
+        fields: '首批配置字段',
+        summary: '覆盖摘要',
+        parity: 'Terminal HUD parity matrix',
+        ready: '已覆盖',
+        partial: '部分',
+        planned: '计划',
+        blocked: '阻塞',
         presets: { 'hud-plus-default': 'HUD Plus 默认', minimal: '极简', custom: '自定义' },
         overflow: { truncate: '截断', wrap: '换行' },
       }
     : {
         title: 'Terminal HUD',
-        hint: 'Built-in Claude HUD Plus compatible terminal statusLine. This panel now supports safe preview, a basic rows builder, JSON validation, and owner bridge output.',
+        hint: 'Claude HUD Plus style Terminal HUD Builder with live preview, draggable rows, component inspector, activityLine, and color workbench.',
         enabled: 'Enable Terminal HUD',
         preset: 'Preset',
         rowOverflow: 'Row overflow',
+        maxWidth: 'Max width',
         rows: 'Rows builder',
-        switches: 'Common item switches',
-        advanced: 'HUD Plus granular controls',
-        preview: 'Terminal preview',
-        registry: 'Registered terminal items',
-        fields: 'First config fields',
-        parity: 'Terminal HUD parity matrix',
-        summary: 'Coverage summary',
-        ready: 'ready',
-        partial: 'partial',
-        planned: 'planned',
-        blocked: 'blocked',
+        palette: 'Component palette',
+        inspector: 'Component inspector',
+        colors: 'Color Workbench',
+        preview: 'Live terminal preview',
+        diagnostics: 'Diagnostics',
+        json: 'JSON / Validate',
+        components: 'Components',
+        colorTab: 'Colors',
+        jsonTab: 'JSON',
+        diagnosticTab: 'Diagnostics',
         addRow: 'Add row',
         removeRow: 'Remove row',
         addItem: 'Add item',
         removeItem: 'Remove',
-        colors: 'Color Workbench',
-        barChars: 'Bar characters',
-        diagnostics: 'Diagnostics',
+        moveUp: 'Up',
+        moveDown: 'Down',
+        moveLeft: 'Left',
+        moveRight: 'Right',
+        selectHint: 'Select a component in the preview/canvas to edit it on the right. Drag palette items into any row.',
+        colorHint: 'Supports hex, ANSI color names, or 0-255 color indexes. Hex values sync with a color picker.',
+        jsonValid: 'JSON is valid and ready to apply.',
+        jsonInvalid: 'Invalid JSON',
+        jsonChanged: 'Draft differs from saved config.',
+        applyJson: 'Validate and apply JSON',
+        resetDefault: 'Reset HUD Plus default',
+        selectedOnly: 'Only current component colors',
+        searchColor: 'Search colors',
         rowsConfigured: 'Configured rows',
         itemsConfigured: 'Configured items',
         unknownItems: 'Unknown items',
         previewLines: 'Preview lines',
-        json: 'JSON / Validate',
-        applyJson: 'Validate and apply JSON',
-        resetDefault: 'Reset default',
-        jsonValid: 'JSON is valid and ready to apply.',
-        jsonInvalid: 'Invalid JSON',
-        jsonChanged: 'Draft differs from saved config.',
+        registry: 'Registered terminal items',
+        fields: 'First config fields',
+        summary: 'Coverage summary',
+        parity: 'Terminal HUD parity matrix',
+        ready: 'ready',
+        partial: 'partial',
+        planned: 'planned',
+        blocked: 'blocked',
         presets: { 'hud-plus-default': 'HUD Plus default', minimal: 'Minimal', custom: 'Custom' },
         overflow: { truncate: 'Truncate', wrap: 'Wrap' },
       }
+
   const terminalItems = useMemo(() => terminalDisplayItemIds(), [])
   const terminalItemSet = useMemo(() => new Set(terminalItems), [terminalItems])
+  const groupedItems = useMemo(() => {
+    return terminalItems.reduce<Record<string, HudDisplayItemId[]>>((groups, item) => {
+      const category = DISPLAY_ITEM_REGISTRY[item]?.category ?? 'custom'
+      groups[category] = [...(groups[category] ?? []), item]
+      return groups
+    }, {})
+  }, [terminalItems])
   const summary = paritySummary('terminal')
   const terminalFields = fieldSchemaBySurface('terminal')
   const previewLines = renderTerminalHudPreviewLines(previewState, config)
+  const previewRows = config.enabled
+    ? config.rows
+      .map((row) => row
+        .map((item) => {
+          const text = renderTerminalHudItem(previewState, item, config)
+          return text ? { item, text, parts: previewPartsForItem(item, text, config, previewState) } : null
+        })
+        .filter((part): part is { item: HudDisplayItemId; text: string; parts: PreviewTextPart[] } => Boolean(part)))
+      .filter((row) => row.length > 0)
+    : []
   const configuredItemCount = config.rows.reduce((count, row) => count + row.length, 0)
   const unknownItems = Array.from(new Set(config.rows.flat().filter((item) => !terminalItemSet.has(item))))
   const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify(config, null, 2))
   const [jsonError, setJsonError] = useState<string | null>(null)
+  const [workspace, setWorkspace] = useState<BuilderWorkspace>('components')
+  const [selection, setSelection] = useState<SelectionState>(() => ({ rowIndex: 3, itemIndex: 0, item: 'activity' }))
+  const [colorSearch, setColorSearch] = useState('')
+  const [selectedColorsOnly, setSelectedColorsOnly] = useState(false)
+  const [syncedContextWindowSize, setSyncedContextWindowSize] = useState<string | null>(claudeContextWindowSize ?? null)
+  const [contextWindowSyncStatus, setContextWindowSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'failed'>('idle')
+
+  useEffect(() => {
+    setSyncedContextWindowSize(claudeContextWindowSize ?? null)
+  }, [claudeContextWindowSize])
 
   useEffect(() => {
     setJsonDraft(JSON.stringify(config, null, 2))
     setJsonError(null)
   }, [config])
 
-  const displayLabel = (key: TerminalHudDisplaySwitchKey): string => {
-    const labels = language === 'zh-CN'
-      ? {
-          showModel: '模型',
-          showProject: '项目',
-          showAddedDirs: '附加目录',
-          showContextBar: '上下文进度条',
-          showConfigCounts: '配置计数',
-          showSessionTokens: '会话 tokens',
-          showTokenBreakdown: 'Token 明细',
-          showUsage: '用量',
-          usageBarEnabled: '用量进度条',
-          showResetLabel: '重置时间',
-          usageCompact: '紧凑用量',
-          showTools: '工具',
-          showAgents: '子代理',
-          showTodos: '任务',
-          showPromptCache: 'Prompt cache',
-          showMemoryUsage: '内存',
-          showEnvironment: '环境',
-          showCost: '成本',
-          showDuration: '耗时',
-          showSpeed: '速度',
-          showOutputStyle: '输出风格',
-          showSessionName: '会话名',
-          showClaudeCodeVersion: 'Claude Code 版本',
-          showEffortLevel: '思考强度',
-          showSessionStartDate: '会话开始时间',
-          showLastResponseAt: '最后回复时间',
-        }
-      : {
-          showModel: 'Model',
-          showProject: 'Project',
-          showAddedDirs: 'Added dirs',
-          showContextBar: 'Context bar',
-          showConfigCounts: 'Config counts',
-          showSessionTokens: 'Session tokens',
-          showTokenBreakdown: 'Token breakdown',
-          showUsage: 'Usage',
-          usageBarEnabled: 'Usage bar',
-          showResetLabel: 'Reset labels',
-          usageCompact: 'Compact usage',
-          showTools: 'Tools',
-          showAgents: 'Agents',
-          showTodos: 'Todos',
-          showPromptCache: 'Prompt cache',
-          showMemoryUsage: 'Memory',
-          showEnvironment: 'Environment',
-          showCost: 'Cost',
-          showDuration: 'Duration',
-          showSpeed: 'Speed',
-          showOutputStyle: 'Output style',
-          showSessionName: 'Session name',
-          showClaudeCodeVersion: 'Claude Code version',
-          showEffortLevel: 'Effort level',
-          showSessionStartDate: 'Session start',
-          showLastResponseAt: 'Last response',
-        }
-    return labels[key] ?? key
-  }
-
-  const colorLabel = (key: keyof TerminalHudConfig['colors']): string => {
-    const labels = language === 'zh-CN'
-      ? { model: '模型', project: '项目', context: '上下文', usage: '用量', usageWarning: '用量警告', warning: '警告', critical: '严重', git: 'Git', gitBranch: 'Git 分支', label: '标签', labelTitle: '标签标题', labelValue: '标签值', custom: '自定义', barFilled: '填充', barEmpty: '空位' }
-      : { model: 'Model', project: 'Project', context: 'Context', usage: 'Usage', usageWarning: 'Usage warning', warning: 'Warning', critical: 'Critical', git: 'Git', gitBranch: 'Git branch', label: 'Label', labelTitle: 'Label title', labelValue: 'Label value', custom: 'Custom', barFilled: 'Filled', barEmpty: 'Empty' }
-    return labels[key as keyof typeof labels] ?? key
-  }
-
   const patchTerminalHud = (patch: Partial<TerminalHudConfig>): void => {
-    onPatchSettings({ terminalHud: mergeTerminalHudConfig(config, patch) })
+    onPatchSettings({ terminalHud: mergeTerminalHudConfig(config, { ...patch, preset: patch.preset ?? 'custom' }) })
   }
 
   const replaceTerminalHud = (nextConfig: Partial<TerminalHudConfig>): void => {
@@ -254,6 +382,26 @@ export function TerminalHudPanel({ config, language, previewState, onPatchSettin
     patchTerminalHud({ display: { ...config.display, ...display } })
   }
 
+  const syncContextWindowSizeOverride = (value: string): void => {
+    const normalized = value.trim()
+    setSyncedContextWindowSize(normalized || null)
+    setContextWindowSyncStatus('syncing')
+    void setClaudeHudContextWindowSize(normalized).then((status) => {
+      if (status) {
+        setSyncedContextWindowSize(status.contextWindowSizeEnv)
+        setContextWindowSyncStatus('synced')
+      } else {
+        setContextWindowSyncStatus('synced')
+      }
+    })
+  }
+
+  const patchContextWindowSizeOverride = (value: string): void => {
+    const normalized = value.replace(/[^0-9]/g, '')
+    patchDisplay({ contextWindowSizeOverride: normalized, contextWindowSizeOverrideManaged: true })
+    syncContextWindowSizeOverride(normalized)
+  }
+
   const patchColors = (colors: Partial<TerminalHudConfig['colors']>): void => {
     patchTerminalHud({ colors: { ...config.colors, ...colors } })
   }
@@ -262,23 +410,99 @@ export function TerminalHudPanel({ config, language, previewState, onPatchSettin
     patchTerminalHud({ activityLine: { ...config.activityLine, ...activityLine } })
   }
 
+  const patchActivityItems = (items: Partial<TerminalHudConfig['activityLine']['items']>): void => {
+    patchActivityLine({ items: { ...config.activityLine.items, ...items } })
+  }
+
+  const patchActivityWarnings = (warnings: Partial<TerminalHudConfig['activityLine']['warnings']>): void => {
+    patchActivityLine({ warnings: { ...config.activityLine.warnings, ...warnings } })
+  }
+
   const patchGitStatus = (gitStatus: Partial<TerminalHudConfig['gitStatus']>): void => {
     patchTerminalHud({ gitStatus: { ...config.gitStatus, ...gitStatus } })
   }
 
-  const colorValue = (key: TerminalHudColorKey): string => String(config.colors[key] ?? '')
+  const enableItemPresence = (item: HudDisplayItemId, nextConfig: TerminalHudConfig): TerminalHudConfig => {
+    const displayKey = displayPresenceByItem[item]
+    if (item === 'git') return { ...nextConfig, gitStatus: { ...nextConfig.gitStatus, enabled: true } }
+    if (item === 'contextValue') return { ...nextConfig, display: { ...nextConfig.display, contextValue: nextConfig.display.contextValue ?? 'both' } }
+    if (!displayKey) return nextConfig
+    return { ...nextConfig, display: { ...nextConfig.display, [displayKey]: true } }
+  }
 
-  const addRow = (): void => patchTerminalHud({ rows: [...config.rows, ['activity']] })
-  const removeRow = (rowIndex: number): void => patchTerminalHud({ rows: config.rows.filter((_, index) => index !== rowIndex) })
-  const addItemToRow = (rowIndex: number, item: HudDisplayItemId): void => {
-    const rows = config.rows.map((row, index) => index === rowIndex && !row.includes(item) ? [...row, item] : row)
-    patchTerminalHud({ rows })
+  const patchRows = (rows: HudDisplayItemId[][], itemToEnable?: HudDisplayItemId): void => {
+    const normalizedRows = rows.filter((row) => row.length > 0)
+    const nextRows = normalizedRows.length ? normalizedRows : DEFAULT_TERMINAL_HUD_CONFIG.rows
+    let nextConfig = mergeTerminalHudConfig(config, { rows: nextRows, preset: 'custom' })
+    if (itemToEnable) nextConfig = enableItemPresence(itemToEnable, nextConfig)
+    onPatchSettings({ terminalHud: nextConfig })
+  }
+
+  const addRow = (): void => patchRows([...config.rows, ['activity']], 'activity')
+  const removeRow = (rowIndex: number): void => {
+    patchRows(config.rows.filter((_, index) => index !== rowIndex))
+    if (selection?.rowIndex === rowIndex) setSelection(null)
+  }
+  const moveRow = (rowIndex: number, direction: -1 | 1): void => {
+    const target = rowIndex + direction
+    if (target < 0 || target >= config.rows.length) return
+    const rows = [...config.rows]
+    const [row] = rows.splice(rowIndex, 1)
+    rows.splice(target, 0, row)
+    patchRows(rows)
+    if (selection?.rowIndex === rowIndex) setSelection({ ...selection, rowIndex: target })
+  }
+  const addItemToRow = (rowIndex: number, item: HudDisplayItemId, beforeIndex?: number): void => {
+    const rows = config.rows.map((row, index) => {
+      if (index !== rowIndex || row.includes(item)) return row
+      const next = [...row]
+      next.splice(beforeIndex ?? next.length, 0, item)
+      return next
+    })
+    patchRows(rows, item)
+    setSelection({ rowIndex, itemIndex: beforeIndex ?? rows[rowIndex].length - 1, item })
   }
   const removeItemFromRow = (rowIndex: number, itemIndex: number): void => {
-    const rows = config.rows
-      .map((row, index) => index === rowIndex ? row.filter((_, innerIndex) => innerIndex !== itemIndex) : row)
-      .filter((row) => row.length > 0)
-    patchTerminalHud({ rows: rows.length ? rows : DEFAULT_TERMINAL_HUD_CONFIG.rows })
+    const rows = config.rows.map((row, index) => index === rowIndex ? row.filter((_, innerIndex) => innerIndex !== itemIndex) : row)
+    patchRows(rows)
+    if (selection?.rowIndex === rowIndex && selection.itemIndex === itemIndex) setSelection(null)
+  }
+  const moveItem = (rowIndex: number, itemIndex: number, direction: -1 | 1): void => {
+    const row = config.rows[rowIndex]
+    const target = itemIndex + direction
+    if (!row || target < 0 || target >= row.length) return
+    const rows = config.rows.map((currentRow, index) => index === rowIndex ? [...currentRow] : currentRow)
+    const [item] = rows[rowIndex].splice(itemIndex, 1)
+    rows[rowIndex].splice(target, 0, item)
+    patchRows(rows)
+    setSelection({ rowIndex, itemIndex: target, item })
+  }
+
+  const dragPayload = (event: DragEvent): DragPayload | null => {
+    try {
+      const payload = JSON.parse(event.dataTransfer.getData('application/json')) as DragPayload
+      return terminalItemSet.has(payload.item) ? payload : null
+    } catch {
+      return null
+    }
+  }
+
+  const dropIntoRow = (event: DragEvent, rowIndex: number, beforeIndex?: number): void => {
+    event.preventDefault()
+    const payload = dragPayload(event)
+    if (!payload) return
+    const rows = config.rows.map((row) => [...row])
+    let insertIndex = beforeIndex ?? rows[rowIndex].length
+    if (typeof payload.fromRow === 'number' && typeof payload.fromIndex === 'number') {
+      if (!rows[payload.fromRow]?.[payload.fromIndex]) return
+      rows[payload.fromRow].splice(payload.fromIndex, 1)
+      if (payload.fromRow === rowIndex && payload.fromIndex < insertIndex) insertIndex -= 1
+    } else if (rows.some((row) => row.includes(payload.item))) {
+      return
+    }
+    rows[rowIndex].splice(Math.max(0, insertIndex), 0, payload.item)
+    patchRows(rows, payload.item)
+    setSelection({ rowIndex, itemIndex: Math.max(0, insertIndex), item: payload.item })
   }
 
   const validateJsonDraft = (): Partial<TerminalHudConfig> | null => {
@@ -306,209 +530,411 @@ export function TerminalHudPanel({ config, language, previewState, onPatchSettin
   }
 
   const draftChanged = jsonDraft.trim() !== JSON.stringify(config, null, 2).trim()
+  const selectedItem = selection?.item ?? null
+  const selectedDefinition = selectedItem ? DISPLAY_ITEM_REGISTRY[selectedItem] : null
+  const colorGroupFilter = selectedItem ? itemColorGroups[selectedItem] ?? [] : []
+
+  const displayLabel = (key: TerminalHudDisplayBooleanKey): string => {
+    const labels = language === 'zh-CN'
+      ? {
+          showModel: '模型', showProject: '项目', showAddedDirs: '附加目录', showContextBar: '上下文进度条', showConfigCounts: '配置计数', showSessionTokens: '会话 tokens', showTokenBreakdown: 'Token 明细', showUsage: '用量', usageBarEnabled: '用量进度条', showResetLabel: '重置时间', usageCompact: '紧凑用量', showTools: '工具', showAgents: '子代理', showTodos: '任务', showPromptCache: 'Prompt cache', showMemoryUsage: '内存', showEnvironment: '环境', showCost: '成本', showDuration: '耗时', showSpeed: '速度', showOutputStyle: '输出风格', showSessionName: '会话名', showClaudeCodeVersion: 'Claude Code 版本', showEffortLevel: '思考强度', showSessionStartDate: '会话开始时间', showLastResponseAt: '最后回复时间', contextWindowSizeOverrideManaged: '托管上下文窗口',
+        }
+      : {
+          showModel: 'Model', showProject: 'Project', showAddedDirs: 'Added dirs', showContextBar: 'Context bar', showConfigCounts: 'Config counts', showSessionTokens: 'Session tokens', showTokenBreakdown: 'Token breakdown', showUsage: 'Usage', usageBarEnabled: 'Usage bar', showResetLabel: 'Reset labels', usageCompact: 'Compact usage', showTools: 'Tools', showAgents: 'Agents', showTodos: 'Todos', showPromptCache: 'Prompt cache', showMemoryUsage: 'Memory', showEnvironment: 'Environment', showCost: 'Cost', showDuration: 'Duration', showSpeed: 'Speed', showOutputStyle: 'Output style', showSessionName: 'Session name', showClaudeCodeVersion: 'Claude Code version', showEffortLevel: 'Effort level', showSessionStartDate: 'Session start', showLastResponseAt: 'Last response', contextWindowSizeOverrideManaged: 'Manage context window size',
+        }
+    return labels[key] ?? key
+  }
+
+  const colorLabel = (key: keyof TerminalHudConfig['colors']): string => {
+    const labels = language === 'zh-CN'
+      ? { model: '模型', project: '项目', context: '上下文', usage: '用量', usageWarning: '用量警告', warning: '警告', critical: '严重', git: 'Git', gitBranch: 'Git 分支', label: '标签', labelTitle: '标签标题', labelValue: '标签值', custom: '自定义', barFilled: '填充', barEmpty: '空位' }
+      : { model: 'Model', project: 'Project', context: 'Context', usage: 'Usage', usageWarning: 'Usage warning', warning: 'Warning', critical: 'Critical', git: 'Git', gitBranch: 'Git branch', label: 'Label', labelTitle: 'Label title', labelValue: 'Label value', custom: 'Custom', barFilled: 'Filled', barEmpty: 'Empty' }
+    return labels[key as keyof typeof labels] ?? key
+  }
+
+  const renderSwitch = (key: TerminalHudDisplayBooleanKey) => (
+    <label className="setting-check" key={key}>
+      <input type="checkbox" checked={config.display[key] === true} onChange={(event) => patchDisplay({ [key]: event.currentTarget.checked } as Partial<TerminalHudConfig['display']>)} />
+      <span>{displayLabel(key)}</span>
+    </label>
+  )
+
+  const renderNumberField = (label: string, value: number | null, onChange: (value: number | null) => void, min?: number, max?: number, step = 1) => (
+    <label className="setting-row setting-row--stacked">
+      <span className="setting-row__label">{label}</span>
+      <input type="number" value={value ?? ''} min={min} max={max} step={step} onChange={(event) => onChange(event.currentTarget.value === '' ? null : Number(event.currentTarget.value))} />
+    </label>
+  )
+
+  const patchColorBands = (kind: 'context' | 'usage', nextBands: TerminalHudConfig['colors']['contextBands']): void => {
+    const sorted = nextBands
+      .map((band) => ({ min: Math.max(0, Math.min(100, Math.round(band.min))), color: band.color }))
+      .sort((left, right) => left.min - right.min)
+    if (kind === 'context') patchColors({ contextBands: sorted })
+    else patchColors({ usageBands: sorted })
+  }
+
+  const renderBandEditor = (kind: 'context' | 'usage') => {
+    const bands = kind === 'context' ? config.colors.contextBands : config.colors.usageBands
+    const title = kind === 'context' ? 'contextBands' : 'usageBands'
+    const fallbackColor = kind === 'context' ? config.colors.context : config.colors.usage
+    return (
+      <div className="terminal-band-editor">
+        <div className="terminal-band-editor__head">
+          <div>
+            <h4>{title}</h4>
+            <p className="settings-note">拖动 min 区间阈值并修改颜色；预览区会按当前 context/usage 百分比实时套用。</p>
+          </div>
+          <button className="secondary-button" onClick={() => patchColorBands(kind, [...bands, { min: bands.at(-1)?.min ?? 0, color: fallbackColor }])}>+ band</button>
+        </div>
+        <div className="terminal-band-list">
+          {bands.length ? bands.map((band, index) => (
+            <div className="terminal-band-row" key={`${kind}-${index}`}>
+              <label className="setting-slider">
+                <span className="setting-slider__head"><span>min</span><strong>{band.min}%</strong></span>
+                <input type="range" min="0" max="100" step="1" value={band.min} onChange={(event) => {
+                  const next = [...bands]
+                  next[index] = { ...band, min: Number(event.currentTarget.value) }
+                  patchColorBands(kind, next)
+                }} />
+              </label>
+              <label className="terminal-color-field terminal-color-field--band">
+                <span className="terminal-color-field__label"><span className="terminal-color-swatch" style={{ background: colorValueToCss(band.color) }} />color</span>
+                <input type="color" value={colorValueToPickerHex(band.color)} onChange={(event) => {
+                  const next = [...bands]
+                  next[index] = { ...band, color: event.currentTarget.value }
+                  patchColorBands(kind, next)
+                }} />
+                <input value={String(band.color)} onChange={(event) => {
+                  const next = [...bands]
+                  next[index] = { ...band, color: event.currentTarget.value }
+                  patchColorBands(kind, next)
+                }} />
+              </label>
+              <button className="secondary-button" onClick={() => patchColorBands(kind, bands.filter((_, innerIndex) => innerIndex !== index))}>删除</button>
+            </div>
+          )) : <p className="settings-note">未配置区间颜色，当前使用阈值 warning/critical 和基础颜色。</p>}
+        </div>
+      </div>
+    )
+  }
+
+  const renderInspector = () => {
+    if (!selectedItem || !selectedDefinition) {
+      return <p className="settings-note">{copy.selectHint}</p>
+    }
+
+    const presenceKey = selectedItem === 'sessionTime' ? undefined : displayPresenceByItem[selectedItem]
+
+    return (
+      <div className="terminal-inspector">
+        <div className="terminal-inspector__title">
+          <strong>{selectedDefinition.label}</strong>
+          <span>{selectedDefinition.kind} · {selectedDefinition.category}</span>
+        </div>
+        {presenceKey ? renderSwitch(presenceKey) : null}
+        {selectedItem === 'git' ? (
+          <>
+            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.enabled} onChange={(event) => patchGitStatus({ enabled: event.currentTarget.checked })} /><span>gitStatus.enabled</span></label>
+            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.showDirty} onChange={(event) => patchGitStatus({ showDirty: event.currentTarget.checked })} /><span>showDirty</span></label>
+            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.showAheadBehind} onChange={(event) => patchGitStatus({ showAheadBehind: event.currentTarget.checked })} /><span>showAheadBehind</span></label>
+            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.showFileStats} onChange={(event) => patchGitStatus({ showFileStats: event.currentTarget.checked })} /><span>showFileStats</span></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">branchOverflow</span><select value={config.gitStatus.branchOverflow} onChange={(event) => patchGitStatus({ branchOverflow: event.currentTarget.value as TerminalHudConfig['gitStatus']['branchOverflow'] })}>{branchOverflowModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            {renderNumberField('pushWarningThreshold', config.gitStatus.pushWarningThreshold, (value) => patchGitStatus({ pushWarningThreshold: value ?? 0 }), 0, 999)}
+            {renderNumberField('pushCriticalThreshold', config.gitStatus.pushCriticalThreshold, (value) => patchGitStatus({ pushCriticalThreshold: value ?? 0 }), 0, 999)}
+          </>
+        ) : null}
+        {(selectedItem === 'contextBar' || selectedItem === 'contextValue') ? (
+          <>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">contextValue</span><select value={config.display.contextValue} onChange={(event) => patchDisplay({ contextValue: event.currentTarget.value as TerminalHudConfig['display']['contextValue'] })}>{contextValueModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">autocompactBuffer</span><select value={config.display.autocompactBuffer} onChange={(event) => patchDisplay({ autocompactBuffer: event.currentTarget.value as TerminalHudConfig['display']['autocompactBuffer'] })}>{(['enabled', 'disabled'] as const).map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            {renderNumberField('contextWarningThreshold', config.display.contextWarningThreshold, (value) => patchDisplay({ contextWarningThreshold: value ?? DEFAULT_TERMINAL_HUD_CONFIG.display.contextWarningThreshold }), 0, 100)}
+            {renderNumberField('contextCriticalThreshold', config.display.contextCriticalThreshold, (value) => patchDisplay({ contextCriticalThreshold: value ?? DEFAULT_TERMINAL_HUD_CONFIG.display.contextCriticalThreshold }), 0, 100)}
+          </>
+        ) : null}
+        {selectedItem === 'project' ? (
+          <label className="setting-row setting-row--stacked"><span className="setting-row__label">pathLevels</span><select value={config.pathLevels} onChange={(event) => patchTerminalHud({ pathLevels: Number(event.currentTarget.value) as TerminalHudConfig['pathLevels'] })}>{([1, 2, 3] as const).map((level) => <option key={level} value={level}>{level}</option>)}</select></label>
+        ) : null}
+        {selectedItem === 'model' ? (
+          <>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">modelFormat</span><select value={config.display.modelFormat} onChange={(event) => patchDisplay({ modelFormat: event.currentTarget.value as TerminalHudConfig['display']['modelFormat'] })}>{modelFormatModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">modelOverride</span><input value={config.display.modelOverride} onChange={(event) => patchDisplay({ modelOverride: event.currentTarget.value })} /></label>
+            <label className="setting-row setting-row--stacked">
+              <span className="setting-row__label">CLAUDE_HUD_CONTEXT_WINDOW_SIZE</span>
+              <input
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="270000，留空则从 Claude 配置移除"
+                value={(config.display.contextWindowSizeOverride || syncedContextWindowSize || '')}
+                onChange={(event) => patchContextWindowSizeOverride(event.currentTarget.value)}
+              />
+              <span className="setting-row__hint">输入后立即写入 Claude Code settings 的 env.CLAUDE_HUD_CONTEXT_WINDOW_SIZE；清空会立即移除该环境变量。当前 Claude 配置：{syncedContextWindowSize ?? '未设置'}；同步状态：{contextWindowSyncStatus === 'syncing' ? '同步中…' : contextWindowSyncStatus === 'synced' ? '已同步' : contextWindowSyncStatus === 'failed' ? '同步失败，请重装最新版后重试' : '待输入'}。修改后新一轮 statusLine 刷新会按该上下文窗口计算。</span>
+            </label>
+            {renderSwitch('showEffortLevel')}
+          </>
+        ) : null}
+        {selectedItem === 'sessionTokens' ? (
+          <>
+            {renderSwitch('showTokenBreakdown')}
+            {renderSwitch('showSessionStartDate')}
+            {renderSwitch('showLastResponseAt')}
+          </>
+        ) : null}
+        {selectedItem === 'sessionTime' ? (
+          <>
+            {renderSwitch('showSessionStartDate')}
+            {renderSwitch('showLastResponseAt')}
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">timeFormat</span><select value={config.display.timeFormat} onChange={(event) => patchDisplay({ timeFormat: event.currentTarget.value as TerminalHudConfig['display']['timeFormat'] })}>{timeFormatModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+          </>
+        ) : null}
+        {selectedItem === 'usage' ? (
+          <>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">usageValue</span><select value={config.display.usageValue} onChange={(event) => patchDisplay({ usageValue: event.currentTarget.value as TerminalHudConfig['display']['usageValue'] })}>{usageValueModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            {renderSwitch('usageBarEnabled')}
+            {renderSwitch('usageCompact')}
+            {renderSwitch('showResetLabel')}
+            {renderNumberField('usageThreshold', config.display.usageThreshold, (value) => patchDisplay({ usageThreshold: value ?? 0 }), 0, 100)}
+            {renderNumberField('sevenDayThreshold', config.display.sevenDayThreshold, (value) => patchDisplay({ sevenDayThreshold: value ?? DEFAULT_TERMINAL_HUD_CONFIG.display.sevenDayThreshold }), 0, 100)}
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">timeFormat</span><select value={config.display.timeFormat} onChange={(event) => patchDisplay({ timeFormat: event.currentTarget.value as TerminalHudConfig['display']['timeFormat'] })}>{timeFormatModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+          </>
+        ) : null}
+        {selectedItem === 'addedDirs' ? (
+          <label className="setting-row setting-row--stacked"><span className="setting-row__label">addedDirsLayout</span><select value={config.display.addedDirsLayout} onChange={(event) => patchDisplay({ addedDirsLayout: event.currentTarget.value as TerminalHudConfig['display']['addedDirsLayout'] })}>{addedDirsLayouts.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+        ) : null}
+        {selectedItem === 'promptCache' ? renderNumberField('promptCacheTtlSeconds', config.display.promptCacheTtlSeconds, (value) => patchDisplay({ promptCacheTtlSeconds: value ?? DEFAULT_TERMINAL_HUD_CONFIG.display.promptCacheTtlSeconds }), 1, 3600) : null}
+        {selectedItem === 'environment' ? (
+          <>
+            {renderSwitch('showConfigCounts')}
+            {renderSwitch('showOutputStyle')}
+            {renderNumberField('environmentThreshold', config.display.environmentThreshold, (value) => patchDisplay({ environmentThreshold: value ?? 0 }), 0, 100)}
+          </>
+        ) : null}
+        {selectedItem === 'customLine' ? <label className="setting-row setting-row--stacked"><span className="setting-row__label">customLine</span><input value={config.display.customLine} onChange={(event) => patchDisplay({ customLine: event.currentTarget.value })} /></label> : null}
+        {selectedItem === 'activity' ? (
+          <>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">activityLine.mode</span><select value={config.activityLine.mode} onChange={(event) => patchActivityLine({ mode: event.currentTarget.value as TerminalHudConfig['activityLine']['mode'] })}>{activityModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">toolNameFormat</span><select value={config.activityLine.toolNameFormat} onChange={(event) => patchActivityLine({ toolNameFormat: event.currentTarget.value as TerminalHudConfig['activityLine']['toolNameFormat'] })}>{toolNameFormats.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            <label className="setting-slider"><span className="setting-slider__head"><span>maxWidthRatio</span><strong>{config.activityLine.maxWidthRatio.toFixed(2)}</strong></span><input type="range" min="0.3" max="1" step="0.05" value={config.activityLine.maxWidthRatio} onChange={(event) => patchActivityLine({ maxWidthRatio: Number(event.currentTarget.value) })} /></label>
+            <div className="terminal-inspector__subgrid">
+              {(['todos', 'agents', 'tools', 'sessionTime'] as const).map((key) => <label className="setting-check" key={key}><input type="checkbox" checked={config.activityLine.items[key] !== false} onChange={(event) => patchActivityItems({ [key]: event.currentTarget.checked })} /><span>items.{key}</span></label>)}
+            </div>
+            <div className="terminal-inspector__subgrid">
+              {(['usage', 'memory', 'environment', 'promptCache'] as const).map((key) => <label className="setting-check" key={key}><input type="checkbox" checked={config.activityLine.warnings[key] !== false} onChange={(event) => patchActivityWarnings({ [key]: event.currentTarget.checked })} /><span>warnings.{key}</span></label>)}
+            </div>
+          </>
+        ) : null}
+      </div>
+    )
+  }
+
+  const filteredColorGroups = colorGroups
+    .filter((group) => !selectedColorsOnly || colorGroupFilter.includes(group.id))
+    .map((group) => ({ ...group, items: group.items.filter((item) => `${group.label} ${item} ${colorLabel(item)}`.toLowerCase().includes(colorSearch.trim().toLowerCase())) }))
+    .filter((group) => group.items.length > 0)
 
   return (
-    <div className="settings-tab-panel" role="tabpanel">
-      <section className="settings-section settings-section--flat">
+    <div className="settings-tab-panel terminal-builder" role="tabpanel">
+      <section className="terminal-builder__hero">
         <div className="settings-section__heading">
           <h3>{copy.title}</h3>
           <p>{copy.hint}</p>
         </div>
-        <label className="setting-check setting-check--inline">
-          <input type="checkbox" checked={config.enabled} onChange={(event) => patchTerminalHud({ enabled: event.currentTarget.checked })} />
-          <span>{copy.enabled}</span>
-        </label>
-        <div className="setting-group">
-          <span className="setting-row__label">{copy.preset}</span>
-          <div className="option-group option-group--wide">
-            {terminalPresets.map((preset) => (
-              <button key={preset} className={config.preset === preset ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => patchTerminalHud(presetPatch(preset))}>{copy.presets[preset]}</button>
-            ))}
-          </div>
-        </div>
-        <div className="setting-group">
-          <span className="setting-row__label">{copy.rowOverflow}</span>
-          <div className="option-group option-group--wide">
-            {rowOverflowModes.map((rowOverflow) => (
-              <button key={rowOverflow} className={config.rowOverflow === rowOverflow ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => patchTerminalHud({ rowOverflow })}>{copy.overflow[rowOverflow]}</button>
-            ))}
-          </div>
-        </div>
-        <div className="setting-group">
-          <span className="setting-row__label">{copy.switches}</span>
-          <div className="settings-check-grid settings-check-grid--compact">
-            {displaySwitches.map((key) => (
-              <label className="setting-check" key={key}>
-                <input type="checkbox" checked={config.display[key] === true} onChange={(event) => patchDisplay({ [key]: event.currentTarget.checked })} />
-                <span>{displayLabel(key)}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-        <div className="setting-group">
-          <span className="setting-row__label">{copy.advanced}</span>
-          <div className="settings-check-grid settings-check-grid--compact">
-            <label className="setting-row setting-row--stacked">
-              <span className="setting-row__label">contextValue</span>
-              <select value={config.display.contextValue} onChange={(event) => patchDisplay({ contextValue: event.currentTarget.value as TerminalHudConfig['display']['contextValue'] })}>
-                {contextValueModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-              </select>
-            </label>
-            <label className="setting-row setting-row--stacked">
-              <span className="setting-row__label">usageValue</span>
-              <select value={config.display.usageValue} onChange={(event) => patchDisplay({ usageValue: event.currentTarget.value as TerminalHudConfig['display']['usageValue'] })}>
-                {usageValueModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-              </select>
-            </label>
-            <label className="setting-row setting-row--stacked">
-              <span className="setting-row__label">addedDirsLayout</span>
-              <select value={config.display.addedDirsLayout} onChange={(event) => patchDisplay({ addedDirsLayout: event.currentTarget.value as TerminalHudConfig['display']['addedDirsLayout'] })}>
-                {addedDirsLayouts.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-              </select>
-            </label>
-            <label className="setting-row setting-row--stacked">
-              <span className="setting-row__label">modelFormat</span>
-              <select value={config.display.modelFormat} onChange={(event) => patchDisplay({ modelFormat: event.currentTarget.value as TerminalHudConfig['display']['modelFormat'] })}>
-                {modelFormatModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-              </select>
-            </label>
-            <label className="setting-row setting-row--stacked">
-              <span className="setting-row__label">timeFormat</span>
-              <select value={config.display.timeFormat} onChange={(event) => patchDisplay({ timeFormat: event.currentTarget.value as TerminalHudConfig['display']['timeFormat'] })}>
-                {timeFormatModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-              </select>
-            </label>
-            <label className="setting-row setting-row--stacked">
-              <span className="setting-row__label">activityLine.mode</span>
-              <select value={config.activityLine.mode} onChange={(event) => patchActivityLine({ mode: event.currentTarget.value as TerminalHudConfig['activityLine']['mode'] })}>
-                {activityModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-              </select>
-            </label>
-            <label className="setting-row setting-row--stacked">
-              <span className="setting-row__label">toolNameFormat</span>
-              <select value={config.activityLine.toolNameFormat} onChange={(event) => patchActivityLine({ toolNameFormat: event.currentTarget.value as TerminalHudConfig['activityLine']['toolNameFormat'] })}>
-                {toolNameFormats.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-              </select>
-            </label>
-            <label className="setting-row setting-row--stacked">
-              <span className="setting-row__label">modelOverride</span>
-              <input value={config.display.modelOverride} onChange={(event) => patchDisplay({ modelOverride: event.currentTarget.value })} />
-            </label>
-            <label className="setting-check">
-              <input type="checkbox" checked={config.gitStatus.enabled} onChange={(event) => patchGitStatus({ enabled: event.currentTarget.checked })} />
-              <span>gitStatus.enabled</span>
-            </label>
-            <label className="setting-check">
-              <input type="checkbox" checked={config.gitStatus.showDirty} onChange={(event) => patchGitStatus({ showDirty: event.currentTarget.checked })} />
-              <span>gitStatus.showDirty</span>
-            </label>
-            <label className="setting-check">
-              <input type="checkbox" checked={config.gitStatus.showAheadBehind} onChange={(event) => patchGitStatus({ showAheadBehind: event.currentTarget.checked })} />
-              <span>gitStatus.showAheadBehind</span>
-            </label>
-            <label className="setting-check">
-              <input type="checkbox" checked={config.gitStatus.showFileStats} onChange={(event) => patchGitStatus({ showFileStats: event.currentTarget.checked })} />
-              <span>gitStatus.showFileStats</span>
-            </label>
-          </div>
-        </div>
-      </section>
-
-      <section className="settings-section settings-section--flat">
-        <div className="settings-section__heading">
-          <h3>{copy.colors}</h3>
-        </div>
-        <div className="terminal-color-grid">
-          {colorKeys.map((key) => (
-            <label className="terminal-color-field" key={key}>
-              <span>{colorLabel(key)}</span>
-              <input value={colorValue(key)} placeholder="#22D3EE / brightBlue / 208" onChange={(event) => patchColors({ [key]: event.currentTarget.value })} />
-            </label>
-          ))}
-        </div>
-        <div className="setting-group">
-          <span className="setting-row__label">{copy.barChars}</span>
-          <div className="settings-check-grid settings-check-grid--compact">
-            {barKeys.map((key) => (
-              <label className="setting-row setting-row--stacked" key={key}>
-                <span className="setting-row__label">{colorLabel(key)}</span>
-                <input className="terminal-char-input" value={config.colors[key]} maxLength={2} onChange={(event) => patchColors({ [key]: event.currentTarget.value.slice(0, 2) })} />
-              </label>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="settings-section settings-section--flat">
-        <div className="settings-section__heading">
-          <h3>{copy.preview}</h3>
-        </div>
-        <pre className="terminal-preview" aria-label="Terminal HUD preview">{previewLines.join('\n')}</pre>
-      </section>
-
-      <section className="settings-section settings-section--flat">
-        <div className="settings-section__heading">
-          <h3>{copy.diagnostics}</h3>
-        </div>
-        <div className="diagnostics-grid diagnostics-grid--compact">
-          <span>{copy.rowsConfigured}</span><strong>{config.rows.length}</strong>
-          <span>{copy.itemsConfigured}</span><strong>{configuredItemCount}</strong>
-          <span>{copy.unknownItems}</span><strong>{unknownItems.length ? unknownItems.join(', ') : '0'}</strong>
-          <span>{copy.previewLines}</span><strong>{previewLines.length}</strong>
-        </div>
-      </section>
-
-      <section className="settings-section settings-section--flat settings-section--wide">
-        <div className="settings-section__heading">
-          <h3>{copy.rows}</h3>
-        </div>
-        <div className="terminal-row-builder">
-          {config.rows.map((row, rowIndex) => (
-            <div className="terminal-row-builder__row" key={`${rowIndex}-${row.join('-')}`}>
-              <strong>row {rowIndex + 1}</strong>
-              <div className="terminal-row-builder__items">
-                {row.map((item, itemIndex) => (
-                  <button className="terminal-item-chip" key={`${item}-${itemIndex}`} onClick={() => removeItemFromRow(rowIndex, itemIndex)} aria-label={`${copy.removeItem} ${item}`}>
-                    {DISPLAY_ITEM_REGISTRY[item]?.label ?? item} ×
-                  </button>
-                ))}
-              </div>
-              <select value="" aria-label={`${copy.addItem} row ${rowIndex + 1}`} onChange={(event) => {
-                if (event.currentTarget.value) addItemToRow(rowIndex, event.currentTarget.value as HudDisplayItemId)
-              }}>
-                <option value="">{copy.addItem}</option>
-                {terminalItems.map((item) => <option key={item} value={item}>{DISPLAY_ITEM_REGISTRY[item]?.label ?? item}</option>)}
-              </select>
-              <button className="secondary-button" onClick={() => removeRow(rowIndex)}>{copy.removeRow}</button>
+        <div className="terminal-preview terminal-preview--hero terminal-preview--rich" aria-label="Terminal HUD preview">
+          {previewRows.length ? previewRows.map((row, rowIndex) => (
+            <div className="terminal-preview__line" key={`preview-${rowIndex}`}>
+              {row.map((part, partIndex) => (
+                <span key={`${part.item}-${partIndex}`}>
+                  {partIndex > 0 ? (config.showSeparators ? ' │ ' : ' ') : ''}
+                  {part.parts.map((textPart, textPartIndex) => (
+                    <span key={`${part.item}-${partIndex}-${textPartIndex}`} style={{ color: textPart.color }}>{textPart.text}</span>
+                  ))}
+                </span>
+              ))}
             </div>
-          ))}
+          )) : <span>{previewLines.join('\n')}</span>}
         </div>
-        <button className="secondary-button" onClick={addRow}>{copy.addRow}</button>
-        <div className="diagnostics-grid diagnostics-grid--compact">
-          <span>{copy.registry}</span><strong>{terminalItems.length}</strong>
-          <span>{copy.fields}</span><strong>{terminalFields.length}</strong>
-          <span>{copy.summary}</span><strong>{copy.ready} {summary.ready} · {copy.partial} {summary.partial} · {copy.planned} {summary.planned} · {copy.blocked} {summary.blocked}</strong>
-        </div>
-      </section>
-
-      <section className="settings-section settings-section--flat settings-section--wide">
-        <div className="settings-section__heading">
-          <h3>{copy.json}</h3>
-        </div>
-        <textarea className="terminal-json-editor" value={jsonDraft} onChange={(event) => setJsonDraft(event.currentTarget.value)} spellCheck={false} aria-label="Terminal HUD JSON editor" />
-        <p className="settings-note">{jsonError ? `${copy.jsonInvalid}: ${jsonError}` : draftChanged ? copy.jsonChanged : copy.jsonValid}</p>
-        <div className="settings-actions settings-actions--grid">
-          <button className="secondary-button" onClick={applyJsonDraft}>{copy.applyJson}</button>
-          <button className="secondary-button" onClick={() => replaceTerminalHud(DEFAULT_TERMINAL_HUD_CONFIG)}>{copy.resetDefault}</button>
+        <p className="settings-note terminal-builder__parity-note">Terminal HUD parity matrix</p>
+        <div className="terminal-builder__hero-actions">
+          <label className="setting-check setting-check--inline">
+            <input type="checkbox" checked={config.enabled} onChange={(event) => patchTerminalHud({ enabled: event.currentTarget.checked })} />
+            <span>{copy.enabled}</span>
+          </label>
+          <div className="option-group option-group--wide">
+            {terminalPresets.map((preset) => <button key={preset} className={config.preset === preset ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => patchTerminalHud(presetPatch(preset))}>{copy.presets[preset]}</button>)}
+          </div>
         </div>
       </section>
 
-      <section className="settings-section settings-section--flat settings-section--wide">
-        <div className="settings-section__heading">
-          <h3>{copy.parity}</h3>
-        </div>
-        <HudParityMatrixView rows={TERMINAL_HUD_PARITY_MATRIX} surface="terminal" language={language} />
-      </section>
+      <div className="terminal-builder__tabs" role="tablist">
+        {([
+          ['components', copy.components],
+          ['colors', copy.colorTab],
+          ['json', copy.jsonTab],
+          ['diagnostics', copy.diagnosticTab],
+        ] as Array<[BuilderWorkspace, string]>).map(([key, label]) => (
+          <button key={key} className={workspace === key ? 'terminal-builder__tab terminal-builder__tab--active' : 'terminal-builder__tab'} onClick={() => setWorkspace(key)}>{label}</button>
+        ))}
+      </div>
+
+      {workspace === 'components' ? (
+        <section className="terminal-workspace terminal-workspace--components">
+          <aside className="terminal-builder-card terminal-palette-panel">
+            <div className="terminal-builder-card__head"><h4>{copy.palette}</h4><p>{copy.selectHint}</p></div>
+            {Object.entries(groupedItems).map(([category, items]) => (
+              <div className="terminal-palette-group" key={category}>
+                <strong>{category}</strong>
+                <div className="terminal-palette-grid">
+                  {items.map((item) => (
+                    <button
+                      key={item}
+                      className={selectedItem === item ? 'terminal-palette-item terminal-palette-item--selected' : 'terminal-palette-item'}
+                      draggable
+                      onDragStart={(event) => event.dataTransfer.setData('application/json', JSON.stringify({ item }))}
+                      onClick={() => setSelection({ rowIndex: -1, itemIndex: -1, item })}
+                    >
+                      <span>{DISPLAY_ITEM_REGISTRY[item]?.label ?? item}</span>
+                      <em>{DISPLAY_ITEM_REGISTRY[item]?.kind}</em>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </aside>
+
+          <main className="terminal-builder-card terminal-canvas-panel">
+            <div className="terminal-builder-card__head">
+              <h4>{copy.rows}</h4>
+              <div className="terminal-builder-card__actions">
+                <div className="option-group">
+                  {rowOverflowModes.map((rowOverflow) => <button key={rowOverflow} className={config.rowOverflow === rowOverflow ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => patchTerminalHud({ rowOverflow })}>{copy.overflow[rowOverflow]}</button>)}
+                </div>
+                {renderNumberField(copy.maxWidth, config.maxWidth, (value) => patchTerminalHud({ maxWidth: value && value > 0 ? value : null }), 20, 240)}
+              </div>
+            </div>
+            <div className="terminal-row-builder terminal-row-builder--canvas">
+              {config.rows.map((row, rowIndex) => (
+                <div className="terminal-row-builder__row terminal-row-builder__row--canvas" key={`${rowIndex}-${row.join('-')}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropIntoRow(event, rowIndex)}>
+                  <div className="terminal-row-builder__row-head">
+                    <strong>row {rowIndex + 1}</strong>
+                    <div className="terminal-row-builder__row-actions">
+                      <button className="secondary-button" onClick={() => moveRow(rowIndex, -1)} disabled={rowIndex === 0}>{copy.moveUp}</button>
+                      <button className="secondary-button" onClick={() => moveRow(rowIndex, 1)} disabled={rowIndex === config.rows.length - 1}>{copy.moveDown}</button>
+                      <button className="secondary-button" onClick={() => removeRow(rowIndex)}>{copy.removeRow}</button>
+                    </div>
+                  </div>
+                  <div className="terminal-row-builder__items terminal-row-builder__items--dropzone">
+                    {row.map((item, itemIndex) => (
+                      <div
+                        className={selection?.rowIndex === rowIndex && selection.itemIndex === itemIndex ? 'terminal-item-chip terminal-item-chip--selected' : 'terminal-item-chip'}
+                        key={`${item}-${itemIndex}`}
+                        role="button"
+                        tabIndex={0}
+                        draggable
+                        onDragStart={(event) => event.dataTransfer.setData('application/json', JSON.stringify({ item, fromRow: rowIndex, fromIndex: itemIndex }))}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => dropIntoRow(event, rowIndex, itemIndex)}
+                        onClick={() => setSelection({ rowIndex, itemIndex, item })}
+                        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelection({ rowIndex, itemIndex, item }) }}
+                      >
+                        <span>{DISPLAY_ITEM_REGISTRY[item]?.label ?? item}</span>
+                        <em>{item}</em>
+                        <span className="terminal-item-chip__actions">
+                          <button type="button" className="terminal-chip-action" onClick={(event) => { event.stopPropagation(); moveItem(rowIndex, itemIndex, -1) }}>{copy.moveLeft}</button>
+                          <button type="button" className="terminal-chip-action" onClick={(event) => { event.stopPropagation(); moveItem(rowIndex, itemIndex, 1) }}>{copy.moveRight}</button>
+                          <button type="button" className="terminal-chip-action" onClick={(event) => { event.stopPropagation(); removeItemFromRow(rowIndex, itemIndex) }}>×</button>
+                        </span>
+                      </div>
+                    ))}
+                    <select value="" aria-label={`${copy.addItem} row ${rowIndex + 1}`} onChange={(event) => { if (event.currentTarget.value) addItemToRow(rowIndex, event.currentTarget.value as HudDisplayItemId) }}>
+                      <option value="">{copy.addItem}</option>
+                      {terminalItems.map((item) => <option key={item} value={item}>{DISPLAY_ITEM_REGISTRY[item]?.label ?? item}</option>)}
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button className="secondary-button" onClick={addRow}>{copy.addRow}</button>
+          </main>
+
+          <aside className="terminal-builder-card terminal-inspector-panel">
+            <div className="terminal-builder-card__head"><h4>{copy.inspector}</h4></div>
+            {renderInspector()}
+          </aside>
+        </section>
+      ) : null}
+
+      {workspace === 'colors' ? (
+        <section className="terminal-workspace terminal-workspace--colors">
+          <div className="terminal-builder-card terminal-color-panel">
+            <div className="terminal-builder-card__head"><h4>{copy.colors}</h4><p>{copy.colorHint}</p></div>
+            <div className="terminal-color-toolbar">
+              <input value={colorSearch} placeholder={copy.searchColor} onChange={(event) => setColorSearch(event.currentTarget.value)} />
+              <label className="setting-check setting-check--inline"><input type="checkbox" checked={selectedColorsOnly} onChange={(event) => setSelectedColorsOnly(event.currentTarget.checked)} /><span>{copy.selectedOnly}</span></label>
+            </div>
+            {filteredColorGroups.map((group) => (
+              <div className="terminal-color-group" key={group.id}>
+                <h4>{group.label}</h4>
+                <div className="terminal-color-grid terminal-color-grid--workbench">
+                  {group.items.map((key) => {
+                    const value = config.colors[key]
+                    const textValue = String(value ?? '')
+                    return (
+                      <label className="terminal-color-field terminal-color-field--workbench" key={key}>
+                        <span className="terminal-color-field__label"><span className="terminal-color-swatch" style={{ background: colorValueToCss(value) }} />{colorLabel(key)}</span>
+                        <input type="color" value={colorValueToPickerHex(value)} onChange={(event) => patchColors({ [key]: event.currentTarget.value })} />
+                        <input value={textValue} placeholder="#22D3EE / brightBlue / 208" onChange={(event) => patchColors({ [key]: event.currentTarget.value })} />
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+            {selectedColorsOnly && selectedItem && !['contextBar', 'contextValue', 'usage', 'memory'].includes(selectedItem) ? null : renderBandEditor('context')}
+            {selectedColorsOnly && selectedItem && !['usage', 'memory'].includes(selectedItem) ? null : renderBandEditor('usage')}
+            <div className="setting-group">
+              <span className="setting-row__label">Bar characters</span>
+              <div className="settings-check-grid settings-check-grid--compact">
+                {barKeys.map((key) => <label className="setting-row setting-row--stacked" key={key}><span className="setting-row__label">{colorLabel(key)}</span><input className="terminal-char-input" value={config.colors[key]} maxLength={2} onChange={(event) => patchColors({ [key]: event.currentTarget.value.slice(0, 2) })} /></label>)}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {workspace === 'json' ? (
+        <section className="terminal-workspace">
+          <div className="terminal-builder-card terminal-json-panel">
+            <div className="terminal-builder-card__head"><h4>{copy.json}</h4></div>
+            <textarea className="terminal-json-editor" value={jsonDraft} onChange={(event) => setJsonDraft(event.currentTarget.value)} spellCheck={false} aria-label="Terminal HUD JSON editor" />
+            <p className="settings-note">{jsonError ? `${copy.jsonInvalid}: ${jsonError}` : draftChanged ? copy.jsonChanged : copy.jsonValid}</p>
+            <div className="settings-actions settings-actions--grid">
+              <button className="secondary-button" onClick={applyJsonDraft}>{copy.applyJson}</button>
+              <button className="secondary-button" onClick={() => replaceTerminalHud(DEFAULT_TERMINAL_HUD_CONFIG)}>{copy.resetDefault}</button>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {workspace === 'diagnostics' ? (
+        <section className="terminal-workspace">
+          <div className="terminal-builder-card">
+            <div className="terminal-builder-card__head"><h4>{copy.diagnostics}</h4></div>
+            <div className="diagnostics-grid diagnostics-grid--compact">
+              <span>{copy.rowsConfigured}</span><strong>{config.rows.length}</strong>
+              <span>{copy.itemsConfigured}</span><strong>{configuredItemCount}</strong>
+              <span>{copy.unknownItems}</span><strong>{unknownItems.length ? unknownItems.join(', ') : '0'}</strong>
+              <span>{copy.previewLines}</span><strong>{previewLines.length}</strong>
+              <span>{copy.registry}</span><strong>{terminalItems.length}</strong>
+              <span>{copy.fields}</span><strong>{terminalFields.length}</strong>
+              <span>{copy.summary}</span><strong>{copy.ready} {summary.ready} · {copy.partial} {summary.partial} · {copy.planned} {summary.planned} · {copy.blocked} {summary.blocked}</strong>
+            </div>
+          </div>
+          <div className="terminal-builder-card">
+            <div className="terminal-builder-card__head"><h4>{copy.parity}</h4></div>
+            <HudParityMatrixView rows={TERMINAL_HUD_PARITY_MATRIX} surface="terminal" language={language} />
+          </div>
+        </section>
+      ) : null}
     </div>
   )
 }

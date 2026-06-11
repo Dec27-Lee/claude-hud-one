@@ -13,6 +13,7 @@ const HOOK_EVENTS: [&str; 7] = [
     "StopFailure",
     "PreCompact",
 ];
+const CONTEXT_WINDOW_SIZE_ENV_KEY: &str = "CLAUDE_HUD_CONTEXT_WINDOW_SIZE";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +29,7 @@ pub struct ClaudeGlobalBridgeStatus {
     pub compatibility_mode: String,
     pub status_line_owner: String,
     pub status_line_command: Option<String>,
+    pub context_window_size_env: Option<String>,
     pub enhanced_capture_enabled: bool,
     pub hooks_installed: bool,
     pub upstream_status_line_command: Option<String>,
@@ -182,6 +184,58 @@ pub fn remove_global_bridge_hooks() -> Result<ClaudeGlobalBridgeStatus, String> 
     ))
 }
 
+pub fn set_context_window_size_env(value: Option<String>) -> Result<ClaudeGlobalBridgeStatus, String> {
+    let normalized = normalize_context_window_size(value)?;
+    let bridge_path = bridge_script_path().ok_or_else(|| "APPDATA is not available".to_string())?;
+    write_bridge_script(&bridge_path)?;
+
+    let settings_path = claude_settings_path().ok_or_else(|| "USERPROFILE/HOME is not available".to_string())?;
+    let mut settings = read_settings_json(&settings_path)?;
+    let original = settings.clone();
+    let bridge_command = command_for_bridge(&bridge_path, false);
+    let previous_status_line = current_status_line_command(&settings);
+
+    if !previous_status_line
+        .as_deref()
+        .map(command_is_bridge)
+        .unwrap_or(false)
+    {
+        save_upstream_status_line(previous_status_line.as_deref(), &bridge_command)?;
+        set_status_line(&mut settings, &bridge_command);
+    }
+
+    set_claude_env_value(
+        &mut settings,
+        CONTEXT_WINDOW_SIZE_ENV_KEY,
+        normalized.as_deref(),
+    );
+
+    let changed = settings != original;
+    let backup_path = if changed && settings_path.exists() {
+        backup_settings(&settings_path)?
+    } else {
+        None
+    };
+
+    if changed {
+        write_settings_json(&settings_path, &settings)?;
+    }
+
+    let message = if let Some(value) = normalized.as_deref() {
+        format!("Claude HUD context window size override set to {}.", value)
+    } else {
+        "Claude HUD context window size override removed.".to_string()
+    };
+
+    Ok(status_from_settings(
+        Some(bridge_path),
+        Some(settings_path),
+        backup_path,
+        Some(settings),
+        &message,
+    ))
+}
+
 pub fn global_bridge_status() -> ClaudeGlobalBridgeStatus {
     let bridge_path = bridge_script_path();
     let settings_path = claude_settings_path();
@@ -230,6 +284,9 @@ fn status_from_settings(
         .unwrap_or("none")
         .to_string();
     let can_restore_status_line = upstream_status_line_saved || status_line_installed;
+    let context_window_size_env = settings
+        .as_ref()
+        .and_then(|settings| current_context_window_size_env(settings));
 
     ClaudeGlobalBridgeStatus {
         installed,
@@ -243,6 +300,7 @@ fn status_from_settings(
         compatibility_mode,
         status_line_owner,
         status_line_command,
+        context_window_size_env,
         enhanced_capture_enabled: status_line_installed,
         hooks_installed,
         upstream_status_line_command,
@@ -350,6 +408,52 @@ fn current_status_line_command(settings: &Value) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn env_value_from_object(settings: &Value, object_key: &str, key: &str) -> Option<String> {
+    settings
+        .get(object_key)
+        .and_then(Value::as_object)
+        .and_then(|env| env.get(key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn status_line_env_value(settings: &Value, key: &str) -> Option<String> {
+    settings
+        .get("statusLine")
+        .and_then(Value::as_object)
+        .and_then(|object| object.get("env"))
+        .and_then(Value::as_object)
+        .and_then(|env| env.get(key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn current_context_window_size_env(settings: &Value) -> Option<String> {
+    env_value_from_object(settings, "env", CONTEXT_WINDOW_SIZE_ENV_KEY)
+        .or_else(|| status_line_env_value(settings, CONTEXT_WINDOW_SIZE_ENV_KEY))
+}
+
+fn normalize_context_window_size(value: Option<String>) -> Result<Option<String>, String> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let text = raw.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let parsed = text
+        .parse::<u64>()
+        .map_err(|_| "Context window size must be a positive integer.".to_string())?;
+    if parsed == 0 {
+        return Err("Context window size must be greater than 0.".to_string());
+    }
+    Ok(Some(parsed.to_string()))
+}
+
 fn read_upstream_status_line_command() -> Option<String> {
     let path = upstream_statusline_path()?;
     fs::read_to_string(path)
@@ -384,8 +488,7 @@ fn save_upstream_status_line(previous_command: Option<&str>, bridge_command: &st
 }
 
 fn set_status_line(settings: &mut Value, command: &str) {
-    let object = ensure_object(settings);
-    object.insert(
+    ensure_object(settings).insert(
         "statusLine".to_string(),
         json!({
             "type": "command",
@@ -394,6 +497,42 @@ fn set_status_line(settings: &mut Value, command: &str) {
             "refreshInterval": 1,
         }),
     );
+}
+
+fn set_claude_env_value(settings: &mut Value, key: &str, value: Option<&str>) {
+    let object = ensure_object(settings);
+
+    if let Some(value) = value {
+        let env = object.entry("env".to_string()).or_insert_with(|| json!({}));
+        if !env.is_object() {
+            *env = json!({});
+        }
+        env.as_object_mut()
+            .expect("Claude settings env object")
+            .insert(key.to_string(), Value::String(value.to_string()));
+    } else {
+        let remove_env = if let Some(env) = object.get_mut("env").and_then(Value::as_object_mut) {
+            env.remove(key);
+            env.is_empty()
+        } else {
+            false
+        };
+        if remove_env {
+            object.remove("env");
+        }
+    }
+
+    if let Some(status_line) = object.get_mut("statusLine").and_then(Value::as_object_mut) {
+        let remove_status_env = if let Some(env) = status_line.get_mut("env").and_then(Value::as_object_mut) {
+            env.remove(key);
+            env.is_empty()
+        } else {
+            false
+        };
+        if remove_status_env {
+            status_line.remove("env");
+        }
+    }
 }
 
 fn ensure_hooks(settings: &mut Value, hook_command: &str) -> Vec<String> {
@@ -502,4 +641,50 @@ fn ensure_object(value: &mut Value) -> &mut Map<String, Value> {
         *value = json!({});
     }
     value.as_object_mut().expect("settings object")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_window_env_uses_top_level_claude_env() {
+        let settings = json!({
+            "env": { "CLAUDE_HUD_CONTEXT_WINDOW_SIZE": "270000" },
+            "statusLine": {
+                "env": { "CLAUDE_HUD_CONTEXT_WINDOW_SIZE": "123000" }
+            }
+        });
+
+        assert_eq!(current_context_window_size_env(&settings).as_deref(), Some("270000"));
+    }
+
+    #[test]
+    fn set_claude_env_value_sets_top_level_and_cleans_status_line_env() {
+        let mut settings = json!({
+            "statusLine": {
+                "env": { "CLAUDE_HUD_CONTEXT_WINDOW_SIZE": "123000", "OTHER": "keep" }
+            }
+        });
+
+        set_claude_env_value(&mut settings, CONTEXT_WINDOW_SIZE_ENV_KEY, Some("270000"));
+
+        assert_eq!(
+            settings["env"][CONTEXT_WINDOW_SIZE_ENV_KEY].as_str(),
+            Some("270000")
+        );
+        assert!(settings["statusLine"]["env"].get(CONTEXT_WINDOW_SIZE_ENV_KEY).is_none());
+        assert_eq!(settings["statusLine"]["env"]["OTHER"].as_str(), Some("keep"));
+    }
+
+    #[test]
+    fn set_claude_env_value_removes_empty_env_object() {
+        let mut settings = json!({
+            "env": { "CLAUDE_HUD_CONTEXT_WINDOW_SIZE": "270000" }
+        });
+
+        set_claude_env_value(&mut settings, CONTEXT_WINDOW_SIZE_ENV_KEY, None);
+
+        assert!(settings.get("env").is_none());
+    }
 }

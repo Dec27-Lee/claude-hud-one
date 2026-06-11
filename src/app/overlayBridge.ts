@@ -8,6 +8,14 @@ export type OverlayHitRegion = {
   height: number
 }
 
+type OverlayLayoutRequest = {
+  contentBounds: OverlayHitRegion
+  regions: OverlayHitRegion[]
+}
+
+let pendingOverlayLayout: OverlayLayoutRequest | null = null
+let overlayLayoutInFlight = false
+
 export type FullscreenState = {
   hidden: boolean
   reason: string | null
@@ -73,6 +81,7 @@ export type ClaudeGlobalBridgeStatus = {
   compatibilityMode: string
   statusLineOwner: string
   statusLineCommand: string | null
+  contextWindowSizeEnv: string | null
   enhancedCaptureEnabled: boolean
   hooksInstalled: boolean
   upstreamStatusLineCommand: string | null
@@ -98,11 +107,41 @@ const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_
 export const updateOverlayHitRegions = async (regions: OverlayHitRegion[]): Promise<void> => {
   if (!isTauriRuntime()) return
 
+  pendingOverlayLayout = null
+
   try {
     await invoke('update_overlay_hit_regions', { regions })
   } catch (error) {
     console.warn('Failed to update overlay hit regions', error)
   }
+}
+
+const flushOverlayLayoutQueue = async (): Promise<void> => {
+  if (overlayLayoutInFlight) return
+  overlayLayoutInFlight = true
+
+  try {
+    while (pendingOverlayLayout) {
+      const next = pendingOverlayLayout
+      pendingOverlayLayout = null
+      await invoke('update_overlay_layout', {
+        contentBounds: next.contentBounds,
+        regions: next.regions,
+      })
+    }
+  } catch (error) {
+    console.warn('Failed to update overlay layout', error)
+  } finally {
+    overlayLayoutInFlight = false
+    if (pendingOverlayLayout) void flushOverlayLayoutQueue()
+  }
+}
+
+export const updateOverlayLayout = async (contentBounds: OverlayHitRegion, regions: OverlayHitRegion[]): Promise<void> => {
+  if (!isTauriRuntime()) return
+
+  pendingOverlayLayout = { contentBounds, regions }
+  void flushOverlayLayoutQueue()
 }
 
 export const updateOverlayHitRegion = async (region: OverlayHitRegion): Promise<void> => {
@@ -256,6 +295,20 @@ export const removeClaudeGlobalBridgeHooks = async (): Promise<ClaudeGlobalBridg
     return await invoke<ClaudeGlobalBridgeStatus>('remove_claude_global_bridge_hooks')
   } catch (error) {
     console.warn('Failed to remove Claude global bridge hooks', error)
+    return null
+  }
+}
+
+export const setClaudeHudContextWindowSize = async (value: string): Promise<ClaudeGlobalBridgeStatus | null> => {
+  if (!isTauriRuntime()) return null
+  const trimmed = value.trim()
+
+  try {
+    return await invoke<ClaudeGlobalBridgeStatus>('set_claude_hud_context_window_size', {
+      value: trimmed ? trimmed : null,
+    })
+  } catch (error) {
+    console.warn('Failed to update Claude HUD context window size', error)
     return null
   }
 }
