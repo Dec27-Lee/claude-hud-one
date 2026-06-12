@@ -9,6 +9,21 @@ const screenshot = async (page: import('@playwright/test').Page, name: string): 
   await page.screenshot({ path: join(screenshotDir, `${name}.png`), fullPage: true })
 }
 
+const expectNoHorizontalOverflow = async (page: import('@playwright/test').Page, selectors: string[]): Promise<void> => {
+  const offenders = await page.evaluate((targetSelectors) => {
+    return targetSelectors.flatMap((selector) => {
+      const elements = Array.from(document.querySelectorAll(selector))
+        .filter((element): element is HTMLElement => element instanceof HTMLElement)
+      return elements.map((element, index) => ({
+        selector: `${selector}[${index}]`,
+        overflow: Math.ceil(element.scrollWidth - element.clientWidth),
+      }))
+    }).filter((item) => item.overflow > 1)
+  }, selectors)
+
+  expect(offenders).toEqual([])
+}
+
 test.describe('Claude HUD One UI smoke', () => {
   test('captures compact island state', async ({ page }) => {
     await page.goto('/')
@@ -72,15 +87,29 @@ test.describe('Claude HUD One UI smoke', () => {
     await expect(page.getByRole('heading', { name: '界面语言' })).toBeVisible()
     await page.getByRole('tab', { name: '终端 HUD' }).click()
     await expect(page.getByRole('heading', { name: 'Terminal HUD', exact: true })).toBeVisible()
-    await expect(page.getByText('Terminal HUD parity matrix', { exact: true })).toBeVisible()
     await expect(page.getByLabel('Terminal HUD preview')).toContainText('claude-hud-one')
-    await expect(page.getByRole('heading', { name: 'Rows builder' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '行配置' })).toBeVisible()
+    await expect(page.locator('.terminal-palette-item', { hasText: '模型' })).toHaveCount(0)
+    await expect(page.getByText('活动行模式')).toBeVisible()
+    await expect(page.getByRole('button', { name: '诊断' })).toHaveCount(0)
+    await expect(page.locator('.terminal-row-builder__select')).toHaveCount(0)
+    const toolItem = page.locator('.terminal-palette-item', { hasText: '用量' }).first()
+    const firstDropzone = page.locator('.terminal-row-builder__items--dropzone').first()
+    await toolItem.scrollIntoViewIfNeeded()
+    const toolBox = await toolItem.boundingBox()
+    const dropzoneBox = await firstDropzone.boundingBox()
+    if (!toolBox || !dropzoneBox) throw new Error('Missing palette item or dropzone bounding box')
+    await page.mouse.move(toolBox.x + toolBox.width / 2, toolBox.y + toolBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(toolBox.x + toolBox.width / 2 + 8, toolBox.y + toolBox.height / 2 + 8, { steps: 4 })
+    await page.mouse.move(dropzoneBox.x + dropzoneBox.width / 2, dropzoneBox.y + dropzoneBox.height / 2, { steps: 12 })
+    await page.mouse.up()
+    await expect(firstDropzone).toContainText('用量')
+    await expect(page.locator('.terminal-palette-item', { hasText: '用量' })).toHaveCount(0)
     await page.getByRole('button', { name: '颜色' }).click()
-    await expect(page.getByRole('heading', { name: 'Color Workbench' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '颜色配置' })).toBeVisible()
     await page.getByRole('button', { name: 'JSON' }).click()
     await expect(page.getByLabel('Terminal HUD JSON editor')).toContainText('custom')
-    await page.getByRole('button', { name: '诊断' }).click()
-    await expect(page.getByRole('heading', { name: '诊断' })).toBeVisible()
     await page.getByRole('tab', { name: '桌面 HUD' }).click()
     await expect(page.getByRole('heading', { name: '桌面展示' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Desktop HUD', exact: true })).toBeVisible()
@@ -98,5 +127,41 @@ test.describe('Claude HUD One UI smoke', () => {
     await expect(page.getByRole('button', { name: 'Refresh now' })).toBeVisible()
     await expect(page.getByText('Codex')).toHaveCount(0)
     await screenshot(page, '05-settings')
+  })
+
+  test('keeps terminal HUD settings responsive without horizontal overflow', async ({ page }) => {
+    for (const width of [960, 900, 820, 760]) {
+      await page.setViewportSize({ width, height: 720 })
+      await page.goto('/settings.html')
+      await page.getByRole('tab', { name: '终端 HUD' }).click()
+      await expect(page.getByRole('heading', { name: '行配置' })).toBeVisible()
+      await expectNoHorizontalOverflow(page, [
+        '.settings-content',
+        '.terminal-workspace--components',
+        '.terminal-canvas-panel',
+        '.terminal-inspector-panel',
+      ])
+      const layout = await page.evaluate(() => ({
+        topbarPosition: getComputedStyle(document.querySelector('.terminal-builder__topbar') as HTMLElement).position,
+        paletteOverflow: getComputedStyle(document.querySelector('.terminal-palette-scroll') as HTMLElement).overflowY,
+        rowsOverflow: getComputedStyle(document.querySelector('.terminal-row-builder--canvas') as HTMLElement).overflowY,
+        inspectorOverflow: getComputedStyle(document.querySelector('.terminal-inspector') as HTMLElement).overflowY,
+      }))
+      expect(layout).toEqual({
+        topbarPosition: 'sticky',
+        paletteOverflow: 'auto',
+        rowsOverflow: 'auto',
+        inspectorOverflow: 'auto',
+      })
+
+      await page.getByRole('button', { name: '颜色' }).click()
+      await expect(page.getByRole('heading', { name: '颜色配置' })).toBeVisible()
+      await expectNoHorizontalOverflow(page, [
+        '.settings-content',
+        '.terminal-workspace--colors',
+        '.terminal-color-panel',
+        '.terminal-color-grid--workbench',
+      ])
+    }
   })
 })

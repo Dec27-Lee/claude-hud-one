@@ -1,13 +1,10 @@
-import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { setClaudeHudContextWindowSize } from '../../app/overlayBridge'
 import type { SettingsState } from '../../app/types'
 import { DEFAULT_TERMINAL_HUD_CONFIG, mergeTerminalHudConfig, type TerminalHudColorValue, type TerminalHudConfig, type TerminalHudPreset } from '../../hud/config'
 import type { HudDisplayItemId, NormalizedHudState } from '../../hud/types'
-import { fieldSchemaBySurface } from '../../hud/fieldSchema'
-import { paritySummary, TERMINAL_HUD_PARITY_MATRIX } from '../../hud/parityMatrix'
 import { DISPLAY_ITEM_REGISTRY, terminalDisplayItemIds } from '../../hud/displayItemRegistry'
 import { renderTerminalHudItem, renderTerminalHudPreviewLines } from '../../hud/terminalRenderer'
-import { HudParityMatrixView } from './HudParityMatrixView'
 
 type TerminalHudPanelProps = {
   config: TerminalHudConfig
@@ -17,9 +14,19 @@ type TerminalHudPanelProps = {
   onPatchSettings: (settings: Partial<SettingsState>) => void
 }
 
-type BuilderWorkspace = 'components' | 'colors' | 'json' | 'diagnostics'
+type BuilderWorkspace = 'components' | 'colors' | 'json'
 type SelectionState = { rowIndex: number; itemIndex: number; item: HudDisplayItemId } | null
 type DragPayload = { item: HudDisplayItemId; fromRow?: number; fromIndex?: number }
+type PalettePointerDrag = { item: HudDisplayItemId; label: string; x: number; y: number; active: boolean } | null
+type PalettePointerDragRef = { item: HudDisplayItemId; label: string; startX: number; startY: number; active: boolean }
+type PalettePointerEvent = PointerEvent | MouseEvent
+type PalettePointerListeners = {
+  pointerMove: (event: PointerEvent) => void
+  pointerEnd: (event: PointerEvent) => void
+  pointerCancel: (event: PointerEvent) => void
+  mouseMove: (event: MouseEvent) => void
+  mouseEnd: (event: MouseEvent) => void
+}
 
 type TerminalHudDisplayBooleanKey = {
   [Key in keyof TerminalHudConfig['display']]: TerminalHudConfig['display'][Key] extends boolean ? Key : never
@@ -59,6 +66,128 @@ const itemColorGroups: Partial<Record<HudDisplayItemId, string[]>> = {
   usage: ['usage-memory'],
   memory: ['usage-memory'],
   activity: ['semantic'],
+}
+
+const itemZhLabels: Record<HudDisplayItemId, string> = {
+  model: '模型',
+  contextBar: '上下文进度条',
+  contextValue: '上下文数值',
+  project: '项目',
+  git: 'Git',
+  addedDirs: '附加目录',
+  sessionTokens: '会话 Token',
+  usage: '用量',
+  promptCache: 'Prompt 缓存',
+  memory: '内存',
+  environment: '环境',
+  tools: '工具',
+  agents: '子代理',
+  todos: '任务',
+  activity: '活动',
+  sessionTime: '会话时间',
+  customLine: '自定义行',
+  cost: '成本',
+  duration: '耗时',
+  speed: '速度',
+  outputStyle: '输出风格',
+  claudeCodeVersion: 'Claude Code 版本',
+  effortLevel: '思考强度',
+}
+
+const categoryZhLabels: Record<string, string> = {
+  core: '核心',
+  project: '项目',
+  tokens: 'Token',
+  resource: '资源',
+  activity: '活动',
+  time: '时间',
+  custom: '自定义',
+}
+
+const kindZhLabels: Record<string, string> = {
+  part: '片段',
+  line: '行',
+  metric: '指标',
+}
+
+const configZhLabels: Record<string, string> = {
+  'gitStatus.enabled': '启用 Git 状态',
+  showDirty: '显示未提交状态',
+  showAheadBehind: '显示领先/落后',
+  showFileStats: '显示文件统计',
+  branchOverflow: '分支名溢出策略',
+  pushWarningThreshold: '推送提醒阈值',
+  pushCriticalThreshold: '推送严重阈值',
+  contextValue: '上下文数值',
+  autocompactBuffer: '自动压缩缓冲',
+  contextWarningThreshold: '上下文警告阈值',
+  contextCriticalThreshold: '上下文严重阈值',
+  pathLevels: '路径层级',
+  modelFormat: '模型格式',
+  modelOverride: '模型覆盖文本',
+  contextWindowSizeOverride: '上下文窗口大小',
+  showEffortLevel: '显示思考强度',
+  showTokenBreakdown: '显示 Token 明细',
+  showSessionStartDate: '显示会话开始时间',
+  showLastResponseAt: '显示最后回复时间',
+  timeFormat: '时间格式',
+  usageValue: '用量数值',
+  usageBarEnabled: '显示用量进度条',
+  usageCompact: '紧凑用量',
+  showResetLabel: '显示重置时间',
+  usageThreshold: '用量阈值',
+  sevenDayThreshold: '7 天阈值',
+  addedDirsLayout: '附加目录布局',
+  promptCacheTtlSeconds: 'Prompt 缓存 TTL',
+  environmentThreshold: '环境提醒阈值',
+  customLine: '自定义文本',
+  'activityLine.mode': '活动行模式',
+  toolNameFormat: '工具名格式',
+  maxWidthRatio: '最大宽度比例',
+  'items.todos': '任务',
+  'items.agents': '子代理',
+  'items.tools': '工具',
+  'items.sessionTime': '会话时间',
+  'warnings.usage': '用量警告',
+  'warnings.memory': '内存警告',
+  'warnings.environment': '环境警告',
+  'warnings.promptCache': 'Prompt 缓存警告',
+  contextBands: '上下文区间颜色',
+  usageBands: '用量/内存区间颜色',
+  barCharacters: '进度条字符',
+  min: '最小值',
+  color: '颜色',
+}
+
+const enumZhLabels: Record<string, string> = {
+  truncate: '截断',
+  wrap: '换行',
+  both: '百分比和 Token',
+  percent: '百分比',
+  tokens: 'Token',
+  remaining: '剩余',
+  enabled: '启用',
+  disabled: '禁用',
+  full: '完整',
+  compact: '紧凑',
+  short: '短名',
+  relative: '相对时间',
+  absolute: '绝对时间',
+  inline: '行内',
+  line: '独占行',
+  auto: '自动',
+  details: '详情',
+  summary: '摘要',
+}
+
+const colorGroupZhLabels: Record<string, string> = {
+  semantic: '语义标签',
+  model: '模型',
+  project: '项目',
+  git: 'Git',
+  context: '上下文',
+  'usage-memory': '用量 / 内存',
+  custom: '自定义',
 }
 
 const displayPresenceByItem: Partial<Record<HudDisplayItemId, TerminalHudDisplayBooleanKey>> = {
@@ -229,32 +358,32 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
   const copy = language === 'zh-CN'
     ? {
         title: 'Terminal HUD',
-        hint: '复刻 Claude HUD Plus 的终端 HUD Builder：实时预览、拖拽 rows、组件 inspector、activityLine 与颜色工作台。',
+        hint: '复刻 Claude HUD Plus 的终端 HUD Builder：实时预览、拖拽行配置、组件参数与颜色工作台。',
         enabled: '启用 Terminal HUD',
         preset: '预设',
         rowOverflow: '行溢出策略',
         maxWidth: '最大宽度',
-        rows: 'Rows builder',
+        rows: '行配置',
         palette: '组件库',
         inspector: '组件参数',
-        colors: 'Color Workbench',
+        colors: '颜色配置',
         preview: '实时终端预览',
-        diagnostics: '诊断',
-        json: 'JSON / Validate',
+        json: 'JSON 配置',
         components: '组件',
         colorTab: '颜色',
         jsonTab: 'JSON',
-        diagnosticTab: '诊断',
         addRow: '新增行',
         removeRow: '删除行',
-        addItem: '添加 item',
+        addItem: '选择添加',
         removeItem: '移除',
         moveUp: '上移',
         moveDown: '下移',
         moveLeft: '左移',
         moveRight: '右移',
-        selectHint: '选择预览/行里的组件后，在右侧修改组件参数。也可以从左侧组件库拖入任意行。',
+        selectHint: '从左侧组件库拖拽到任意行；选中预览/行里的组件后，可在右侧修改参数。',
+        dropHint: '拖拽组件到这里',
         colorHint: '支持 hex、ANSI 颜色名或 0-255 色号；hex 值会同步显示颜色选择器。',
+        bandHint: '拖动最小值阈值并修改颜色；预览区会按当前上下文/用量百分比实时套用。',
         jsonValid: 'JSON 有效，可应用。',
         jsonInvalid: 'JSON 无效',
         jsonChanged: '当前草稿与已保存配置不同。',
@@ -262,18 +391,9 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
         resetDefault: '重置 HUD Plus 默认',
         selectedOnly: '只看当前组件颜色',
         searchColor: '搜索颜色项',
-        rowsConfigured: '已配置行数',
-        itemsConfigured: '已配置 item',
-        unknownItems: '未知 item',
-        previewLines: '预览行数',
-        registry: '已登记终端信息项',
-        fields: '首批配置字段',
-        summary: '覆盖摘要',
-        parity: 'Terminal HUD parity matrix',
-        ready: '已覆盖',
-        partial: '部分',
-        planned: '计划',
-        blocked: '阻塞',
+        addBand: '新增区间',
+        delete: '删除',
+        contextWindowPlaceholder: '270000，留空则从 Claude 配置移除',
         presets: { 'hud-plus-default': 'HUD Plus 默认', minimal: '极简', custom: '自定义' },
         overflow: { truncate: '截断', wrap: '换行' },
       }
@@ -289,22 +409,22 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
         inspector: 'Component inspector',
         colors: 'Color Workbench',
         preview: 'Live terminal preview',
-        diagnostics: 'Diagnostics',
         json: 'JSON / Validate',
         components: 'Components',
         colorTab: 'Colors',
         jsonTab: 'JSON',
-        diagnosticTab: 'Diagnostics',
         addRow: 'Add row',
         removeRow: 'Remove row',
-        addItem: 'Add item',
+        addItem: 'Select item',
         removeItem: 'Remove',
         moveUp: 'Up',
         moveDown: 'Down',
         moveLeft: 'Left',
         moveRight: 'Right',
-        selectHint: 'Select a component in the preview/canvas to edit it on the right. Drag palette items into any row.',
+        selectHint: 'Drag palette items into any row. Select a component in the preview/canvas to edit it on the right.',
+        dropHint: 'Drop component here',
         colorHint: 'Supports hex, ANSI color names, or 0-255 color indexes. Hex values sync with a color picker.',
+        bandHint: 'Drag the minimum threshold and edit colors. The preview applies current context/usage percentages live.',
         jsonValid: 'JSON is valid and ready to apply.',
         jsonInvalid: 'Invalid JSON',
         jsonChanged: 'Draft differs from saved config.',
@@ -312,33 +432,24 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
         resetDefault: 'Reset HUD Plus default',
         selectedOnly: 'Only current component colors',
         searchColor: 'Search colors',
-        rowsConfigured: 'Configured rows',
-        itemsConfigured: 'Configured items',
-        unknownItems: 'Unknown items',
-        previewLines: 'Preview lines',
-        registry: 'Registered terminal items',
-        fields: 'First config fields',
-        summary: 'Coverage summary',
-        parity: 'Terminal HUD parity matrix',
-        ready: 'ready',
-        partial: 'partial',
-        planned: 'planned',
-        blocked: 'blocked',
+        addBand: 'Add band',
+        delete: 'Delete',
+        contextWindowPlaceholder: '270000, leave blank to remove from Claude settings',
         presets: { 'hud-plus-default': 'HUD Plus default', minimal: 'Minimal', custom: 'Custom' },
         overflow: { truncate: 'Truncate', wrap: 'Wrap' },
       }
 
   const terminalItems = useMemo(() => terminalDisplayItemIds(), [])
   const terminalItemSet = useMemo(() => new Set(terminalItems), [terminalItems])
+  const configuredItemSet = useMemo(() => new Set(config.rows.flat()), [config.rows])
   const groupedItems = useMemo(() => {
     return terminalItems.reduce<Record<string, HudDisplayItemId[]>>((groups, item) => {
+      if (configuredItemSet.has(item)) return groups
       const category = DISPLAY_ITEM_REGISTRY[item]?.category ?? 'custom'
       groups[category] = [...(groups[category] ?? []), item]
       return groups
     }, {})
-  }, [terminalItems])
-  const summary = paritySummary('terminal')
-  const terminalFields = fieldSchemaBySurface('terminal')
+  }, [configuredItemSet, terminalItems])
   const previewLines = renderTerminalHudPreviewLines(previewState, config)
   const previewRows = config.enabled
     ? config.rows
@@ -350,8 +461,6 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
         .filter((part): part is { item: HudDisplayItemId; text: string; parts: PreviewTextPart[] } => Boolean(part)))
       .filter((row) => row.length > 0)
     : []
-  const configuredItemCount = config.rows.reduce((count, row) => count + row.length, 0)
-  const unknownItems = Array.from(new Set(config.rows.flat().filter((item) => !terminalItemSet.has(item))))
   const [jsonDraft, setJsonDraft] = useState(() => JSON.stringify(config, null, 2))
   const [jsonError, setJsonError] = useState<string | null>(null)
   const [workspace, setWorkspace] = useState<BuilderWorkspace>('components')
@@ -360,6 +469,22 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
   const [selectedColorsOnly, setSelectedColorsOnly] = useState(false)
   const [syncedContextWindowSize, setSyncedContextWindowSize] = useState<string | null>(claudeContextWindowSize ?? null)
   const [contextWindowSyncStatus, setContextWindowSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'failed'>('idle')
+  const [palettePointerDrag, setPalettePointerDrag] = useState<PalettePointerDrag>(null)
+  const [palettePointerTargetRow, setPalettePointerTargetRow] = useState<number | null>(null)
+  const palettePointerDragRef = useRef<PalettePointerDragRef | null>(null)
+  const palettePointerListenersRef = useRef<PalettePointerListeners | null>(null)
+  const suppressPaletteClickRef = useRef(false)
+
+  const removePalettePointerListeners = (): void => {
+    const listeners = palettePointerListenersRef.current
+    if (!listeners) return
+    window.removeEventListener('pointermove', listeners.pointerMove)
+    window.removeEventListener('pointerup', listeners.pointerEnd)
+    window.removeEventListener('pointercancel', listeners.pointerCancel)
+    window.removeEventListener('mousemove', listeners.mouseMove)
+    window.removeEventListener('mouseup', listeners.mouseEnd)
+    palettePointerListenersRef.current = null
+  }
 
   useEffect(() => {
     setSyncedContextWindowSize(claudeContextWindowSize ?? null)
@@ -369,6 +494,8 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
     setJsonDraft(JSON.stringify(config, null, 2))
     setJsonError(null)
   }, [config])
+
+  useEffect(() => () => removePalettePointerListeners(), [])
 
   const patchTerminalHud = (patch: Partial<TerminalHudConfig>): void => {
     onPatchSettings({ terminalHud: mergeTerminalHudConfig(config, { ...patch, preset: patch.preset ?? 'custom' }) })
@@ -489,6 +616,7 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
 
   const dropIntoRow = (event: DragEvent, rowIndex: number, beforeIndex?: number): void => {
     event.preventDefault()
+    event.stopPropagation()
     const payload = dragPayload(event)
     if (!payload) return
     const rows = config.rows.map((row) => [...row])
@@ -537,7 +665,7 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
   const displayLabel = (key: TerminalHudDisplayBooleanKey): string => {
     const labels = language === 'zh-CN'
       ? {
-          showModel: '模型', showProject: '项目', showAddedDirs: '附加目录', showContextBar: '上下文进度条', showConfigCounts: '配置计数', showSessionTokens: '会话 tokens', showTokenBreakdown: 'Token 明细', showUsage: '用量', usageBarEnabled: '用量进度条', showResetLabel: '重置时间', usageCompact: '紧凑用量', showTools: '工具', showAgents: '子代理', showTodos: '任务', showPromptCache: 'Prompt cache', showMemoryUsage: '内存', showEnvironment: '环境', showCost: '成本', showDuration: '耗时', showSpeed: '速度', showOutputStyle: '输出风格', showSessionName: '会话名', showClaudeCodeVersion: 'Claude Code 版本', showEffortLevel: '思考强度', showSessionStartDate: '会话开始时间', showLastResponseAt: '最后回复时间', contextWindowSizeOverrideManaged: '托管上下文窗口',
+          showModel: '模型', showProject: '项目', showAddedDirs: '附加目录', showContextBar: '上下文进度条', showConfigCounts: '配置计数', showSessionTokens: '会话 Token', showTokenBreakdown: 'Token 明细', showUsage: '用量', usageBarEnabled: '用量进度条', showResetLabel: '重置时间', usageCompact: '紧凑用量', showTools: '工具', showAgents: '子代理', showTodos: '任务', showPromptCache: 'Prompt 缓存', showMemoryUsage: '内存', showEnvironment: '环境', showCost: '成本', showDuration: '耗时', showSpeed: '速度', showOutputStyle: '输出风格', showSessionName: '会话名', showClaudeCodeVersion: 'Claude Code 版本', showEffortLevel: '思考强度', showSessionStartDate: '会话开始时间', showLastResponseAt: '最后回复时间', contextWindowSizeOverrideManaged: '托管上下文窗口',
         }
       : {
           showModel: 'Model', showProject: 'Project', showAddedDirs: 'Added dirs', showContextBar: 'Context bar', showConfigCounts: 'Config counts', showSessionTokens: 'Session tokens', showTokenBreakdown: 'Token breakdown', showUsage: 'Usage', usageBarEnabled: 'Usage bar', showResetLabel: 'Reset labels', usageCompact: 'Compact usage', showTools: 'Tools', showAgents: 'Agents', showTodos: 'Todos', showPromptCache: 'Prompt cache', showMemoryUsage: 'Memory', showEnvironment: 'Environment', showCost: 'Cost', showDuration: 'Duration', showSpeed: 'Speed', showOutputStyle: 'Output style', showSessionName: 'Session name', showClaudeCodeVersion: 'Claude Code version', showEffortLevel: 'Effort level', showSessionStartDate: 'Session start', showLastResponseAt: 'Last response', contextWindowSizeOverrideManaged: 'Manage context window size',
@@ -552,6 +680,110 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
     return labels[key as keyof typeof labels] ?? key
   }
 
+  const itemDisplayLabel = (item: HudDisplayItemId): { primary: string; secondary: string } => {
+    const definition = DISPLAY_ITEM_REGISTRY[item]
+    const english = definition?.label ?? item
+    return language === 'zh-CN'
+      ? { primary: itemZhLabels[item] ?? english, secondary: english }
+      : { primary: english, secondary: item }
+  }
+
+  const rowIndexFromPoint = (clientX: number, clientY: number): number | null => {
+    const element = document.elementFromPoint(clientX, clientY)
+    const rowElement = element?.closest<HTMLElement>('[data-terminal-row-index]')
+    const value = rowElement?.dataset.terminalRowIndex
+    if (value !== undefined) {
+      const rowIndex = Number(value)
+      return Number.isInteger(rowIndex) && rowIndex >= 0 ? rowIndex : null
+    }
+    const matchedRow = Array.from(document.querySelectorAll<HTMLElement>('[data-terminal-row-index]')).find((candidate) => {
+      const rect = candidate.getBoundingClientRect()
+      return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
+    })
+    const fallbackValue = matchedRow?.dataset.terminalRowIndex
+    if (fallbackValue === undefined) return null
+    const fallbackRowIndex = Number(fallbackValue)
+    return Number.isInteger(fallbackRowIndex) && fallbackRowIndex >= 0 ? fallbackRowIndex : null
+  }
+
+  const movePalettePointerDrag = (event: PalettePointerEvent): void => {
+    const drag = palettePointerDragRef.current
+    if (!drag) return
+    const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY)
+    if (!drag.active && distance < 4) return
+    drag.active = true
+    suppressPaletteClickRef.current = true
+    event.preventDefault()
+    const targetRow = rowIndexFromPoint(event.clientX, event.clientY)
+    setPalettePointerTargetRow(targetRow)
+    setPalettePointerDrag({ item: drag.item, label: drag.label, x: event.clientX, y: event.clientY, active: true })
+  }
+
+  const finishPalettePointerDrag = (event: PalettePointerEvent, cancelled = false): void => {
+    const drag = palettePointerDragRef.current
+    removePalettePointerListeners()
+    palettePointerDragRef.current = null
+    setPalettePointerDrag(null)
+    setPalettePointerTargetRow(null)
+    if (!drag?.active || cancelled) return
+    event.preventDefault()
+    event.stopPropagation()
+    const targetRow = rowIndexFromPoint(event.clientX, event.clientY)
+    if (targetRow !== null) addItemToRow(targetRow, drag.item)
+  }
+
+  const beginPaletteDrag = (clientX: number, clientY: number, item: HudDisplayItemId): void => {
+    removePalettePointerListeners()
+    const label = itemDisplayLabel(item)
+    suppressPaletteClickRef.current = false
+    palettePointerDragRef.current = {
+      item,
+      label: `${label.primary} · ${label.secondary}`,
+      startX: clientX,
+      startY: clientY,
+      active: false,
+    }
+    const listeners: PalettePointerListeners = {
+      pointerMove: movePalettePointerDrag,
+      pointerEnd: (pointerEvent) => finishPalettePointerDrag(pointerEvent),
+      pointerCancel: (pointerEvent) => finishPalettePointerDrag(pointerEvent, true),
+      mouseMove: movePalettePointerDrag,
+      mouseEnd: (mouseEvent) => finishPalettePointerDrag(mouseEvent),
+    }
+    palettePointerListenersRef.current = listeners
+    window.addEventListener('pointermove', listeners.pointerMove, { passive: false })
+    window.addEventListener('pointerup', listeners.pointerEnd, { passive: false })
+    window.addEventListener('pointercancel', listeners.pointerCancel, { passive: false })
+    window.addEventListener('mousemove', listeners.mouseMove, { passive: false })
+    window.addEventListener('mouseup', listeners.mouseEnd, { passive: false })
+  }
+
+  const beginPalettePointerDrag = (event: ReactPointerEvent<HTMLElement>, item: HudDisplayItemId): void => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    beginPaletteDrag(event.clientX, event.clientY, item)
+  }
+
+  const beginPaletteMouseDrag = (event: ReactMouseEvent<HTMLElement>, item: HudDisplayItemId): void => {
+    if (event.button !== 0) return
+    beginPaletteDrag(event.clientX, event.clientY, item)
+  }
+
+  const configLabel = (key: string): string => language === 'zh-CN' ? (configZhLabels[key] ?? key) : key
+  const enumLabel = (value: string): string => language === 'zh-CN' ? (enumZhLabels[value] ?? value) : value
+  const categoryLabel = (category: string): string => language === 'zh-CN' ? (categoryZhLabels[category] ?? category) : category
+  const kindLabel = (kind: string): string => language === 'zh-CN' ? (kindZhLabels[kind] ?? kind) : kind
+  const colorGroupLabel = (group: { id: string; label: string }): string => language === 'zh-CN' ? (colorGroupZhLabels[group.id] ?? group.label) : group.label
+  const contextWindowSyncLabel = (): string => {
+    if (contextWindowSyncStatus === 'syncing') return language === 'zh-CN' ? '同步中…' : 'syncing…'
+    if (contextWindowSyncStatus === 'synced') return language === 'zh-CN' ? '已同步' : 'synced'
+    if (contextWindowSyncStatus === 'failed') return language === 'zh-CN' ? '同步失败，请重装最新版后重试' : 'sync failed, reinstall the latest version and retry'
+    return language === 'zh-CN' ? '待输入' : 'idle'
+  }
+
+  const contextWindowHint = language === 'zh-CN'
+    ? `输入后立即写入 Claude Code settings 的 env.CLAUDE_HUD_CONTEXT_WINDOW_SIZE；清空会立即移除该环境变量。当前 Claude 配置：${syncedContextWindowSize ?? '未设置'}；同步状态：${contextWindowSyncLabel()}。修改后新一轮 statusLine 刷新会按该上下文窗口计算。`
+    : `Writes env.CLAUDE_HUD_CONTEXT_WINDOW_SIZE to Claude Code settings immediately; clearing it removes the env var. Current Claude setting: ${syncedContextWindowSize ?? 'not set'}; sync status: ${contextWindowSyncLabel()}. The next statusLine refresh uses this context window.`
+
   const renderSwitch = (key: TerminalHudDisplayBooleanKey) => (
     <label className="setting-check" key={key}>
       <input type="checkbox" checked={config.display[key] === true} onChange={(event) => patchDisplay({ [key]: event.currentTarget.checked } as Partial<TerminalHudConfig['display']>)} />
@@ -561,8 +793,15 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
 
   const renderNumberField = (label: string, value: number | null, onChange: (value: number | null) => void, min?: number, max?: number, step = 1) => (
     <label className="setting-row setting-row--stacked">
-      <span className="setting-row__label">{label}</span>
+      <span className="setting-row__label">{configLabel(label)}</span>
       <input type="number" value={value ?? ''} min={min} max={max} step={step} onChange={(event) => onChange(event.currentTarget.value === '' ? null : Number(event.currentTarget.value))} />
+    </label>
+  )
+
+  const renderInlineNumberField = (label: string, value: number | null, onChange: (value: number | null) => void, min?: number, max?: number, step = 1) => (
+    <label className="terminal-inline-number">
+      <span className="setting-row__label">{label}</span>
+      <input type="number" value={value ?? ''} min={min} max={max} step={step} aria-label={label} onChange={(event) => onChange(event.currentTarget.value === '' ? null : Number(event.currentTarget.value))} />
     </label>
   )
 
@@ -576,22 +815,22 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
 
   const renderBandEditor = (kind: 'context' | 'usage') => {
     const bands = kind === 'context' ? config.colors.contextBands : config.colors.usageBands
-    const title = kind === 'context' ? 'contextBands' : 'usageBands'
+    const title = kind === 'context' ? configLabel('contextBands') : configLabel('usageBands')
     const fallbackColor = kind === 'context' ? config.colors.context : config.colors.usage
     return (
       <div className="terminal-band-editor">
         <div className="terminal-band-editor__head">
           <div>
             <h4>{title}</h4>
-            <p className="settings-note">拖动 min 区间阈值并修改颜色；预览区会按当前 context/usage 百分比实时套用。</p>
+            <p className="settings-note">{copy.bandHint}</p>
           </div>
-          <button className="secondary-button" onClick={() => patchColorBands(kind, [...bands, { min: bands.at(-1)?.min ?? 0, color: fallbackColor }])}>+ band</button>
+          <button className="secondary-button" onClick={() => patchColorBands(kind, [...bands, { min: bands.at(-1)?.min ?? 0, color: fallbackColor }])}>{copy.addBand}</button>
         </div>
         <div className="terminal-band-list">
           {bands.length ? bands.map((band, index) => (
             <div className="terminal-band-row" key={`${kind}-${index}`}>
               <label className="setting-slider">
-                <span className="setting-slider__head"><span>min</span><strong>{band.min}%</strong></span>
+                <span className="setting-slider__head"><span>{configLabel('min')}</span><strong>{band.min}%</strong></span>
                 <input type="range" min="0" max="100" step="1" value={band.min} onChange={(event) => {
                   const next = [...bands]
                   next[index] = { ...band, min: Number(event.currentTarget.value) }
@@ -599,7 +838,7 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
                 }} />
               </label>
               <label className="terminal-color-field terminal-color-field--band">
-                <span className="terminal-color-field__label"><span className="terminal-color-swatch" style={{ background: colorValueToCss(band.color) }} />color</span>
+                <span className="terminal-color-field__label"><span className="terminal-color-swatch" style={{ background: colorValueToCss(band.color) }} />{configLabel('color')}</span>
                 <input type="color" value={colorValueToPickerHex(band.color)} onChange={(event) => {
                   const next = [...bands]
                   next[index] = { ...band, color: event.currentTarget.value }
@@ -611,9 +850,9 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
                   patchColorBands(kind, next)
                 }} />
               </label>
-              <button className="secondary-button" onClick={() => patchColorBands(kind, bands.filter((_, innerIndex) => innerIndex !== index))}>删除</button>
+              <button className="secondary-button" onClick={() => patchColorBands(kind, bands.filter((_, innerIndex) => innerIndex !== index))}>{copy.delete}</button>
             </div>
-          )) : <p className="settings-note">未配置区间颜色，当前使用阈值 warning/critical 和基础颜色。</p>}
+          )) : <p className="settings-note">{language === 'zh-CN' ? '未配置区间颜色，当前使用阈值和基础颜色。' : 'No color bands configured. Threshold and base colors are used.'}</p>}
         </div>
       </div>
     )
@@ -629,46 +868,46 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
     return (
       <div className="terminal-inspector">
         <div className="terminal-inspector__title">
-          <strong>{selectedDefinition.label}</strong>
-          <span>{selectedDefinition.kind} · {selectedDefinition.category}</span>
+          <strong>{itemDisplayLabel(selectedItem).primary}</strong>
+          <span>{itemDisplayLabel(selectedItem).secondary} · {kindLabel(selectedDefinition.kind)} · {categoryLabel(selectedDefinition.category)}</span>
         </div>
         {presenceKey ? renderSwitch(presenceKey) : null}
         {selectedItem === 'git' ? (
           <>
-            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.enabled} onChange={(event) => patchGitStatus({ enabled: event.currentTarget.checked })} /><span>gitStatus.enabled</span></label>
-            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.showDirty} onChange={(event) => patchGitStatus({ showDirty: event.currentTarget.checked })} /><span>showDirty</span></label>
-            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.showAheadBehind} onChange={(event) => patchGitStatus({ showAheadBehind: event.currentTarget.checked })} /><span>showAheadBehind</span></label>
-            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.showFileStats} onChange={(event) => patchGitStatus({ showFileStats: event.currentTarget.checked })} /><span>showFileStats</span></label>
-            <label className="setting-row setting-row--stacked"><span className="setting-row__label">branchOverflow</span><select value={config.gitStatus.branchOverflow} onChange={(event) => patchGitStatus({ branchOverflow: event.currentTarget.value as TerminalHudConfig['gitStatus']['branchOverflow'] })}>{branchOverflowModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.enabled} onChange={(event) => patchGitStatus({ enabled: event.currentTarget.checked })} /><span>{configLabel('gitStatus.enabled')}</span></label>
+            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.showDirty} onChange={(event) => patchGitStatus({ showDirty: event.currentTarget.checked })} /><span>{configLabel('showDirty')}</span></label>
+            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.showAheadBehind} onChange={(event) => patchGitStatus({ showAheadBehind: event.currentTarget.checked })} /><span>{configLabel('showAheadBehind')}</span></label>
+            <label className="setting-check"><input type="checkbox" checked={config.gitStatus.showFileStats} onChange={(event) => patchGitStatus({ showFileStats: event.currentTarget.checked })} /><span>{configLabel('showFileStats')}</span></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('branchOverflow')}</span><select value={config.gitStatus.branchOverflow} onChange={(event) => patchGitStatus({ branchOverflow: event.currentTarget.value as TerminalHudConfig['gitStatus']['branchOverflow'] })}>{branchOverflowModes.map((mode) => <option key={mode} value={mode}>{enumLabel(mode)}</option>)}</select></label>
             {renderNumberField('pushWarningThreshold', config.gitStatus.pushWarningThreshold, (value) => patchGitStatus({ pushWarningThreshold: value ?? 0 }), 0, 999)}
             {renderNumberField('pushCriticalThreshold', config.gitStatus.pushCriticalThreshold, (value) => patchGitStatus({ pushCriticalThreshold: value ?? 0 }), 0, 999)}
           </>
         ) : null}
         {(selectedItem === 'contextBar' || selectedItem === 'contextValue') ? (
           <>
-            <label className="setting-row setting-row--stacked"><span className="setting-row__label">contextValue</span><select value={config.display.contextValue} onChange={(event) => patchDisplay({ contextValue: event.currentTarget.value as TerminalHudConfig['display']['contextValue'] })}>{contextValueModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
-            <label className="setting-row setting-row--stacked"><span className="setting-row__label">autocompactBuffer</span><select value={config.display.autocompactBuffer} onChange={(event) => patchDisplay({ autocompactBuffer: event.currentTarget.value as TerminalHudConfig['display']['autocompactBuffer'] })}>{(['enabled', 'disabled'] as const).map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('contextValue')}</span><select value={config.display.contextValue} onChange={(event) => patchDisplay({ contextValue: event.currentTarget.value as TerminalHudConfig['display']['contextValue'] })}>{contextValueModes.map((mode) => <option key={mode} value={mode}>{enumLabel(mode)}</option>)}</select></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('autocompactBuffer')}</span><select value={config.display.autocompactBuffer} onChange={(event) => patchDisplay({ autocompactBuffer: event.currentTarget.value as TerminalHudConfig['display']['autocompactBuffer'] })}>{(['enabled', 'disabled'] as const).map((mode) => <option key={mode} value={mode}>{enumLabel(mode)}</option>)}</select></label>
             {renderNumberField('contextWarningThreshold', config.display.contextWarningThreshold, (value) => patchDisplay({ contextWarningThreshold: value ?? DEFAULT_TERMINAL_HUD_CONFIG.display.contextWarningThreshold }), 0, 100)}
             {renderNumberField('contextCriticalThreshold', config.display.contextCriticalThreshold, (value) => patchDisplay({ contextCriticalThreshold: value ?? DEFAULT_TERMINAL_HUD_CONFIG.display.contextCriticalThreshold }), 0, 100)}
           </>
         ) : null}
         {selectedItem === 'project' ? (
-          <label className="setting-row setting-row--stacked"><span className="setting-row__label">pathLevels</span><select value={config.pathLevels} onChange={(event) => patchTerminalHud({ pathLevels: Number(event.currentTarget.value) as TerminalHudConfig['pathLevels'] })}>{([1, 2, 3] as const).map((level) => <option key={level} value={level}>{level}</option>)}</select></label>
+          <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('pathLevels')}</span><select value={config.pathLevels} onChange={(event) => patchTerminalHud({ pathLevels: Number(event.currentTarget.value) as TerminalHudConfig['pathLevels'] })}>{([1, 2, 3] as const).map((level) => <option key={level} value={level}>{level}</option>)}</select></label>
         ) : null}
         {selectedItem === 'model' ? (
           <>
-            <label className="setting-row setting-row--stacked"><span className="setting-row__label">modelFormat</span><select value={config.display.modelFormat} onChange={(event) => patchDisplay({ modelFormat: event.currentTarget.value as TerminalHudConfig['display']['modelFormat'] })}>{modelFormatModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
-            <label className="setting-row setting-row--stacked"><span className="setting-row__label">modelOverride</span><input value={config.display.modelOverride} onChange={(event) => patchDisplay({ modelOverride: event.currentTarget.value })} /></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('modelFormat')}</span><select value={config.display.modelFormat} onChange={(event) => patchDisplay({ modelFormat: event.currentTarget.value as TerminalHudConfig['display']['modelFormat'] })}>{modelFormatModes.map((mode) => <option key={mode} value={mode}>{enumLabel(mode)}</option>)}</select></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('modelOverride')}</span><input value={config.display.modelOverride} onChange={(event) => patchDisplay({ modelOverride: event.currentTarget.value })} /></label>
             <label className="setting-row setting-row--stacked">
-              <span className="setting-row__label">CLAUDE_HUD_CONTEXT_WINDOW_SIZE</span>
+              <span className="setting-row__label">{configLabel('contextWindowSizeOverride')}</span>
               <input
                 inputMode="numeric"
                 pattern="[0-9]*"
-                placeholder="270000，留空则从 Claude 配置移除"
+                placeholder={copy.contextWindowPlaceholder}
                 value={(config.display.contextWindowSizeOverride || syncedContextWindowSize || '')}
                 onChange={(event) => patchContextWindowSizeOverride(event.currentTarget.value)}
               />
-              <span className="setting-row__hint">输入后立即写入 Claude Code settings 的 env.CLAUDE_HUD_CONTEXT_WINDOW_SIZE；清空会立即移除该环境变量。当前 Claude 配置：{syncedContextWindowSize ?? '未设置'}；同步状态：{contextWindowSyncStatus === 'syncing' ? '同步中…' : contextWindowSyncStatus === 'synced' ? '已同步' : contextWindowSyncStatus === 'failed' ? '同步失败，请重装最新版后重试' : '待输入'}。修改后新一轮 statusLine 刷新会按该上下文窗口计算。</span>
+              <span className="setting-row__hint">{contextWindowHint}</span>
             </label>
             {renderSwitch('showEffortLevel')}
           </>
@@ -684,22 +923,22 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
           <>
             {renderSwitch('showSessionStartDate')}
             {renderSwitch('showLastResponseAt')}
-            <label className="setting-row setting-row--stacked"><span className="setting-row__label">timeFormat</span><select value={config.display.timeFormat} onChange={(event) => patchDisplay({ timeFormat: event.currentTarget.value as TerminalHudConfig['display']['timeFormat'] })}>{timeFormatModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('timeFormat')}</span><select value={config.display.timeFormat} onChange={(event) => patchDisplay({ timeFormat: event.currentTarget.value as TerminalHudConfig['display']['timeFormat'] })}>{timeFormatModes.map((mode) => <option key={mode} value={mode}>{enumLabel(mode)}</option>)}</select></label>
           </>
         ) : null}
         {selectedItem === 'usage' ? (
           <>
-            <label className="setting-row setting-row--stacked"><span className="setting-row__label">usageValue</span><select value={config.display.usageValue} onChange={(event) => patchDisplay({ usageValue: event.currentTarget.value as TerminalHudConfig['display']['usageValue'] })}>{usageValueModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('usageValue')}</span><select value={config.display.usageValue} onChange={(event) => patchDisplay({ usageValue: event.currentTarget.value as TerminalHudConfig['display']['usageValue'] })}>{usageValueModes.map((mode) => <option key={mode} value={mode}>{enumLabel(mode)}</option>)}</select></label>
             {renderSwitch('usageBarEnabled')}
             {renderSwitch('usageCompact')}
             {renderSwitch('showResetLabel')}
             {renderNumberField('usageThreshold', config.display.usageThreshold, (value) => patchDisplay({ usageThreshold: value ?? 0 }), 0, 100)}
             {renderNumberField('sevenDayThreshold', config.display.sevenDayThreshold, (value) => patchDisplay({ sevenDayThreshold: value ?? DEFAULT_TERMINAL_HUD_CONFIG.display.sevenDayThreshold }), 0, 100)}
-            <label className="setting-row setting-row--stacked"><span className="setting-row__label">timeFormat</span><select value={config.display.timeFormat} onChange={(event) => patchDisplay({ timeFormat: event.currentTarget.value as TerminalHudConfig['display']['timeFormat'] })}>{timeFormatModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('timeFormat')}</span><select value={config.display.timeFormat} onChange={(event) => patchDisplay({ timeFormat: event.currentTarget.value as TerminalHudConfig['display']['timeFormat'] })}>{timeFormatModes.map((mode) => <option key={mode} value={mode}>{enumLabel(mode)}</option>)}</select></label>
           </>
         ) : null}
         {selectedItem === 'addedDirs' ? (
-          <label className="setting-row setting-row--stacked"><span className="setting-row__label">addedDirsLayout</span><select value={config.display.addedDirsLayout} onChange={(event) => patchDisplay({ addedDirsLayout: event.currentTarget.value as TerminalHudConfig['display']['addedDirsLayout'] })}>{addedDirsLayouts.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
+          <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('addedDirsLayout')}</span><select value={config.display.addedDirsLayout} onChange={(event) => patchDisplay({ addedDirsLayout: event.currentTarget.value as TerminalHudConfig['display']['addedDirsLayout'] })}>{addedDirsLayouts.map((mode) => <option key={mode} value={mode}>{enumLabel(mode)}</option>)}</select></label>
         ) : null}
         {selectedItem === 'promptCache' ? renderNumberField('promptCacheTtlSeconds', config.display.promptCacheTtlSeconds, (value) => patchDisplay({ promptCacheTtlSeconds: value ?? DEFAULT_TERMINAL_HUD_CONFIG.display.promptCacheTtlSeconds }), 1, 3600) : null}
         {selectedItem === 'environment' ? (
@@ -709,17 +948,17 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
             {renderNumberField('environmentThreshold', config.display.environmentThreshold, (value) => patchDisplay({ environmentThreshold: value ?? 0 }), 0, 100)}
           </>
         ) : null}
-        {selectedItem === 'customLine' ? <label className="setting-row setting-row--stacked"><span className="setting-row__label">customLine</span><input value={config.display.customLine} onChange={(event) => patchDisplay({ customLine: event.currentTarget.value })} /></label> : null}
+        {selectedItem === 'customLine' ? <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('customLine')}</span><input value={config.display.customLine} onChange={(event) => patchDisplay({ customLine: event.currentTarget.value })} /></label> : null}
         {selectedItem === 'activity' ? (
           <>
-            <label className="setting-row setting-row--stacked"><span className="setting-row__label">activityLine.mode</span><select value={config.activityLine.mode} onChange={(event) => patchActivityLine({ mode: event.currentTarget.value as TerminalHudConfig['activityLine']['mode'] })}>{activityModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
-            <label className="setting-row setting-row--stacked"><span className="setting-row__label">toolNameFormat</span><select value={config.activityLine.toolNameFormat} onChange={(event) => patchActivityLine({ toolNameFormat: event.currentTarget.value as TerminalHudConfig['activityLine']['toolNameFormat'] })}>{toolNameFormats.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select></label>
-            <label className="setting-slider"><span className="setting-slider__head"><span>maxWidthRatio</span><strong>{config.activityLine.maxWidthRatio.toFixed(2)}</strong></span><input type="range" min="0.3" max="1" step="0.05" value={config.activityLine.maxWidthRatio} onChange={(event) => patchActivityLine({ maxWidthRatio: Number(event.currentTarget.value) })} /></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('activityLine.mode')}</span><select value={config.activityLine.mode} onChange={(event) => patchActivityLine({ mode: event.currentTarget.value as TerminalHudConfig['activityLine']['mode'] })}>{activityModes.map((mode) => <option key={mode} value={mode}>{enumLabel(mode)}</option>)}</select></label>
+            <label className="setting-row setting-row--stacked"><span className="setting-row__label">{configLabel('toolNameFormat')}</span><select value={config.activityLine.toolNameFormat} onChange={(event) => patchActivityLine({ toolNameFormat: event.currentTarget.value as TerminalHudConfig['activityLine']['toolNameFormat'] })}>{toolNameFormats.map((mode) => <option key={mode} value={mode}>{enumLabel(mode)}</option>)}</select></label>
+            <label className="setting-slider"><span className="setting-slider__head"><span>{configLabel('maxWidthRatio')}</span><strong>{config.activityLine.maxWidthRatio.toFixed(2)}</strong></span><input type="range" min="0.3" max="1" step="0.05" value={config.activityLine.maxWidthRatio} onChange={(event) => patchActivityLine({ maxWidthRatio: Number(event.currentTarget.value) })} /></label>
             <div className="terminal-inspector__subgrid">
-              {(['todos', 'agents', 'tools', 'sessionTime'] as const).map((key) => <label className="setting-check" key={key}><input type="checkbox" checked={config.activityLine.items[key] !== false} onChange={(event) => patchActivityItems({ [key]: event.currentTarget.checked })} /><span>items.{key}</span></label>)}
+              {(['todos', 'agents', 'tools', 'sessionTime'] as const).map((key) => <label className="setting-check" key={key}><input type="checkbox" checked={config.activityLine.items[key] !== false} onChange={(event) => patchActivityItems({ [key]: event.currentTarget.checked })} /><span>{configLabel(`items.${key}`)}</span></label>)}
             </div>
             <div className="terminal-inspector__subgrid">
-              {(['usage', 'memory', 'environment', 'promptCache'] as const).map((key) => <label className="setting-check" key={key}><input type="checkbox" checked={config.activityLine.warnings[key] !== false} onChange={(event) => patchActivityWarnings({ [key]: event.currentTarget.checked })} /><span>warnings.{key}</span></label>)}
+              {(['usage', 'memory', 'environment', 'promptCache'] as const).map((key) => <label className="setting-check" key={key}><input type="checkbox" checked={config.activityLine.warnings[key] !== false} onChange={(event) => patchActivityWarnings({ [key]: event.currentTarget.checked })} /><span>{configLabel(`warnings.${key}`)}</span></label>)}
             </div>
           </>
         ) : null}
@@ -729,12 +968,13 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
 
   const filteredColorGroups = colorGroups
     .filter((group) => !selectedColorsOnly || colorGroupFilter.includes(group.id))
-    .map((group) => ({ ...group, items: group.items.filter((item) => `${group.label} ${item} ${colorLabel(item)}`.toLowerCase().includes(colorSearch.trim().toLowerCase())) }))
+    .map((group) => ({ ...group, items: group.items.filter((item) => `${colorGroupLabel(group)} ${group.label} ${item} ${colorLabel(item)}`.toLowerCase().includes(colorSearch.trim().toLowerCase())) }))
     .filter((group) => group.items.length > 0)
 
   return (
     <div className="settings-tab-panel terminal-builder" role="tabpanel">
-      <section className="terminal-builder__hero">
+      <div className="terminal-builder__topbar">
+        <section className="terminal-builder__hero">
         <div className="settings-section__heading">
           <h3>{copy.title}</h3>
           <p>{copy.hint}</p>
@@ -753,7 +993,6 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
             </div>
           )) : <span>{previewLines.join('\n')}</span>}
         </div>
-        <p className="settings-note terminal-builder__parity-note">Terminal HUD parity matrix</p>
         <div className="terminal-builder__hero-actions">
           <label className="setting-check setting-check--inline">
             <input type="checkbox" checked={config.enabled} onChange={(event) => patchTerminalHud({ enabled: event.currentTarget.checked })} />
@@ -765,40 +1004,57 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
         </div>
       </section>
 
-      <div className="terminal-builder__tabs" role="tablist">
-        {([
-          ['components', copy.components],
-          ['colors', copy.colorTab],
-          ['json', copy.jsonTab],
-          ['diagnostics', copy.diagnosticTab],
-        ] as Array<[BuilderWorkspace, string]>).map(([key, label]) => (
-          <button key={key} className={workspace === key ? 'terminal-builder__tab terminal-builder__tab--active' : 'terminal-builder__tab'} onClick={() => setWorkspace(key)}>{label}</button>
-        ))}
+        <div className="terminal-builder__tabs" role="tablist">
+          {([
+            ['components', copy.components],
+            ['colors', copy.colorTab],
+            ['json', copy.jsonTab],
+          ] as Array<[BuilderWorkspace, string]>).map(([key, label]) => (
+            <button key={key} className={workspace === key ? 'terminal-builder__tab terminal-builder__tab--active' : 'terminal-builder__tab'} onClick={() => setWorkspace(key)}>{label}</button>
+          ))}
+        </div>
       </div>
+
+      {palettePointerDrag?.active ? (
+        <div className="terminal-drag-ghost" style={{ left: palettePointerDrag.x, top: palettePointerDrag.y }}>{palettePointerDrag.label}</div>
+      ) : null}
 
       {workspace === 'components' ? (
         <section className="terminal-workspace terminal-workspace--components">
           <aside className="terminal-builder-card terminal-palette-panel">
             <div className="terminal-builder-card__head"><h4>{copy.palette}</h4><p>{copy.selectHint}</p></div>
-            {Object.entries(groupedItems).map(([category, items]) => (
-              <div className="terminal-palette-group" key={category}>
-                <strong>{category}</strong>
-                <div className="terminal-palette-grid">
-                  {items.map((item) => (
-                    <button
-                      key={item}
-                      className={selectedItem === item ? 'terminal-palette-item terminal-palette-item--selected' : 'terminal-palette-item'}
-                      draggable
-                      onDragStart={(event) => event.dataTransfer.setData('application/json', JSON.stringify({ item }))}
-                      onClick={() => setSelection({ rowIndex: -1, itemIndex: -1, item })}
-                    >
-                      <span>{DISPLAY_ITEM_REGISTRY[item]?.label ?? item}</span>
-                      <em>{DISPLAY_ITEM_REGISTRY[item]?.kind}</em>
-                    </button>
-                  ))}
+            <div className="terminal-card-scroll terminal-palette-scroll">
+              {Object.entries(groupedItems).map(([category, items]) => (
+                <div className="terminal-palette-group" key={category}>
+                  <strong>{categoryLabel(category)}</strong>
+                  <div className="terminal-palette-grid">
+                    {items.map((item) => {
+                      const label = itemDisplayLabel(item)
+                      return (
+                        <button
+                          key={item}
+                          className={selectedItem === item ? 'terminal-palette-item terminal-palette-item--selected' : 'terminal-palette-item'}
+                          aria-label={`${label.primary} ${label.secondary}`}
+                          onPointerDown={(event) => beginPalettePointerDrag(event, item)}
+                          onMouseDown={(event) => beginPaletteMouseDrag(event, item)}
+                          onClick={(event) => {
+                            if (suppressPaletteClickRef.current) {
+                              suppressPaletteClickRef.current = false
+                              event.preventDefault()
+                              return
+                            }
+                            setSelection({ rowIndex: -1, itemIndex: -1, item })
+                          }}
+                        >
+                          <span>{label.primary}</span>
+                          <em>{label.secondary}</em>
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </aside>
 
           <main className="terminal-builder-card terminal-canvas-panel">
@@ -808,47 +1064,55 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
                 <div className="option-group">
                   {rowOverflowModes.map((rowOverflow) => <button key={rowOverflow} className={config.rowOverflow === rowOverflow ? 'option-pill option-pill--active' : 'option-pill'} onClick={() => patchTerminalHud({ rowOverflow })}>{copy.overflow[rowOverflow]}</button>)}
                 </div>
-                {renderNumberField(copy.maxWidth, config.maxWidth, (value) => patchTerminalHud({ maxWidth: value && value > 0 ? value : null }), 20, 240)}
+                {renderInlineNumberField(copy.maxWidth, config.maxWidth, (value) => patchTerminalHud({ maxWidth: value && value > 0 ? value : null }), 20, 240)}
               </div>
             </div>
             <div className="terminal-row-builder terminal-row-builder--canvas">
               {config.rows.map((row, rowIndex) => (
                 <div className="terminal-row-builder__row terminal-row-builder__row--canvas" key={`${rowIndex}-${row.join('-')}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropIntoRow(event, rowIndex)}>
                   <div className="terminal-row-builder__row-head">
-                    <strong>row {rowIndex + 1}</strong>
+                    <strong>{language === 'zh-CN' ? `第 ${rowIndex + 1} 行` : `row ${rowIndex + 1}`}</strong>
                     <div className="terminal-row-builder__row-actions">
                       <button className="secondary-button" onClick={() => moveRow(rowIndex, -1)} disabled={rowIndex === 0}>{copy.moveUp}</button>
                       <button className="secondary-button" onClick={() => moveRow(rowIndex, 1)} disabled={rowIndex === config.rows.length - 1}>{copy.moveDown}</button>
                       <button className="secondary-button" onClick={() => removeRow(rowIndex)}>{copy.removeRow}</button>
                     </div>
                   </div>
-                  <div className="terminal-row-builder__items terminal-row-builder__items--dropzone">
-                    {row.map((item, itemIndex) => (
-                      <div
-                        className={selection?.rowIndex === rowIndex && selection.itemIndex === itemIndex ? 'terminal-item-chip terminal-item-chip--selected' : 'terminal-item-chip'}
-                        key={`${item}-${itemIndex}`}
-                        role="button"
-                        tabIndex={0}
-                        draggable
-                        onDragStart={(event) => event.dataTransfer.setData('application/json', JSON.stringify({ item, fromRow: rowIndex, fromIndex: itemIndex }))}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={(event) => dropIntoRow(event, rowIndex, itemIndex)}
-                        onClick={() => setSelection({ rowIndex, itemIndex, item })}
-                        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelection({ rowIndex, itemIndex, item }) }}
-                      >
-                        <span>{DISPLAY_ITEM_REGISTRY[item]?.label ?? item}</span>
-                        <em>{item}</em>
-                        <span className="terminal-item-chip__actions">
-                          <button type="button" className="terminal-chip-action" onClick={(event) => { event.stopPropagation(); moveItem(rowIndex, itemIndex, -1) }}>{copy.moveLeft}</button>
-                          <button type="button" className="terminal-chip-action" onClick={(event) => { event.stopPropagation(); moveItem(rowIndex, itemIndex, 1) }}>{copy.moveRight}</button>
-                          <button type="button" className="terminal-chip-action" onClick={(event) => { event.stopPropagation(); removeItemFromRow(rowIndex, itemIndex) }}>×</button>
-                        </span>
-                      </div>
-                    ))}
-                    <select value="" aria-label={`${copy.addItem} row ${rowIndex + 1}`} onChange={(event) => { if (event.currentTarget.value) addItemToRow(rowIndex, event.currentTarget.value as HudDisplayItemId) }}>
-                      <option value="">{copy.addItem}</option>
-                      {terminalItems.map((item) => <option key={item} value={item}>{DISPLAY_ITEM_REGISTRY[item]?.label ?? item}</option>)}
-                    </select>
+                  <div
+                    className={palettePointerTargetRow === rowIndex ? 'terminal-row-builder__items terminal-row-builder__items--dropzone terminal-row-builder__items--pointer-target' : 'terminal-row-builder__items terminal-row-builder__items--dropzone'}
+                    data-terminal-row-index={rowIndex}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => dropIntoRow(event, rowIndex)}
+                  >
+                    {row.map((item, itemIndex) => {
+                      const label = itemDisplayLabel(item)
+                      return (
+                        <div
+                          className={selection?.rowIndex === rowIndex && selection.itemIndex === itemIndex ? 'terminal-item-chip terminal-item-chip--selected' : 'terminal-item-chip'}
+                          key={`${item}-${itemIndex}`}
+                          role="button"
+                          tabIndex={0}
+                          draggable
+                          onDragStart={(event) => {
+                            event.dataTransfer.effectAllowed = 'move'
+                            event.dataTransfer.setData('application/json', JSON.stringify({ item, fromRow: rowIndex, fromIndex: itemIndex }))
+                          }}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => dropIntoRow(event, rowIndex, itemIndex)}
+                          onClick={() => setSelection({ rowIndex, itemIndex, item })}
+                          onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelection({ rowIndex, itemIndex, item }) }}
+                        >
+                          <span>{label.primary}</span>
+                          <em>{label.secondary}</em>
+                          <span className="terminal-item-chip__actions">
+                            <button type="button" className="terminal-chip-action" onClick={(event) => { event.stopPropagation(); moveItem(rowIndex, itemIndex, -1) }}>{copy.moveLeft}</button>
+                            <button type="button" className="terminal-chip-action" onClick={(event) => { event.stopPropagation(); moveItem(rowIndex, itemIndex, 1) }}>{copy.moveRight}</button>
+                            <button type="button" className="terminal-chip-action" onClick={(event) => { event.stopPropagation(); removeItemFromRow(rowIndex, itemIndex) }}>×</button>
+                          </span>
+                        </div>
+                      )
+                    })}
+                    <span className="terminal-row-builder__drop-hint">{copy.dropHint}</span>
                   </div>
                 </div>
               ))}
@@ -873,7 +1137,7 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
             </div>
             {filteredColorGroups.map((group) => (
               <div className="terminal-color-group" key={group.id}>
-                <h4>{group.label}</h4>
+                <h4>{colorGroupLabel(group)}</h4>
                 <div className="terminal-color-grid terminal-color-grid--workbench">
                   {group.items.map((key) => {
                     const value = config.colors[key]
@@ -892,7 +1156,7 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
             {selectedColorsOnly && selectedItem && !['contextBar', 'contextValue', 'usage', 'memory'].includes(selectedItem) ? null : renderBandEditor('context')}
             {selectedColorsOnly && selectedItem && !['usage', 'memory'].includes(selectedItem) ? null : renderBandEditor('usage')}
             <div className="setting-group">
-              <span className="setting-row__label">Bar characters</span>
+              <span className="setting-row__label">{configLabel('barCharacters')}</span>
               <div className="settings-check-grid settings-check-grid--compact">
                 {barKeys.map((key) => <label className="setting-row setting-row--stacked" key={key}><span className="setting-row__label">{colorLabel(key)}</span><input className="terminal-char-input" value={config.colors[key]} maxLength={2} onChange={(event) => patchColors({ [key]: event.currentTarget.value.slice(0, 2) })} /></label>)}
               </div>
@@ -902,7 +1166,7 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
       ) : null}
 
       {workspace === 'json' ? (
-        <section className="terminal-workspace">
+        <section className="terminal-workspace terminal-workspace--json">
           <div className="terminal-builder-card terminal-json-panel">
             <div className="terminal-builder-card__head"><h4>{copy.json}</h4></div>
             <textarea className="terminal-json-editor" value={jsonDraft} onChange={(event) => setJsonDraft(event.currentTarget.value)} spellCheck={false} aria-label="Terminal HUD JSON editor" />
@@ -911,27 +1175,6 @@ export function TerminalHudPanel({ config, language, previewState, claudeContext
               <button className="secondary-button" onClick={applyJsonDraft}>{copy.applyJson}</button>
               <button className="secondary-button" onClick={() => replaceTerminalHud(DEFAULT_TERMINAL_HUD_CONFIG)}>{copy.resetDefault}</button>
             </div>
-          </div>
-        </section>
-      ) : null}
-
-      {workspace === 'diagnostics' ? (
-        <section className="terminal-workspace">
-          <div className="terminal-builder-card">
-            <div className="terminal-builder-card__head"><h4>{copy.diagnostics}</h4></div>
-            <div className="diagnostics-grid diagnostics-grid--compact">
-              <span>{copy.rowsConfigured}</span><strong>{config.rows.length}</strong>
-              <span>{copy.itemsConfigured}</span><strong>{configuredItemCount}</strong>
-              <span>{copy.unknownItems}</span><strong>{unknownItems.length ? unknownItems.join(', ') : '0'}</strong>
-              <span>{copy.previewLines}</span><strong>{previewLines.length}</strong>
-              <span>{copy.registry}</span><strong>{terminalItems.length}</strong>
-              <span>{copy.fields}</span><strong>{terminalFields.length}</strong>
-              <span>{copy.summary}</span><strong>{copy.ready} {summary.ready} · {copy.partial} {summary.partial} · {copy.planned} {summary.planned} · {copy.blocked} {summary.blocked}</strong>
-            </div>
-          </div>
-          <div className="terminal-builder-card">
-            <div className="terminal-builder-card__head"><h4>{copy.parity}</h4></div>
-            <HudParityMatrixView rows={TERMINAL_HUD_PARITY_MATRIX} surface="terminal" language={language} />
           </div>
         </section>
       ) : null}
