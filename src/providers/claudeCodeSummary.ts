@@ -150,6 +150,8 @@ export const mapClaudeStatusBridgeToCurrentSessionPatch = (bridge: ClaudeStatusB
   rulesCount: bridge.rulesCount,
   mcpCount: bridge.mcpCount,
   hooksCount: bridge.hooksCount,
+  pendingQueue: bridge.pendingQueue,
+  terminal: bridge.terminal,
 })
 
 export const mapClaudeStatusBridgeToCurrentSession = (bridge: ClaudeStatusBridgeState): CurrentSessionState => ({
@@ -203,6 +205,8 @@ export const mapClaudeStatusBridgeToCurrentSession = (bridge: ClaudeStatusBridge
   rulesCount: bridge.rulesCount,
   mcpCount: bridge.mcpCount,
   hooksCount: bridge.hooksCount,
+  pendingQueue: bridge.pendingQueue,
+  terminal: bridge.terminal,
   sessionKey: sessionKeyFromBridge(bridge),
   sessionId: bridge.sessionId,
   sessionName: bridge.sessionName,

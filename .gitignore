@@ -7,7 +7,7 @@ build/
 .unpackage/
 
 # Local materials and caches
-local/
+local/参考项目/
 .claude/bridge/state/
 
 # Tauri / Rust outputs

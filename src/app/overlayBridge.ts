@@ -1,11 +1,17 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { OverlayPosition, SettingsState } from './types'
+import type { CurrentSessionState, OverlayPosition, SettingsState } from './types'
 
 export type OverlayHitRegion = {
   x: number
   y: number
   width: number
   height: number
+}
+
+export type TerminalJumpResult = {
+  action: 'opened' | 'focused' | 'unsupported' | 'notFound'
+  cwd: string | null
+  message: string
 }
 
 type OverlayLayoutRequest = {
@@ -103,6 +109,28 @@ export type DiagnosticsSummary = {
 }
 
 const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+
+export const jumpToClaudeSessionTerminal = async (session: CurrentSessionState): Promise<TerminalJumpResult | null> => {
+  if (!isTauriRuntime()) return null
+
+  try {
+    return await invoke<TerminalJumpResult>('jump_to_claude_session_terminal', {
+      request: {
+        cwd: session.terminal?.cwd ?? session.projectDir ?? null,
+        fallbackCwd: session.projectDir ?? null,
+        bridgeProcessId: session.terminal?.bridgeProcessId ?? null,
+        bridgeParentProcessId: session.terminal?.bridgeParentProcessId ?? null,
+      },
+    })
+  } catch (error) {
+    console.warn('Failed to jump to Claude Code session terminal', error)
+    return {
+      action: 'notFound',
+      cwd: session.terminal?.cwd ?? session.projectDir ?? null,
+      message: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
 
 export const updateOverlayHitRegions = async (regions: OverlayHitRegion[]): Promise<void> => {
   if (!isTauriRuntime()) return

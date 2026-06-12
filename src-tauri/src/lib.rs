@@ -10,6 +10,7 @@ use window::{
     fullscreen::{FullscreenState, FullscreenTracker},
     overlay::{HitRegion, OverlayTracker},
     settings::{AppSettings, OverlayPosition},
+    terminal_jump::{TerminalJumpRequest, TerminalJumpResult},
     updater::UpdateState,
     usage_cost::LiveUsageCostSnapshot,
 };
@@ -200,6 +201,11 @@ fn get_live_usage_cost_snapshot() -> Result<LiveUsageCostSnapshot, String> {
 }
 
 #[tauri::command]
+fn jump_to_claude_session_terminal(request: TerminalJumpRequest) -> Result<TerminalJumpResult, String> {
+    window::terminal_jump::jump_to_terminal(request)
+}
+
+#[tauri::command]
 fn get_update_state() -> Result<UpdateState, String> {
     Ok(window::updater::update_state())
 }
@@ -304,6 +310,7 @@ pub fn run() {
             get_diagnostics_summary,
             open_app_data_dir,
             get_live_usage_cost_snapshot,
+            jump_to_claude_session_terminal,
             get_update_state,
             check_for_updates,
             open_release_page,

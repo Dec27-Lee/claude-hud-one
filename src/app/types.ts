@@ -73,6 +73,52 @@ export type TranscriptEventCounts = {
   other: number
 }
 
+export type SessionTerminalMetadata = {
+  cwd: string | null
+  kind: 'windowsTerminal' | 'terminalProgram' | 'unknown'
+  wtSession?: string | null
+  wtProfileId?: string | null
+  wtProfileName?: string | null
+  termProgram?: string | null
+  shell?: string | null
+  bridgeProcessId?: number | null
+  bridgeParentProcessId?: number | null
+  windowTitleHint?: string | null
+  capturedAt: string
+}
+
+export type PendingQueueChoice = {
+  id: string
+  label: string
+  kind?: 'allow' | 'deny' | 'answer' | 'dismiss'
+}
+
+export type PendingQueueItem = {
+  id: string
+  kind: 'approval' | 'question'
+  status: 'pending' | 'resolved' | 'expired'
+  sessionId?: string | null
+  createdAt: string
+  updatedAt: string
+  expiresAt?: string | null
+  source: 'hook' | 'statusLine'
+  hookEventName?: string | null
+  permissionMode?: string | null
+  toolName?: string | null
+  projectSlug?: string | null
+  cwdSlug?: string | null
+  title: string
+  summary?: string | null
+  choices?: PendingQueueChoice[] | null
+  privacyNote: string
+}
+
+export type PendingQueueState = {
+  schemaVersion: number
+  updatedAt: string
+  items: PendingQueueItem[]
+}
+
 export type CurrentSessionState = {
   sessionKey?: string | null
   sessionId?: string | null
@@ -131,6 +177,8 @@ export type CurrentSessionState = {
   rulesCount?: number | null
   mcpCount?: number | null
   hooksCount?: number | null
+  pendingQueue?: PendingQueueState | null
+  terminal?: SessionTerminalMetadata | null
 }
 
 export type ClaudeCodeSummary = {
@@ -200,6 +248,8 @@ export type ClaudeStatusBridgeState = {
   rulesCount?: number | null
   mcpCount?: number | null
   hooksCount?: number | null
+  pendingQueue?: PendingQueueState | null
+  terminal?: SessionTerminalMetadata | null
   fiveHourUsedPercent: number | null
   fiveHourResetAt: string | null
   sevenDayUsedPercent: number | null

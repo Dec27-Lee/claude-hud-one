@@ -25,8 +25,9 @@
 
 | 路径 | 用途 | 入口文件 |
 | --- | --- | --- |
-| `local/参考项目/codex-island/` | macOS Claude/Codex 动态岛参考项目，用于分析 UI、窗口、用量/费用数据与性能策略 | `local/参考项目/codex-island/README.zh-CN.md` |
-| `local/需求讨论/` | Win11 Claude HUD One 需求讨论、技术分析、正式一期完整复刻方案、阶段进展复盘、HUD Plus 终端内置集成分析和方案结论 | `local/需求讨论/2026-06-08-win11-codex-island-full-replica-一期正式产品方案.md`；`local/需求讨论/2026-06-09-claude-hud-one-对标codex-island-当前进展与正式使用缺口.md`；`local/需求讨论/2026-06-10-claude-hud-one-内置claude-hud-plus终端hud集成分析.md` |
+| `local/参考项目/codex-island/` | macOS Claude/Codex 用量动态岛参考项目，用于补充分析 usage/cost/dashboard、三态窗口和性能策略；不是用户截图中的多会话 mascot 项目 | `local/参考项目/codex-island/README.zh-CN.md` |
+| `local/参考项目/CodeIsland/` | macOS Claude Code / 多 agent notch 参考项目，包含像素 mascot、多会话卡片、approval/question、终端跳转、HookServer/bridge 等截图对应能力 | `local/参考项目/CodeIsland/README.zh-CN.md` |
+| `local/需求讨论/` | Win11 Claude HUD One 需求讨论、技术分析、正式一期完整复刻方案、阶段进展复盘、HUD Plus 终端内置集成分析、桌面 HUD 展示交互复刻分析、全面对标 CodeIsland 桌面 HUD 改造方案和方案结论 | `local/需求讨论/2026-06-08-win11-codex-island-full-replica-一期正式产品方案.md`；`local/需求讨论/2026-06-09-claude-hud-one-对标codex-island-当前进展与正式使用缺口.md`；`local/需求讨论/2026-06-10-claude-hud-one-内置claude-hud-plus终端hud集成分析.md`；`local/需求讨论/2026-06-12-codex-island-desktop-hud-展示交互复刻分析.md`；`local/需求讨论/2026-06-12-claude-hud-one-全面对标-codeisland-桌面hud改造方案.md` |
 | `package.json` | 前端/Tauri npm 脚本与依赖入口 | `package.json` |
 | `src/` | React/TypeScript 前端 UI、状态模型、mock 数据与动态岛组件 | `src/app/App.tsx` |
 | `src-tauri/` | Tauri 2 桌面壳、Rust 原生窗口能力与打包配置 | `src-tauri/tauri.conf.json` |

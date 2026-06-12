@@ -41,25 +41,28 @@ test.describe('Claude HUD One UI smoke', () => {
     await expect(page.getByRole('button', { name: 'Open Claude HUD One' })).toHaveCount(0)
   })
 
-  test('captures expanded usage, cost and overview island states', async ({ page }) => {
+  test('captures expanded CodeIsland session surface', async ({ page }) => {
     await page.goto('/?view=expanded&page=usage')
-    await expect(page.getByRole('heading', { name: 'Usage' })).toBeVisible()
-    await expect(page.getByLabel('Current Claude Code session summary')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Refresh Claude HUD One data' })).toBeVisible()
+    await expect(page.getByLabel(/All monitored Claude Code sessions|所有已监控的 Claude Code 会话/)).toBeVisible()
+    await expect(page.getByLabel('Claude Code session card').first()).toBeVisible()
+    await expect(page.getByRole('button', { name: /Refresh Claude HUD One data|刷新 Claude HUD One 数据/ })).toBeVisible()
     await expect(page.getByText('Codex')).toHaveCount(0)
-    await screenshot(page, '02-expanded-usage')
+    await expect(page.getByRole('heading', { name: 'Usage' })).toHaveCount(0)
+    await screenshot(page, '02-expanded-session-surface')
 
     await page.goto('/?view=expanded&page=cost')
-    await expect(page.getByRole('heading', { name: 'Cost' })).toBeVisible()
-    await screenshot(page, '03-expanded-cost')
+    await expect(page.getByLabel(/All monitored Claude Code sessions|所有已监控的 Claude Code 会话/)).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Cost' })).toHaveCount(0)
+    await screenshot(page, '03-expanded-session-surface-cost-param')
 
     await page.goto('/?view=expanded&page=overview')
-    await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+    await expect(page.getByLabel(/All monitored Claude Code sessions|所有已监控的 Claude Code 会话/)).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Overview' })).toHaveCount(0)
     await expect(page.getByText('Codex')).toHaveCount(0)
-    await screenshot(page, '04-expanded-overview')
+    await screenshot(page, '04-expanded-session-surface-overview-param')
   })
 
-  test('applies desktop HUD default page and visible items', async ({ page }) => {
+  test('keeps CodeIsland session surface when legacy default page config exists', async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.setItem('claude-hud-one:island-state', JSON.stringify({
         settings: {
@@ -71,8 +74,9 @@ test.describe('Claude HUD One UI smoke', () => {
       }))
     })
     await page.goto('/?view=expanded')
-    await expect(page.getByRole('heading', { name: 'Cost' })).toBeVisible()
-    await expect(page.getByText('git main*')).toBeVisible()
+    await expect(page.getByLabel(/All monitored Claude Code sessions|所有已监控的 Claude Code 会话/)).toBeVisible()
+    await expect(page.getByLabel('Claude Code session card').first()).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Cost' })).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'Usage' })).toHaveCount(0)
   })
 

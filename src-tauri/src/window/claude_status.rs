@@ -4,6 +4,60 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PendingQueueChoice {
+    pub id: String,
+    pub label: String,
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingQueueItem {
+    pub id: String,
+    pub kind: String,
+    pub status: String,
+    pub session_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub expires_at: Option<String>,
+    pub source: String,
+    pub hook_event_name: Option<String>,
+    pub permission_mode: Option<String>,
+    pub tool_name: Option<String>,
+    pub project_slug: Option<String>,
+    pub cwd_slug: Option<String>,
+    pub title: String,
+    pub summary: Option<String>,
+    pub choices: Option<Vec<PendingQueueChoice>>,
+    pub privacy_note: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingQueueState {
+    pub schema_version: u8,
+    pub updated_at: String,
+    pub items: Vec<PendingQueueItem>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTerminalMetadata {
+    pub cwd: Option<String>,
+    pub kind: String,
+    pub wt_session: Option<String>,
+    pub wt_profile_id: Option<String>,
+    pub wt_profile_name: Option<String>,
+    pub term_program: Option<String>,
+    pub shell: Option<String>,
+    pub bridge_process_id: Option<u32>,
+    pub bridge_parent_process_id: Option<u32>,
+    pub window_title_hint: Option<String>,
+    pub captured_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClaudeStatusBridgeState {
     pub schema_version: u8,
     pub updated_at: String,
@@ -43,7 +97,8 @@ pub struct ClaudeStatusBridgeState {
     pub thinking_enabled: Option<bool>,
     pub agent_name: Option<String>,
     pub hook_event_name: Option<String>,
-    pub tool_name: Option<String>,
+    pub pending_queue: Option<PendingQueueState>,
+    pub terminal: Option<SessionTerminalMetadata>,
     pub source: String,
     pub privacy_note: String,
 }

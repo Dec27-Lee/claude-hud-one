@@ -14,7 +14,7 @@ import {
   setOverlayPosition,
   type DisplayInfo,
 } from './overlayBridge'
-import { IslandRoot } from '../components/island/IslandRoot'
+import { DesktopHudRoot } from '../components/desktopHud/DesktopHudRoot'
 import { SettingsView } from '../components/settings/SettingsView'
 import { loadClaudeStatusBridgeSessions, loadClaudeStatusBridgeState, loadLiveSessions, mapClaudeStatusBridgeToProviderPatch } from '../providers/claudeCodeSummary'
 import { loadLiveUsageCostSnapshot } from '../providers/liveUsageCost'
@@ -274,7 +274,7 @@ export function App() {
   }
 
   return (
-    <IslandRoot
+    <DesktopHudRoot
       state={store.state}
       onOpenSettings={() => void openSettingsWindow()}
       onToggleProvider={toggleProviderVisible}

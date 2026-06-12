@@ -8,6 +8,7 @@ pub mod overlay;
 pub mod settings;
 pub mod single_instance;
 pub mod startup;
+pub mod terminal_jump;
 pub mod tray;
 pub mod updater;
 pub mod usage_cost;

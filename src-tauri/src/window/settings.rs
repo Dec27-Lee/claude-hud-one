@@ -157,6 +157,7 @@ fn default_terminal_hud() -> Value {
 
 fn default_desktop_hud() -> Value {
     json!({
+        "version": 2,
         "enabled": true,
         "preset": "one-default",
         "density": "compact",
@@ -174,8 +175,28 @@ fn default_desktop_hud() -> Value {
             "addedDirs": true,
             "agents": true,
             "todos": true,
-            "speed": true
+            "speed": true,
+            "effortLevel": true
         },
+        "zones": {
+            "compact": ["activity", "project", "tools"],
+            "peek": ["activity", "project", "tools", "git"],
+            "panel": ["contextValue", "tools", "model", "git", "agents", "todos"],
+            "ticker": ["activity", "project", "tools"],
+            "usagePage": ["usage", "contextValue", "sessionTokens"],
+            "costPage": ["cost", "sessionTokens", "model"],
+            "overviewPage": ["activity", "project", "git", "agents", "todos"]
+        },
+        "itemOptions": {},
+        "hoverDelayMs": 500,
+        "collapseDelayMs": 150,
+        "maxVisibleSessions": 6,
+        "mascotSpeed": "normal",
+        "animationIntensity": "normal",
+        "autoExpandOnWaiting": true,
+        "autoExpandOnCompletion": true,
+        "smartSuppress": true,
+        "terminalJumpBehavior": "focus",
         "panelItems": ["contextValue", "tools", "model", "git", "agents", "todos"],
         "tickerItems": ["activity", "project", "tools"]
     })
