@@ -32,6 +32,7 @@ version: 1.1.0
 
 记录文件只保留这些字段：
 
+- 需求人：创建或追加记录前读取当前工作区实际生效的 `git config user.name` 和 `git config user.email`，记录为 `<user.name> <user.email>`；如果任一项为空，写明“未配置”。
 - 原始需求：用户要什么。
 - 范围：本轮做 / 不做 / 待确认。
 - 计划：3-7 条行动。
