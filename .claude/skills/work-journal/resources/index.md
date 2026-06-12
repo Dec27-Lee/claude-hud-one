@@ -15,6 +15,8 @@
 | 2026-06-11 | 提交并推送 main | done | git、commit、push、origin/main、Claude 协作者署名 | `records/2026-06-11-commit-push-main.md` | 已用当前 Git 身份并带 Claude 协作者署名提交当前工作区改动，提交 `0ac7e64` 已推送到远程 main。 |
 | 2026-06-12 | 设置页终端 HUD 设置体验优化 | done | Settings、Terminal HUD、组件参数、颜色配置、响应式、自适应、横向溢出、拖拽、本地化、诊断移除 | `records/2026-06-12-settings-responsive-overflow.md` | 已优化终端 HUD 设置页：拖拽添加、隐藏已配置组件、删除选择添加、修复真实长按拖拽，并重新验证打包。 |
 | 2026-06-12 | 提交并推送 main | done | git、commit、push、origin/main、Claude 协作者署名、打包验证 | `records/2026-06-12-commit-push-main.md` | 已用当前 Git 身份并带 Claude 协作者署名提交推送主要改动 `5b6323a` 到远程 main；`npm run tauri:build` 已通过。 |
+| 2026-06-12 | 技能文件当前工作区兼容修正 | done | skills、work-journal、clear-thinking、路径兼容、命令兼容、项目迁移 | `records/2026-06-12-skills-compatibility-fix.md` | 已修正旧 clear-thinking 资源文件引用和工作记录路径提示；hook 与打包验证通过。 |
+| 2026-06-12 | 提交并推送技能兼容修正 | in_progress | git、commit、push、origin/main、skills、Claude 协作者署名 | `records/2026-06-12-commit-push-skills-compatibility.md` | 本轮用于提交并推送技能兼容性修正，提交前需确认 Claude 协作者署名。 |
 
 ## 状态说明
 

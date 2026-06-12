@@ -134,7 +134,7 @@ version: 2.2.0
 
 - 涉及“记录、继续、上次、之前、进度、复盘、完成检查”时，先按 `work-journal` 规则通过索引定位并判断是否需要记录，再用本技能辅助判断。
 - 涉及大任务、多材料、多阶段、需要交叉验证时，本技能只定义拆分边界和验收标准；是否使用 Workflow / 子代理以及如何编排，按 `CLAUDE.md` 和 `work-journal` 规则执行。
-- 涉及找资料时，先读 `.claude/workspace-index.md`；涉及历史记录时，先读 `.claude/skills/work-journal/resources/index.md`，命中后才读对应 record。
+- 涉及找资料时，先读 `.claude/workspace-index.md`；涉及历史记录时，先读 `.claude/skills/work-journal/resources/index.md`，命中后才读取对应的 `.claude/skills/work-journal/resources/records/*.md`。
 - 新增、删除、移动、重命名长期资料入口时，完成前检查是否需要更新 `.claude/workspace-index.md`。
 
 ## 7. 禁忌

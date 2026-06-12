@@ -123,7 +123,7 @@
 | --- | --- |
 | 目标缺口 | 用“目标澄清”重写目标；如果仍依赖用户偏好，再追问 |
 | 事实缺口 | 先查工作区索引、命中记录、相关文件或公开资料 |
-| 历史缺口 | 先读 `.claude/skills/work-journal/resources/index.md`，只读命中记录 |
+| 历史缺口 | 先读 `.claude/skills/work-journal/resources/index.md`，只读取索引命中的 `.claude/skills/work-journal/resources/records/*.md` |
 | 材料缺口 | 子代理读取最小材料并返回摘要，主会话不吞长上下文 |
 | 结构缺口 | 用“问题分型/系统关系/主要矛盾”而不是直接给建议 |
 | 取舍缺口 | 用“方案取舍”，明确不选什么 |

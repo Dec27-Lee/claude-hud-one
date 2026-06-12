@@ -160,7 +160,7 @@
 
 ```markdown
 - [ ] 是否涉及记录、继续、上次、之前、进度、复盘、完成检查？如果是，是否使用 work-journal？
-- [ ] 是否需要历史记录？如果是，是否先读 `.claude/skills/work-journal/resources/index.md` 并只读命中记录？
+- [ ] 是否需要历史记录？如果是，是否先读 `.claude/skills/work-journal/resources/index.md`，并只读取索引命中的 `.claude/skills/work-journal/resources/records/*.md`？
 - [ ] 是否涉及大任务、多材料、多阶段、交叉验证？如果是，是否考虑 Workflow / 子代理？
 - [ ] 是否涉及新增长期资料入口？如果是，是否更新 `.claude/workspace-index.md`？
 - [ ] 是否涉及专用技能领域？如果是，clear-thinking 是否只做前置判断？

@@ -99,7 +99,7 @@ def main() -> int:
 
     if mode == "precompact":
         emit_context(
-            "work-journal 提醒：上下文即将压缩。请先读 .claude/skills/work-journal/resources/index.md；如需历史记录，只读取索引命中的 records/<文件>.md，不要全量读取 records/。如本轮新增/移动/删除长期资料入口，也要更新 .claude/workspace-index.md。",
+            "work-journal 提醒：上下文即将压缩。请先读 .claude/skills/work-journal/resources/index.md；如需历史记录，只读取索引命中的 .claude/skills/work-journal/resources/records/<文件>.md，不要全量读取 .claude/skills/work-journal/resources/records/。如本轮新增/移动/删除长期资料入口，也要更新 .claude/workspace-index.md。",
             "PreCompact",
         )
         return 0
@@ -111,7 +111,7 @@ def main() -> int:
     if looks_relevant or overdue:
         reason = "当前提示疑似需求/记录/完成检查/复盘/索引维护" if looks_relevant else f"已经约 {state['prompt_count']} 轮未更新工作日志"
         emit_context(
-            f"work-journal 提醒：{reason}。先读 .claude/skills/work-journal/resources/index.md；如需历史记录，只读取索引命中的 records/<文件>.md，不要全量读取 records/；如发现长期资料入口变化，请同步更新 .claude/workspace-index.md；回复完成前做完成检查。",
+            f"work-journal 提醒：{reason}。先读 .claude/skills/work-journal/resources/index.md；如需历史记录，只读取索引命中的 .claude/skills/work-journal/resources/records/<文件>.md，不要全量读取 .claude/skills/work-journal/resources/records/；如发现长期资料入口变化，请同步更新 .claude/workspace-index.md；回复完成前做完成检查。",
             "UserPromptSubmit",
         )
     return 0

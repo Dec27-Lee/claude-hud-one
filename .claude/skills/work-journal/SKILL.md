@@ -12,8 +12,8 @@ version: 1.1.0
 
 1. **遵守工作区规则**：使用和维护索引的规则只以根目录 `CLAUDE.md` 为准。
 2. **先读索引**：先读 `.claude/workspace-index.md`，再读 `.claude/skills/work-journal/resources/index.md`。
-3. **记录按需读取**：`records/` 下的历史记录不能默认全量读取，只能根据 `.claude/skills/work-journal/resources/index.md` 命中的记录路径按需读取。
-4. **默认单文件**：多数任务只更新一个 `records/YYYY-MM-DD-短标题.md`。
+3. **记录按需读取**：`.claude/skills/work-journal/resources/records/` 下的历史记录不能默认全量读取，只能根据 `.claude/skills/work-journal/resources/index.md` 命中的记录路径按需读取。
+4. **默认单文件**：多数任务只更新一个 `.claude/skills/work-journal/resources/records/YYYY-MM-DD-短标题.md`。
 5. **新需求默认新记录**：除非用户明确说继续历史事项，或索引显示强相关，否则不要把新需求追加到旧记录。
 6. **尊重只读意图**：用户明确要求“只读检查/只给建议/不要修改文件/不要落盘”时，不创建或更新记录，只回复检查结论。
 7. **完成前检查**：只有覆盖需求、产物明确、验证说明清楚，才能说“已完成”。
@@ -24,7 +24,7 @@ version: 1.1.0
 ### 1. 定位记录
 
 - 新需求：先读 `.claude/skills/work-journal/resources/index.md` 判断是否命中强相关记录；如果没有且任务需要跨轮追踪、复盘或落盘，再创建新记录并更新索引。
-- 继续任务：先读 `.claude/skills/work-journal/resources/index.md`，根据标题、关键词、状态、备注定位对应记录，只读取命中的 `records/<文件名>.md`。
+- 继续任务：先读 `.claude/skills/work-journal/resources/index.md`，根据标题、关键词、状态、备注定位对应记录，只读取命中的 `.claude/skills/work-journal/resources/records/<文件名>.md`。
 - 复盘/检查：如果是当前任务，读取当前记录；如果是历史任务，先用索引定位，不读取无关记录。
 - 只读请求：用户明确不希望修改文件或落盘时，只做只读检查，不创建、不更新 record，也不补写索引。
 
@@ -98,7 +98,7 @@ version: 1.1.0
 
 - 需要读取 2 份及以上材料或历史记录。
 - 需要从历史记录中比对前后状态、目标变化或偏差原因。
-- 需要读取 `.claude/skills/clear-thinking/resources/METHODOLOGY.md`、`PRODUCT_RD_METHOD.md`、`CHECKLISTS.md` 中任一资料文件并展开分析。
+- 需要读取 `.claude/skills/clear-thinking/resources/ROUTER.md`、`MICRO_SKILLS.md`、`CHECKLISTS.md` 或命中的 `micro-skills/*.md` 中任一资料文件并展开分析。
 - 需要比较多个方案、多个判断口径或多个风险视角。
 - 分析过程会明显膨胀主会话上下文，但最终只需要短结论写回记录。
 
@@ -134,7 +134,7 @@ version: 1.1.0
   4. 验收方式是什么？
   5. 是否需要 Workflow / 子代理 / 专业技能？
 - 输出限制：
-  - 不读取 records 全量
+  - 不全量读取 `.claude/skills/work-journal/resources/records/`
   - 不输出长方法论
   - 返回可写入工作记录的 5-8 条摘要
 ```
