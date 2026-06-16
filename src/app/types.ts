@@ -87,10 +87,14 @@ export type SessionTerminalMetadata = {
   capturedAt: string
 }
 
+export type PendingQueueIntent = 'allowOnce' | 'deny' | 'answerIntent' | 'dismiss'
+export type PendingQueueQuestionMode = 'attentionOnly' | 'choice' | 'freeform'
+
 export type PendingQueueChoice = {
   id: string
   label: string
   kind?: 'allow' | 'deny' | 'answer' | 'dismiss'
+  intent?: PendingQueueIntent | null
 }
 
 export type PendingQueueItem = {
@@ -110,6 +114,12 @@ export type PendingQueueItem = {
   title: string
   summary?: string | null
   choices?: PendingQueueChoice[] | null
+  intentId?: string | null
+  allowedIntents?: PendingQueueIntent[] | null
+  intentExpiresAt?: string | null
+  decisionState?: 'waiting' | 'submitted' | 'accepted' | 'rejected' | 'timedOut' | null
+  questionMode?: PendingQueueQuestionMode | null
+  answerPlaceholder?: string | null
   privacyNote: string
 }
 

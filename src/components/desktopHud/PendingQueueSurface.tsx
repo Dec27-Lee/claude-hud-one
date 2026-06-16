@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { CurrentSessionState, PendingQueueChoice, PendingQueueItem } from '../../app/types'
 import { workspaceLabel } from './sessionFormatters'
 import type { DesktopHudLanguage } from './sessionFormatters'
@@ -15,7 +16,7 @@ type PendingQueueSurfaceProps = {
   language?: DesktopHudLanguage
   onOpenTerminal?: (item: PendingQueueSurfaceItem) => void
   onDismiss?: (item: PendingQueueSurfaceItem) => void
-  onChoice?: (item: PendingQueueSurfaceItem, choice: PendingQueueChoice) => void
+  onChoice?: (item: PendingQueueSurfaceItem, choice: PendingQueueChoice, answerText?: string) => void
 }
 
 type ActionBarProps = {
@@ -25,7 +26,7 @@ type ActionBarProps = {
   language: DesktopHudLanguage
   onOpenTerminal?: (item: PendingQueueSurfaceItem) => void
   onDismiss?: (item: PendingQueueSurfaceItem) => void
-  onChoice?: (item: PendingQueueSurfaceItem, choice: PendingQueueChoice) => void
+  onChoice?: (item: PendingQueueSurfaceItem, choice: PendingQueueChoice, answerText?: string) => void
 }
 
 type SafeToolDetail = {
@@ -124,6 +125,12 @@ const expiryLabel = (iso: string | null | undefined, language: DesktopHudLanguag
 }
 
 const choiceKind = (choice: PendingQueueChoice): NonNullable<PendingQueueChoice['kind']> => choice.kind ?? 'dismiss'
+const choiceIntent = (choice: PendingQueueChoice) => choice.intent ?? (choiceKind(choice) === 'dismiss' ? 'dismiss' : null)
+const canSubmitChoice = (item: PendingQueueSurfaceItem, choice: PendingQueueChoice): boolean => {
+  const intent = choiceIntent(choice)
+  return Boolean(item.intentId && intent && item.allowedIntents?.includes(intent))
+}
+const questionCanAnswer = (item: PendingQueueSurfaceItem): boolean => Boolean(item.intentId && item.allowedIntents?.includes('answerIntent'))
 
 const toolDetail = (item: PendingQueueSurfaceItem, language: DesktopHudLanguage): SafeToolDetail => {
   const zh = language === 'zh-CN'
@@ -179,27 +186,27 @@ function ChoiceList({ item, language, onDismiss, onChoice }: {
   item: PendingQueueSurfaceItem
   language: DesktopHudLanguage
   onDismiss?: (item: PendingQueueSurfaceItem) => void
-  onChoice?: (item: PendingQueueSurfaceItem, choice: PendingQueueChoice) => void
+  onChoice?: (item: PendingQueueSurfaceItem, choice: PendingQueueChoice, answerText?: string) => void
 }) {
   const copy = pendingCopy[language]
-  const choices = item.choices?.filter((choice) => choice.label.trim().length > 0 && choiceKind(choice) !== 'answer') ?? []
+  const choices = item.choices?.filter((choice) => choice.label.trim().length > 0 && choiceKind(choice) === 'dismiss') ?? []
   if (choices.length === 0) return null
 
   return (
     <div className="codeisland-choice-list" aria-label={copy.choiceAria}>
       {choices.map((choice) => {
         const kind = choiceKind(choice)
-        const safeLocalDismiss = kind === 'dismiss'
+        const enabled = canSubmitChoice(item, choice)
         return (
           <button
             className={`codeisland-choice codeisland-choice--${kind}`}
             type="button"
             key={choice.id}
-            disabled={!safeLocalDismiss}
-            title={safeLocalDismiss ? copy.sourceOfTruth : copy.unsafeAction}
+            disabled={!enabled}
+            title={enabled ? copy.sourceOfTruth : copy.unsafeAction}
             onClick={() => {
               onChoice?.(item, choice)
-              if (safeLocalDismiss) onDismiss?.(item)
+              if (choiceIntent(choice) === 'dismiss') onDismiss?.(item)
             }}
           >
             {choiceLabel(choice, language)}
@@ -231,7 +238,7 @@ function ApprovalToolDetailView({ item, language }: { item: PendingQueueSurfaceI
 function QuestionOptions({ item, language, onChoice }: {
   item: PendingQueueSurfaceItem
   language: DesktopHudLanguage
-  onChoice?: (item: PendingQueueSurfaceItem, choice: PendingQueueChoice) => void
+  onChoice?: (item: PendingQueueSurfaceItem, choice: PendingQueueChoice, answerText?: string) => void
 }) {
   const copy = pendingCopy[language]
   const answerChoices = item.choices?.filter((choice) => choice.label.trim().length > 0 && choiceKind(choice) === 'answer') ?? []
@@ -239,20 +246,23 @@ function QuestionOptions({ item, language, onChoice }: {
 
   return (
     <div className="codeisland-question-options" aria-label={copy.optionAria}>
-      {answerChoices.map((choice, index) => (
-        <button
-          className="codeisland-question-option"
-          type="button"
-          key={choice.id}
-          disabled
-          title={copy.unsafeAction}
-          onClick={() => onChoice?.(item, choice)}
-        >
-          <span className="codeisland-question-option__arrow"> </span>
-          <span className="codeisland-question-option__index">{index + 1}.</span>
-          <span>{choiceLabel(choice, language)}</span>
-        </button>
-      ))}
+      {answerChoices.map((choice, index) => {
+        const enabled = canSubmitChoice(item, choice)
+        return (
+          <button
+            className="codeisland-question-option"
+            type="button"
+            key={choice.id}
+            disabled={!enabled}
+            title={enabled ? copy.sourceOfTruth : copy.unsafeAction}
+            onClick={() => onChoice?.(item, choice)}
+          >
+            <span className="codeisland-question-option__arrow"> </span>
+            <span className="codeisland-question-option__index">{index + 1}.</span>
+            <span>{choiceLabel(choice, language)}</span>
+          </button>
+        )
+      })}
       <button className="codeisland-question-option" type="button" disabled title={copy.unsafeAction}>
         <span className="codeisland-question-option__arrow"> </span>
         <span className="codeisland-question-option__index">…</span>
@@ -264,9 +274,13 @@ function QuestionOptions({ item, language, onChoice }: {
 
 function ApprovalBar({ item, statusText, queueLabel, language, onOpenTerminal, onDismiss, onChoice }: ActionBarProps) {
   const copy = pendingCopy[language]
-  const terminalAvailable = Boolean(item.sourceSession?.terminal?.cwd ?? item.sourceSession?.projectDir)
+  const terminalAvailable = Boolean(item.sourceSession?.terminal?.cwd ?? item.sourceSession?.projectDir ?? item.sourceSession?.terminal?.bridgeProcessId ?? item.sourceSession?.terminal?.bridgeParentProcessId)
   const tool = item.toolName ?? (language === 'zh-CN' ? '工具' : 'Tool')
   const project = item.sourceSession ? workspaceLabel(item.sourceSession) : item.projectSlug
+  const denyChoice = item.choices?.find((choice) => choice.intent === 'deny' || choice.kind === 'deny')
+  const allowChoice = item.choices?.find((choice) => choice.intent === 'allowOnce')
+  const canDeny = Boolean(denyChoice && canSubmitChoice(item, denyChoice))
+  const canAllowOnce = Boolean(allowChoice && canSubmitChoice(item, allowChoice))
 
   return (
     <article className="codeisland-action-bar codeisland-action-bar--approval" key={item.displayKey}>
@@ -281,9 +295,9 @@ function ApprovalBar({ item, statusText, queueLabel, language, onOpenTerminal, o
       <ChoiceList item={item} language={language} onDismiss={onDismiss} onChoice={onChoice} />
       {localizedStatus(statusText, language) ? <span className="codeisland-action-bar__status">{localizedStatus(statusText, language)}</span> : null}
       <div className="codeisland-action-bar__buttons">
-        <button className="pixel-button pixel-button--danger" type="button" disabled title={copy.unsafeAction}>{copy.deny}</button>
+        <button className="pixel-button pixel-button--danger" type="button" disabled={!canDeny} title={canDeny ? copy.sourceOfTruth : copy.unsafeAction} onClick={() => denyChoice && onChoice?.(item, denyChoice)}>{copy.deny}</button>
         <button className="pixel-button pixel-button--muted" type="button" onClick={() => onDismiss?.(item)}>{copy.dismiss}</button>
-        <button className="pixel-button pixel-button--success" type="button" disabled title={copy.unsafeAction}>{copy.allowOnce}</button>
+        <button className="pixel-button pixel-button--success" type="button" disabled={!canAllowOnce} title={canAllowOnce ? copy.sourceOfTruth : copy.unsafeAction} onClick={() => allowChoice && onChoice?.(item, allowChoice)}>{copy.allowOnce}</button>
         <button className="pixel-button pixel-button--primary" type="button" disabled title={copy.unsafeAction}>{copy.always}</button>
         <button className="pixel-button pixel-button--muted" type="button" disabled={!terminalAvailable || !onOpenTerminal} onClick={() => onOpenTerminal?.(item)}>{copy.terminal}</button>
       </div>
@@ -293,9 +307,13 @@ function ApprovalBar({ item, statusText, queueLabel, language, onOpenTerminal, o
 
 function QuestionBar({ item, statusText, queueLabel, language, onOpenTerminal, onDismiss, onChoice }: ActionBarProps) {
   const copy = pendingCopy[language]
-  const terminalAvailable = Boolean(item.sourceSession?.terminal?.cwd ?? item.sourceSession?.projectDir)
+  const [answerText, setAnswerText] = useState('')
+  const terminalAvailable = Boolean(item.sourceSession?.terminal?.cwd ?? item.sourceSession?.projectDir ?? item.sourceSession?.terminal?.bridgeProcessId ?? item.sourceSession?.terminal?.bridgeParentProcessId)
   const project = item.sourceSession ? workspaceLabel(item.sourceSession) : item.projectSlug
   const hasAnswerOptions = Boolean(item.choices?.some((choice) => choiceKind(choice) === 'answer'))
+  const canAnswer = questionCanAnswer(item)
+  const submitChoice: PendingQueueChoice = { id: 'freeform-answer', label: copy.submit, kind: 'answer', intent: 'answerIntent' }
+  const submitDisabled = !canAnswer || answerText.trim().length === 0
 
   return (
     <article className="codeisland-action-bar codeisland-action-bar--question" key={item.displayKey}>
@@ -311,16 +329,21 @@ function QuestionBar({ item, statusText, queueLabel, language, onOpenTerminal, o
       </div>
       <QuestionOptions item={item} language={language} onChoice={onChoice} />
       {!hasAnswerOptions ? (
-        <div className="codeisland-action-bar__input" onClick={() => onOpenTerminal?.(item)} role="button" tabIndex={0}>
+        <label className="codeisland-action-bar__input">
           <span>&gt;</span>
-          <p>{copy.typeAnswer}</p>
-        </div>
+          <input
+            value={answerText}
+            disabled={!canAnswer}
+            placeholder={item.answerPlaceholder ?? copy.typeAnswer}
+            onChange={(event) => setAnswerText(event.target.value)}
+          />
+        </label>
       ) : null}
       <ChoiceList item={item} language={language} onDismiss={onDismiss} onChoice={onChoice} />
       {localizedStatus(statusText, language) ? <span className="codeisland-action-bar__status">{localizedStatus(statusText, language)}</span> : null}
       <div className="codeisland-action-bar__buttons">
         <button className="pixel-button pixel-button--muted" type="button" onClick={() => onDismiss?.(item)}>{copy.skip}</button>
-        <button className="pixel-button pixel-button--success" type="button" disabled title={copy.unsafeAction}>{copy.submit}</button>
+        <button className="pixel-button pixel-button--success" type="button" disabled={submitDisabled} title={submitDisabled ? copy.unsafeAction : copy.sourceOfTruth} onClick={() => onChoice?.(item, submitChoice, answerText)}>{copy.submit}</button>
         <button className="pixel-button pixel-button--muted" type="button" disabled={!terminalAvailable || !onOpenTerminal} onClick={() => onOpenTerminal?.(item)}>{copy.terminal}</button>
       </div>
     </article>

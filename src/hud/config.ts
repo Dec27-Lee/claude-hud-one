@@ -3,6 +3,7 @@ import type { HudDisplayItemId, HudLanguage } from './types'
 export type TerminalHudRow = HudDisplayItemId[]
 export type TerminalHudPreset = 'hud-plus-default' | 'minimal' | 'custom'
 export type DesktopHudPreset = 'one-default' | 'terminal-parity' | 'custom'
+export type DesktopHudTerminalJumpBehavior = 'focus' | 'openCwd' | 'disabled'
 
 export type TerminalHudRowOverflow = 'truncate' | 'wrap'
 export type TerminalHudAddedDirsLayout = 'inline' | 'line'
@@ -142,7 +143,7 @@ export type DesktopHudZones = Record<DesktopHudZoneKey, HudDisplayItemId[]>
 export type DesktopHudItemOptions = Partial<Record<HudDisplayItemId, Record<string, unknown>>>
 
 export type DesktopHudConfig = {
-  version: 2
+  version: 4
   enabled: boolean
   preset: DesktopHudPreset
   density: 'compact' | 'comfortable'
@@ -158,7 +159,7 @@ export type DesktopHudConfig = {
   autoExpandOnWaiting: boolean
   autoExpandOnCompletion: boolean
   smartSuppress: boolean
-  terminalJumpBehavior: 'focus' | 'openCwd' | 'disabled'
+  terminalJumpBehavior: DesktopHudTerminalJumpBehavior
   /** @deprecated V1 compatibility: use zones.panel. */
   panelItems: HudDisplayItemId[]
   /** @deprecated V1 compatibility: use zones.ticker. */
@@ -303,7 +304,7 @@ export const DEFAULT_DESKTOP_HUD_ZONES: DesktopHudZones = {
 }
 
 export const DEFAULT_DESKTOP_HUD_CONFIG: DesktopHudConfig = {
-  version: 2,
+  version: 4,
   enabled: true,
   preset: 'one-default',
   density: 'compact',
@@ -385,7 +386,7 @@ export const mergeTerminalHudConfig = (base: TerminalHudConfig, patch?: Partial<
   }
 }
 
-type DesktopHudPatch = Partial<Omit<DesktopHudConfig, 'zones' | 'itemOptions'>> & {
+type DesktopHudPatch = Partial<Omit<DesktopHudConfig, 'version' | 'zones' | 'itemOptions'>> & {
   version?: number
   zones?: Partial<DesktopHudZones>
   itemOptions?: DesktopHudItemOptions
@@ -402,7 +403,11 @@ const desktopZone = (raw: unknown, fallback: HudDisplayItemId[]): HudDisplayItem
   Array.isArray(raw) ? raw.filter((item): item is HudDisplayItemId => typeof item === 'string') : [...fallback]
 )
 
-export const normalizeDesktopHudConfig = (raw?: Partial<DesktopHudConfig> | null): DesktopHudConfig => {
+const isDesktopTerminalJumpBehavior = (value: unknown): value is DesktopHudTerminalJumpBehavior => (
+  value === 'focus' || value === 'openCwd' || value === 'disabled'
+)
+
+export const normalizeDesktopHudConfig = (raw?: DesktopHudPatch | Partial<DesktopHudConfig> | null): DesktopHudConfig => {
   const base = DEFAULT_DESKTOP_HUD_CONFIG
   const patch = (raw ?? {}) as DesktopHudPatch
   const rawZones = patch.zones ?? {}
@@ -417,11 +422,15 @@ export const normalizeDesktopHudConfig = (raw?: Partial<DesktopHudConfig> | null
     costPage: desktopZone(rawZones.costPage, base.zones.costPage),
     overviewPage: desktopZone(rawZones.overviewPage, base.zones.overviewPage),
   }
+  const patchVersion = typeof patch.version === 'number' ? patch.version : 1
+  const terminalJumpBehavior = isDesktopTerminalJumpBehavior(patch.terminalJumpBehavior)
+    ? (patchVersion === 3 && patch.terminalJumpBehavior === 'openCwd' ? base.terminalJumpBehavior : patch.terminalJumpBehavior)
+    : base.terminalJumpBehavior
 
   return {
     ...base,
     ...patch,
-    version: 2,
+    version: 4,
     visibleItems: {
       ...base.visibleItems,
       ...patch.visibleItems,
@@ -439,7 +448,7 @@ export const normalizeDesktopHudConfig = (raw?: Partial<DesktopHudConfig> | null
     autoExpandOnWaiting: patch.autoExpandOnWaiting ?? base.autoExpandOnWaiting,
     autoExpandOnCompletion: patch.autoExpandOnCompletion ?? base.autoExpandOnCompletion,
     smartSuppress: patch.smartSuppress ?? base.smartSuppress,
-    terminalJumpBehavior: patch.terminalJumpBehavior ?? base.terminalJumpBehavior,
+    terminalJumpBehavior,
     panelItems: [...zones.panel],
     tickerItems: [...zones.ticker],
   }

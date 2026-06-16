@@ -550,13 +550,15 @@ fn ensure_hooks(settings: &mut Value, hook_command: &str) -> Vec<String> {
             *entry = json!([]);
         }
         let hooks_for_event = entry.as_array_mut().expect("hook array");
+        let hook_timeout = if event == "PreToolUse" { 30 } else { 2 };
+        ensure_hook_timeout(hooks_for_event, hook_command, hook_timeout);
         if !event_has_command(hooks_for_event, hook_command) {
             hooks_for_event.push(json!({
                 "matcher": "",
                 "hooks": [{
                     "type": "command",
                     "command": hook_command,
-                    "timeout": 2,
+                    "timeout": hook_timeout,
                 }]
             }));
         }
@@ -619,6 +621,24 @@ fn event_has_command(entries: &[Value], command: &str) -> bool {
             })
             .unwrap_or(false)
     })
+}
+
+fn ensure_hook_timeout(entries: &mut [Value], command: &str, timeout: u64) {
+    for entry in entries {
+        let Some(hooks) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for hook in hooks {
+            let is_bridge_hook = hook
+                .get("command")
+                .and_then(Value::as_str)
+                .map(|existing| existing == command || command_is_bridge(existing))
+                .unwrap_or(false);
+            if is_bridge_hook {
+                hook["timeout"] = json!(timeout);
+            }
+        }
+    }
 }
 
 fn entry_contains_bridge_command(entry: &Value) -> bool {

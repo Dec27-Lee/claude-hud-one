@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { CurrentSessionState, OverlayPosition, SettingsState } from './types'
+import type { DesktopHudTerminalJumpBehavior } from '../hud/config'
+import type { CurrentSessionState, OverlayPosition, PendingQueueIntent, SettingsState } from './types'
 
 export type OverlayHitRegion = {
   x: number
@@ -9,8 +10,25 @@ export type OverlayHitRegion = {
 }
 
 export type TerminalJumpResult = {
-  action: 'opened' | 'focused' | 'unsupported' | 'notFound'
+  action: 'opened' | 'focused' | 'unsupported' | 'notFound' | 'disabled'
   cwd: string | null
+  message: string
+}
+
+export type PendingIntentResolutionRequest = {
+  intentId: string
+  itemId?: string | null
+  displayKey?: string | null
+  sessionId?: string | null
+  action: PendingQueueIntent
+  choiceId?: string | null
+  answerText?: string | null
+}
+
+export type PendingIntentResolutionResult = {
+  status: 'accepted' | 'rejected'
+  intentId: string
+  action: PendingQueueIntent
   message: string
 }
 
@@ -110,23 +128,52 @@ export type DiagnosticsSummary = {
 
 const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
-export const jumpToClaudeSessionTerminal = async (session: CurrentSessionState): Promise<TerminalJumpResult | null> => {
+export const jumpToClaudeSessionTerminal = async (
+  session: CurrentSessionState,
+  behavior: DesktopHudTerminalJumpBehavior = 'openCwd',
+): Promise<TerminalJumpResult | null> => {
+  const cwd = session.terminal?.cwd ?? session.projectDir ?? null
+  if (behavior === 'disabled') {
+    return {
+      action: 'disabled',
+      cwd,
+      message: 'Terminal jump is disabled.',
+    }
+  }
   if (!isTauriRuntime()) return null
 
   try {
     return await invoke<TerminalJumpResult>('jump_to_claude_session_terminal', {
       request: {
-        cwd: session.terminal?.cwd ?? session.projectDir ?? null,
+        behavior,
+        cwd,
         fallbackCwd: session.projectDir ?? null,
         bridgeProcessId: session.terminal?.bridgeProcessId ?? null,
         bridgeParentProcessId: session.terminal?.bridgeParentProcessId ?? null,
+        windowTitleHint: session.terminal?.windowTitleHint ?? session.projectSlug ?? session.sessionName ?? null,
       },
     })
   } catch (error) {
     console.warn('Failed to jump to Claude Code session terminal', error)
     return {
       action: 'notFound',
-      cwd: session.terminal?.cwd ?? session.projectDir ?? null,
+      cwd,
+      message: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+export const resolveClaudePendingIntent = async (request: PendingIntentResolutionRequest): Promise<PendingIntentResolutionResult | null> => {
+  if (!isTauriRuntime()) return null
+
+  try {
+    return await invoke<PendingIntentResolutionResult>('resolve_claude_pending_intent', { request })
+  } catch (error) {
+    console.warn('Failed to resolve Claude pending intent', error)
+    return {
+      status: 'rejected',
+      intentId: request.intentId,
+      action: request.action,
       message: error instanceof Error ? error.message : String(error),
     }
   }

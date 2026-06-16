@@ -41,7 +41,8 @@ export function SessionCard({ session, active = false, visibleItems, terminalJum
   const isVisible = (item: HudDisplayItemId): boolean => visibleItems[item] !== false
   const statusText = terminalJumpStatus ?? sessionStatusText(session, isVisible, language) ?? session.lastEventLabel
   const terminalCwd = session.terminal?.cwd ?? session.projectDir
-  const jumpDisabled = !terminalJumpEnabled || !terminalCwd || !onJumpToTerminal
+  const terminalTargetAvailable = Boolean(terminalCwd ?? session.terminal?.bridgeProcessId ?? session.terminal?.bridgeParentProcessId)
+  const jumpDisabled = !terminalJumpEnabled || !terminalTargetAvailable || !onJumpToTerminal
   const terminalJumpFailed = Boolean(terminalJumpStatus && /fail|unavailable|not found|no /i.test(terminalJumpStatus))
   const inlinePendingItem = session.pendingQueue?.items.find((item) => item.status === 'pending') ?? null
   const tags = [

@@ -15,11 +15,20 @@ export default defineConfig({
   timeout: 30_000,
   expect: {
     timeout: 5_000,
+    toHaveScreenshot: {
+      animations: 'disabled',
+      maxDiffPixelRatio: 0.005,
+    },
   },
+  snapshotPathTemplate: '{testDir}/__screenshots__/{testFilePath}/{arg}{ext}',
   use: {
     baseURL: 'http://127.0.0.1:1420',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    locale: 'zh-CN',
+    timezoneId: 'Asia/Shanghai',
+    colorScheme: 'dark',
+    reducedMotion: 'reduce',
   },
   webServer,
   projects: [

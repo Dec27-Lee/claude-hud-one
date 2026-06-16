@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { freemem, totalmem } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -30,6 +31,14 @@ const TERMINAL_HOOK_HOLD_MS = Number(process.env.CLAUDE_HUD_ONE_TERMINAL_HOOK_HO
 const PENDING_APPROVAL_TTL_MS = Number(process.env.CLAUDE_HUD_ONE_PENDING_APPROVAL_TTL_MS ?? 15 * 60_000)
 const PENDING_QUESTION_TTL_MS = Number(process.env.CLAUDE_HUD_ONE_PENDING_QUESTION_TTL_MS ?? 30 * 60_000)
 const MAX_PENDING_ITEMS = Number(process.env.CLAUDE_HUD_ONE_MAX_PENDING_ITEMS ?? 10)
+const PENDING_RESPONSE_WAIT_MS = Number(process.env.CLAUDE_HUD_ONE_PENDING_RESPONSE_WAIT_MS ?? 25_000)
+const PENDING_RESPONSE_POLL_MS = Number(process.env.CLAUDE_HUD_ONE_PENDING_RESPONSE_POLL_MS ?? 250)
+const HOOK_FAILSAFE_MS = Number(process.env.CLAUDE_HUD_ONE_HOOK_FAILSAFE_MS ?? 28_000)
+const APPDATA_PENDING_INTENTS_DIR = process.env.APPDATA
+  ? resolve(process.env.APPDATA, 'Claude HUD One', 'pending-intents')
+  : null
+const PROJECT_PENDING_INTENTS_DIR = resolve(SCRIPT_DIR, 'state', 'pending-intents')
+const PENDING_INTENT_DIRS = [APPDATA_PENDING_INTENTS_DIR, PROJECT_PENDING_INTENTS_DIR].filter(Boolean)
 
 const FALLBACK_STATUS = 'Claude HUD One'
 let completed = false
@@ -42,7 +51,7 @@ const complete = (statusText = FALLBACK_STATUS, hookResponse = null) => {
   process.exit(0)
 }
 
-const failSafe = setTimeout(() => complete(FALLBACK_STATUS), 2_700)
+const failSafe = setTimeout(() => complete(FALLBACK_STATUS), MODE === 'hook' ? HOOK_FAILSAFE_MS : 2_700)
 failSafe.unref?.()
 
 const readStdin = async () => {
@@ -78,6 +87,11 @@ const safeFileName = (value) => {
     .replace(/^-+|-+$/g, '')
   return safe.length > 0 ? safe.slice(0, 120) : null
 }
+
+const privateNonce = () => randomBytes(16).toString('hex')
+const delay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms))
+
+const pendingIntentPath = (dir, kind, intentId) => resolve(dir, kind, `${safeFileName(intentId) ?? 'pending'}.json`)
 
 const compactPercent = (value) => {
   const number = numberOrNull(value)
@@ -1203,7 +1217,37 @@ const extractPermissionMode = (input) => stringOrNull(
   ?? input?.session?.permissionMode
 )
 
-const terminalMetadata = (cwd, projectSlug, sessionName) => ({
+const terminalTitlePart = (value) => {
+  const text = stringOrNull(value)
+  if (!text) return null
+  const cleaned = text
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return cleaned.length ? cleaned.slice(0, 48) : null
+}
+
+const terminalShortSession = (sessionId) => {
+  const text = stringOrNull(sessionId)?.replace(/[^a-zA-Z0-9_-]/g, '')
+  return text && text.length >= 6 ? text.slice(0, 8) : null
+}
+
+const terminalTitleHint = (cwd, projectSlug, sessionName, sessionId) => {
+  const project = terminalTitlePart(projectSlug ?? baseName(cwd) ?? sessionName ?? 'Claude Code')
+  const session = terminalShortSession(sessionId) ?? terminalTitlePart(sessionName)
+  return ['Claude Code', project, session].filter(Boolean).join(' · ')
+}
+
+const terminalTitleSequence = (state) => {
+  if (MODE !== 'statusLine') return ''
+  if (process.platform !== 'win32' || !process.env.WT_SESSION) return ''
+  if (process.env.CLAUDE_HUD_ONE_SET_TERMINAL_TITLE === '0') return ''
+  const title = terminalTitlePart(state?.terminal?.windowTitleHint)
+  return title ? `\u001b]0;${title}\u0007` : ''
+}
+
+const terminalMetadata = (cwd, projectSlug, sessionName, sessionId) => ({
   cwd: stringOrNull(cwd),
   kind: process.env.WT_SESSION ? 'windowsTerminal' : (process.env.TERM_PROGRAM ? 'terminalProgram' : 'unknown'),
   wtSession: stringOrNull(process.env.WT_SESSION),
@@ -1213,7 +1257,7 @@ const terminalMetadata = (cwd, projectSlug, sessionName) => ({
   shell: stringOrNull(process.env.SHELL ?? process.env.ComSpec),
   bridgeProcessId: process.pid,
   bridgeParentProcessId: process.ppid,
-  windowTitleHint: stringOrNull(projectSlug ?? sessionName ?? baseName(cwd)),
+  windowTitleHint: terminalTitleHint(cwd, projectSlug, sessionName, sessionId),
   capturedAt: new Date().toISOString(),
 })
 
@@ -1321,7 +1365,7 @@ const summarizeStatusLine = (input) => {
     agentName: stringOrNull(input?.agent?.name),
     hookEventName: null,
     toolName: activeToolName,
-    terminal: terminalMetadata(projectDir, projectSlug, input?.session_name),
+    terminal: terminalMetadata(projectDir, projectSlug, input?.session_name, input?.session_id),
     source: 'statusLine',
     privacyNote: 'Claude HUD One bridge stores only sanitized status metrics. It does not store prompt, transcript, tool-result or credential content.',
   }
@@ -1331,7 +1375,7 @@ const pendingItemId = (kind, hookEvent, sessionId, toolName, createdAt) => (
   safeFileName([kind, hookEvent, sessionId, toolName, createdAt].filter(Boolean).join('-')) ?? `${kind}-${Date.now()}`
 )
 
-const pendingChoice = (id, label, kind) => ({ id, label, kind })
+const pendingChoice = (id, label, kind, intent = null) => ({ id, label, kind, intent })
 
 const pendingItemFromHook = (input, hookEvent, toolName, projectSlug, projectDir) => {
   const now = new Date().toISOString()
@@ -1340,14 +1384,21 @@ const pendingItemFromHook = (input, hookEvent, toolName, projectSlug, projectDir
   const cwdSlug = baseName(projectDir)
 
   if (hookEvent === 'PreToolUse' && toolName) {
+    const id = pendingItemId('approval', hookEvent, sessionId, toolName, now)
+    const expiresAt = new Date(Date.now() + PENDING_APPROVAL_TTL_MS).toISOString()
     return {
-      id: pendingItemId('approval', hookEvent, sessionId, toolName, now),
+      id,
+      intentId: id,
+      allowedIntents: ['allowOnce', 'deny', 'dismiss'],
+      intentExpiresAt: expiresAt,
+      decisionState: 'waiting',
+      questionMode: null,
       kind: 'approval',
       status: 'pending',
       sessionId,
       createdAt: now,
       updatedAt: now,
-      expiresAt: new Date(Date.now() + PENDING_APPROVAL_TTL_MS).toISOString(),
+      expiresAt,
       source: 'hook',
       hookEventName: hookEvent,
       permissionMode,
@@ -1356,20 +1407,33 @@ const pendingItemFromHook = (input, hookEvent, toolName, projectSlug, projectDir
       cwdSlug,
       title: `Approval needed for ${toolName}`,
       summary: 'Claude Code is requesting permission to run a tool. Review the request in the terminal.',
-      choices: [pendingChoice('review-terminal', 'Review in Claude Code', 'dismiss'), pendingChoice('dismiss-local', 'Dismiss HUD reminder', 'dismiss')],
+      choices: [
+        pendingChoice('deny-once', 'Deny', 'deny', 'deny'),
+        pendingChoice('allow-once', 'Allow once', 'allow', 'allowOnce'),
+        pendingChoice('review-terminal', 'Review in Claude Code', 'dismiss', 'dismiss'),
+        pendingChoice('dismiss-local', 'Dismiss HUD reminder', 'dismiss', 'dismiss'),
+      ],
       privacyNote: 'Sanitized pending item only. Tool input, command arguments, prompt, transcript and credentials are not stored.',
     }
   }
 
   if (hookEvent === 'Notification' || hookEvent === 'Stop') {
+    const id = pendingItemId('question', hookEvent, sessionId, toolName, now)
+    const expiresAt = new Date(Date.now() + PENDING_QUESTION_TTL_MS).toISOString()
     return {
-      id: pendingItemId('question', hookEvent, sessionId, toolName, now),
+      id,
+      intentId: id,
+      allowedIntents: ['answerIntent', 'dismiss'],
+      intentExpiresAt: expiresAt,
+      decisionState: 'waiting',
+      questionMode: 'attentionOnly',
+      answerPlaceholder: 'Type the answer here to record a safe local intent; send it in Claude Code if the terminal still asks.',
       kind: 'question',
       status: 'pending',
       sessionId,
       createdAt: now,
       updatedAt: now,
-      expiresAt: new Date(Date.now() + PENDING_QUESTION_TTL_MS).toISOString(),
+      expiresAt,
       source: 'hook',
       hookEventName: hookEvent,
       permissionMode,
@@ -1378,7 +1442,10 @@ const pendingItemFromHook = (input, hookEvent, toolName, projectSlug, projectDir
       cwdSlug,
       title: 'Claude Code needs attention',
       summary: 'A Claude Code session is waiting for your response. Review it in the terminal.',
-      choices: [pendingChoice('review-terminal', 'Review in Claude Code', 'dismiss'), pendingChoice('dismiss-local', 'Dismiss HUD reminder', 'dismiss')],
+      choices: [
+        pendingChoice('review-terminal', 'Review in Claude Code', 'dismiss', 'dismiss'),
+        pendingChoice('dismiss-local', 'Dismiss HUD reminder', 'dismiss', 'dismiss'),
+      ],
       privacyNote: 'Sanitized pending item only. User prompt, question text, transcript and credentials are not stored.',
     }
   }
@@ -1430,14 +1497,119 @@ const mergePendingQueue = (nextState, previousState) => {
   }
 }
 
-const hookResponseFromState = (state) => {
+const writePendingIntentRequests = (state) => {
+  const items = Array.isArray(state?.pendingQueue?.items) ? state.pendingQueue.items : []
+  for (const item of items) {
+    if (!item?.intentId || item.status !== 'pending') continue
+    const request = {
+      schemaVersion: 1,
+      intentId: item.intentId,
+      nonce: privateNonce(),
+      kind: item.kind,
+      sessionKey: state.sessionKey ?? null,
+      sessionId: item.sessionId ?? state.sessionId ?? null,
+      hookEventName: item.hookEventName ?? state.hookEventName ?? null,
+      toolName: item.toolName ?? state.toolName ?? null,
+      projectSlug: item.projectSlug ?? state.projectSlug ?? null,
+      cwdSlug: item.cwdSlug ?? null,
+      allowedIntents: Array.isArray(item.allowedIntents) ? item.allowedIntents : [],
+      createdAt: item.createdAt,
+      expiresAt: item.intentExpiresAt ?? item.expiresAt ?? null,
+      privacyNote: 'Request contains only sanitized routing metadata and a private nonce; raw prompts, tool inputs and credentials are not stored.',
+    }
+
+    for (const dir of PENDING_INTENT_DIRS) {
+      try {
+        const targetPath = pendingIntentPath(dir, 'requests', item.intentId)
+        if (existsSync(targetPath)) continue
+        mkdirSync(dirname(targetPath), { recursive: true })
+        const tmpPath = `${targetPath}.${process.pid}.tmp`
+        writeFileSync(tmpPath, JSON.stringify(request, null, 2), 'utf8')
+        renameSync(tmpPath, targetPath)
+      } catch {
+        // Fail-safe: intent files must never break hook/status rendering.
+      }
+    }
+  }
+}
+
+const readPendingIntentRequest = (intentId) => {
+  for (const dir of PENDING_INTENT_DIRS) {
+    const request = readJsonFile(pendingIntentPath(dir, 'requests', intentId))
+    if (request) return request
+  }
+  return null
+}
+
+const readPendingIntentResponse = (intentId) => {
+  for (const dir of PENDING_INTENT_DIRS) {
+    const response = readJsonFile(pendingIntentPath(dir, 'responses', intentId))
+    if (response) return response
+  }
+  return null
+}
+
+const validatePendingIntentResponse = (item, request, response) => {
+  if (!item?.intentId || !request || !response) return null
+  if (response.intentId !== item.intentId) return null
+  if (response.nonce !== request.nonce) return null
+  if (request.sessionId && response.sessionId && request.sessionId !== response.sessionId) return null
+  const action = stringOrNull(response.action)
+  const allowed = Array.isArray(request.allowedIntents) ? request.allowedIntents : []
+  if (!action || !allowed.includes(action)) return null
+  if (request.expiresAt && Date.parse(request.expiresAt) <= Date.now()) return null
+  return action
+}
+
+const waitForPendingIntentResponse = async (item) => {
+  if (!item?.intentId) return null
+  const request = readPendingIntentRequest(item.intentId)
+  if (!request) return null
+
+  const expiresAt = request.expiresAt ? Date.parse(request.expiresAt) : null
+  const deadline = Math.min(
+    Date.now() + Math.max(0, PENDING_RESPONSE_WAIT_MS),
+    Number.isFinite(expiresAt) ? expiresAt : Date.now() + Math.max(0, PENDING_RESPONSE_WAIT_MS),
+  )
+
+  while (Date.now() < deadline) {
+    const response = readPendingIntentResponse(item.intentId)
+    const action = validatePendingIntentResponse(item, request, response)
+    if (action) return action
+    await delay(Math.max(50, PENDING_RESPONSE_POLL_MS))
+  }
+
+  return null
+}
+
+const hookResponseFromState = async (state) => {
   if (MODE !== 'hook') return null
   if (state?.hookEventName === 'PreToolUse' && state?.toolName) {
+    const approvalItem = state.pendingQueue?.items?.find((item) => item.kind === 'approval' && item.toolName === state.toolName && item.intentId)
+    const action = approvalItem ? await waitForPendingIntentResponse(approvalItem) : null
+    if (action === 'allowOnce') {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'allow',
+          permissionDecisionReason: 'Approved once from Claude HUD One Desktop HUD after nonce and TTL validation.',
+        },
+      }
+    }
+    if (action === 'deny') {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: 'Denied from Claude HUD One Desktop HUD after nonce and TTL validation.',
+        },
+      }
+    }
     return {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'defer',
-        permissionDecisionReason: 'Claude HUD One recorded a sanitized HUD reminder; final permission remains with Claude Code.',
+        permissionDecisionReason: 'Claude HUD One did not receive a validated HUD decision before timeout; final permission remains with Claude Code.',
       },
     }
   }
@@ -1515,7 +1687,7 @@ const summarizeHook = (input) => {
     toolName,
     source: 'hook',
     pendingQueue,
-    terminal: terminalMetadata(projectDir, projectSlug, input?.session_name),
+    terminal: terminalMetadata(projectDir, projectSlug, input?.session_name, input?.session_id),
     privacyNote: 'Claude HUD One hook bridge stores only event name, tool name and sanitized status metadata. It does not store user prompt, tool input, tool result, transcript or credential content.',
   }
 }
@@ -1621,6 +1793,7 @@ try {
   const sessionKey = sessionKeyFromState(rawNextState)
   const previousState = readPreviousSessionState(sessionKey) ?? readPreviousState()
   const nextState = { ...mergeWithPrevious(rawNextState, previousState), sessionKey }
+  writePendingIntentRequests(nextState)
   writeStateFile(APPDATA_STATE_PATH, nextState)
   writeStateFile(PROJECT_STATE_PATH, nextState)
   for (const path of sessionStatePaths(sessionKey)) writeStateFile(path, nextState)
@@ -1629,9 +1802,10 @@ try {
     ? `Claude HUD One · ${nextState.statusText}`
     : ''
   const builtInTerminalHudText = safeRenderTerminalHud(nextState)
+  const terminalTitlePrefix = terminalTitleSequence(nextState)
   // Claude HUD One owns Terminal HUD rendering. The old Claude HUD Plus command may be
   // kept as an install-time diagnostic backup, but is not executed as a runtime renderer.
-  complete(builtInTerminalHudText ?? fallbackStatusLineText, hookResponseFromState(nextState))
+  complete(`${terminalTitlePrefix}${builtInTerminalHudText ?? fallbackStatusLineText}`, await hookResponseFromState(nextState))
 } catch {
   complete(FALLBACK_STATUS)
 }

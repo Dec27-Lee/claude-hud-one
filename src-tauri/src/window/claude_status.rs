@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, fs, path::{Path, PathBuf}};
+use std::{collections::HashMap, env, fs::{self, OpenOptions}, io::Write, path::{Path, PathBuf}};
 
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +8,7 @@ pub struct PendingQueueChoice {
     pub id: String,
     pub label: String,
     pub kind: Option<String>,
+    pub intent: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -29,6 +30,12 @@ pub struct PendingQueueItem {
     pub title: String,
     pub summary: Option<String>,
     pub choices: Option<Vec<PendingQueueChoice>>,
+    pub intent_id: Option<String>,
+    pub allowed_intents: Option<Vec<String>>,
+    pub intent_expires_at: Option<String>,
+    pub decision_state: Option<String>,
+    pub question_mode: Option<String>,
+    pub answer_placeholder: Option<String>,
     pub privacy_note: String,
 }
 
@@ -137,6 +144,90 @@ pub fn get_claude_status_bridge_sessions() -> Vec<ClaudeStatusBridgeState> {
     sessions
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingIntentResolutionRequest {
+    pub intent_id: String,
+    pub item_id: Option<String>,
+    pub display_key: Option<String>,
+    pub session_id: Option<String>,
+    pub action: String,
+    pub choice_id: Option<String>,
+    pub answer_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingIntentResolutionResult {
+    pub status: String,
+    pub intent_id: String,
+    pub action: String,
+    pub message: String,
+}
+
+pub fn resolve_pending_intent(request: PendingIntentResolutionRequest) -> Result<PendingIntentResolutionResult, String> {
+    let action = request.action.trim();
+    if !matches!(action, "allowOnce" | "deny" | "answerIntent" | "dismiss") {
+        return Err("Unsupported pending intent action.".to_string());
+    }
+
+    let intent_id = safe_path_segment(&request.intent_id)
+        .ok_or_else(|| "Invalid pending intent id.".to_string())?;
+    let pending_request = read_pending_intent_request(&intent_id)
+        .ok_or_else(|| "Pending intent request was not found or has expired.".to_string())?;
+
+    let kind = pending_request
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let allowed = pending_request
+        .get("allowedIntents")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| items.iter().filter_map(serde_json::Value::as_str).any(|value| value == action))
+        .unwrap_or(false);
+    if !allowed {
+        return Err("This action is not allowed for the pending item.".to_string());
+    }
+    if kind == "approval" && !matches!(action, "allowOnce" | "deny" | "dismiss") {
+        return Err("Approval items only accept allowOnce or deny.".to_string());
+    }
+    if kind == "question" && !matches!(action, "answerIntent" | "dismiss") {
+        return Err("Question items only accept answer intent or dismiss.".to_string());
+    }
+
+    let nonce = pending_request
+        .get("nonce")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Pending intent request is missing its private nonce.".to_string())?;
+
+    let response = serde_json::json!({
+        "schemaVersion": 1,
+        "intentId": intent_id.clone(),
+        "itemId": request.item_id,
+        "displayKey": request.display_key,
+        "sessionId": request.session_id,
+        "nonce": nonce,
+        "action": action,
+        "choiceId": request.choice_id,
+        "answerText": request.answer_text,
+        "resolvedAtMs": now_ms(),
+    });
+    write_pending_intent_response(&intent_id, &response)?;
+    append_pending_intent_audit(&intent_id, action, kind)?;
+
+    Ok(PendingIntentResolutionResult {
+        status: "accepted".to_string(),
+        intent_id,
+        action: action.to_string(),
+        message: match action {
+            "allowOnce" => "Approval was sent to Claude Code.".to_string(),
+            "deny" => "Denial was sent to Claude Code.".to_string(),
+            "answerIntent" => "Question answer intent was recorded.".to_string(),
+            _ => "HUD reminder was dismissed.".to_string(),
+        },
+    })
+}
+
 fn read_state_file(path: PathBuf) -> Option<ClaudeStatusBridgeState> {
     fs::read_to_string(path)
         .ok()
@@ -206,4 +297,100 @@ fn is_json_file(path: &Path) -> bool {
         .and_then(|extension| extension.to_str())
         .map(|extension| extension.eq_ignore_ascii_case("json"))
         .unwrap_or(false)
+}
+
+fn pending_intent_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    if let Some(appdata) = env::var_os("APPDATA") {
+        dirs.push(PathBuf::from(appdata).join("Claude HUD One").join("pending-intents"));
+    }
+
+    if let Ok(current_dir) = env::current_dir() {
+        dirs.push(current_dir.join(".claude").join("bridge").join("state").join("pending-intents"));
+    }
+
+    dirs
+}
+
+fn safe_path_segment(value: &str) -> Option<String> {
+    let safe = value
+        .replace('\\', "/")
+        .split('/')
+        .filter(|part| !part.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') { ch } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .chars()
+        .take(160)
+        .collect::<String>();
+
+    if safe.is_empty() { None } else { Some(safe) }
+}
+
+fn read_pending_intent_request(intent_id: &str) -> Option<serde_json::Value> {
+    pending_intent_dirs()
+        .into_iter()
+        .map(|dir| dir.join("requests").join(format!("{intent_id}.json")))
+        .find_map(|path| fs::read_to_string(path).ok().and_then(|content| serde_json::from_str(&content).ok()))
+}
+
+fn write_pending_intent_response(intent_id: &str, response: &serde_json::Value) -> Result<(), String> {
+    let dirs = pending_intent_dirs();
+    if dirs.is_empty() {
+        return Err("No pending intent directory is available.".to_string());
+    }
+
+    let content = serde_json::to_string_pretty(response).map_err(|error| error.to_string())?;
+    let mut last_error = None;
+    for dir in dirs {
+        let response_dir = dir.join("responses");
+        if let Err(error) = fs::create_dir_all(&response_dir) {
+            last_error = Some(error.to_string());
+            continue;
+        }
+
+        let target = response_dir.join(format!("{intent_id}.json"));
+        let tmp = response_dir.join(format!("{intent_id}.{}.tmp", std::process::id()));
+        match fs::write(&tmp, &content).and_then(|_| fs::rename(&tmp, &target)) {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                let _ = fs::remove_file(&tmp);
+                last_error = Some(error.to_string());
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "Failed to write pending intent response.".to_string()))
+}
+
+fn append_pending_intent_audit(intent_id: &str, action: &str, kind: &str) -> Result<(), String> {
+    for dir in pending_intent_dirs() {
+        fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+        let audit_path = dir.join("audit.jsonl");
+        let event = serde_json::json!({
+            "schemaVersion": 1,
+            "intentId": intent_id,
+            "action": action,
+            "kind": kind,
+            "recordedAtMs": now_ms(),
+        });
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(audit_path)
+            .map_err(|error| error.to_string())?;
+        writeln!(file, "{}", event).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn now_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
 }

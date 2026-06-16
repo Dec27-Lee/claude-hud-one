@@ -157,7 +157,7 @@ fn default_terminal_hud() -> Value {
 
 fn default_desktop_hud() -> Value {
     json!({
-        "version": 2,
+        "version": 4,
         "enabled": true,
         "preset": "one-default",
         "density": "compact",

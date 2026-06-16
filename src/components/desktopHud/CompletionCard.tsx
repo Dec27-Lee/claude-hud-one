@@ -20,7 +20,7 @@ const completionTimeLabel = (iso: string, language: DesktopHudLanguage): string 
 }
 
 export function CompletionCard({ session, completedAt, language = 'en', onOpenTerminal, onDismiss }: CompletionCardProps) {
-  const terminalAvailable = Boolean(session.terminal?.cwd ?? session.projectDir)
+  const terminalAvailable = Boolean(session.terminal?.cwd ?? session.projectDir ?? session.terminal?.bridgeProcessId ?? session.terminal?.bridgeParentProcessId)
   const copy = language === 'zh-CN'
     ? {
         aria: 'Claude Code 完成卡片',

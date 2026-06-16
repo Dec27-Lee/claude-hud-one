@@ -25,7 +25,7 @@
           {
             "type": "command",
             "command": "node .claude/bridge/claude-status-bridge.mjs --hook",
-            "timeout": 2
+            "timeout": 30
           }
         ]
       }

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent, PointerEvent } from 'react'
 import { cursorPosition, getCurrentWindow } from '@tauri-apps/api/window'
-import { jumpToClaudeSessionTerminal, setOverlayPosition, updateOverlayHitRegions, updateOverlayLayout, type OverlayHitRegion } from '../../app/overlayBridge'
-import type { CurrentSessionState, IslandAppState, IslandViewState, OverlayPosition, PendingQueueItem, ProviderId, SessionActivityState } from '../../app/types'
+import { jumpToClaudeSessionTerminal, resolveClaudePendingIntent, setOverlayPosition, updateOverlayHitRegions, updateOverlayLayout, type OverlayHitRegion } from '../../app/overlayBridge'
+import type { CurrentSessionState, IslandAppState, IslandViewState, OverlayPosition, PendingQueueChoice, PendingQueueIntent, PendingQueueItem, ProviderId, SessionActivityState } from '../../app/types'
 import type { HudDisplayItemId } from '../../hud/types'
 import { CompletionCard } from './CompletionCard'
 import { DesktopHudCapsule } from './DesktopHudCapsule'
@@ -87,9 +87,11 @@ const terminalJumpMessage = (message: string | null | undefined, language: Deskt
   if (!message) return language === 'zh-CN' ? '浏览器预览中无法跳转终端。' : 'Terminal jump is unavailable in browser preview.'
   if (language !== 'zh-CN') return message
   if (/program not found/i.test(message)) return '未找到 Windows Terminal（wt.exe）。请安装 Windows Terminal，或把 wt.exe 加入 PATH。'
+  if (/Terminal jump is disabled/i.test(message)) return '终端跳转已在设置中禁用。'
   if (/No working directory/i.test(message)) return '没有采集到这个 Claude Code 会话的工作目录。'
+  if (/No existing Windows Terminal window/i.test(message)) return '没有找到这个 Claude Code 会话对应的已有 Windows Terminal。'
   if (/unsupported/i.test(message)) return '当前平台暂不支持终端跳转。'
-  if (/Focused the existing Windows Terminal/i.test(message)) return '已切换到这个 Claude Code 会话所在的 Windows Terminal。'
+  if (/Focused (the|an) existing Windows Terminal/i.test(message)) return '已切换到已有 Windows Terminal。'
   if (/Opened Windows Terminal at (.+)$/i.test(message)) return `已在 ${message.replace(/^Opened Windows Terminal at /i, '')} 打开 Windows Terminal。`
   return message
 }
@@ -111,6 +113,8 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
   const defaultViewState = state.settings.alwaysShowUsage ? 'peek' : 'compact'
   const desktopLanguage = resolveDesktopHudLanguage(state.settings.language)
   const desktopHud = state.settings.desktopHud
+  const terminalJumpBehavior = desktopHud.terminalJumpBehavior ?? 'focus'
+  const terminalJumpEnabled = terminalJumpBehavior !== 'disabled'
   const isDesktopItemVisible = (item: HudDisplayItemId): boolean => desktopHud.enabled && desktopHud.visibleItems[item] !== false
   const [viewState, setViewState] = useState<IslandViewState>(() => browserPreviewViewState(defaultViewState))
   const [sessionGroupingMode, setSessionGroupingMode] = useState<SessionGroupingMode>('all')
@@ -207,7 +211,7 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
 
     return Array.from(groups.values())
   })()
-  const sessionListStyle = { '--desktop-session-list-max-height': `${Math.max(1, maxVisibleSessions) * 82}px` } as CSSProperties
+  const sessionListStyle = { '--desktop-session-list-max-height': `${Math.max(1, maxVisibleSessions) * 90}px` } as CSSProperties
 
   const updateHitRegions = useCallback((): void => {
     const elements = [capsuleRef.current, panelRef.current].filter((element): element is HTMLButtonElement | HTMLDivElement => Boolean(element))
@@ -226,27 +230,73 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
 
   const handleJumpToTerminal = useCallback(async (session: CurrentSessionState): Promise<void> => {
     const key = sessionKey(session, 0)
-    setTerminalJumpStatusByKey((current) => ({ ...current, [key]: desktopLanguage === 'zh-CN' ? '正在打开 Windows Terminal…' : 'Opening Windows Terminal…' }))
-    const result = await jumpToClaudeSessionTerminal(session)
+    if (!terminalJumpEnabled) {
+      setTerminalJumpStatusByKey((current) => ({ ...current, [key]: desktopLanguage === 'zh-CN' ? '终端跳转已在设置中禁用。' : 'Terminal jump is disabled.' }))
+      return
+    }
+
+    setTerminalJumpStatusByKey((current) => ({ ...current, [key]: terminalJumpBehavior === 'focus' ? (desktopLanguage === 'zh-CN' ? '正在切换到已有 Windows Terminal…' : 'Focusing Windows Terminal…') : (desktopLanguage === 'zh-CN' ? '正在打开 Windows Terminal…' : 'Opening Windows Terminal…') }))
+    const result = await jumpToClaudeSessionTerminal(session, terminalJumpBehavior)
     setTerminalJumpStatusByKey((current) => ({
       ...current,
       [key]: terminalJumpMessage(result?.message, desktopLanguage),
     }))
-  }, [desktopLanguage])
+  }, [desktopLanguage, terminalJumpBehavior, terminalJumpEnabled])
 
   const handleOpenPendingTerminal = useCallback(async (item: PendingQueueSurfaceItem): Promise<void> => {
     const session = item.sourceSession
+    if (!terminalJumpEnabled) {
+      setPendingActionStatusByKey((current) => ({ ...current, [item.displayKey]: desktopLanguage === 'zh-CN' ? '终端跳转已在设置中禁用。' : 'Terminal jump is disabled.' }))
+      return
+    }
     if (!session) {
       setPendingActionStatusByKey((current) => ({ ...current, [item.displayKey]: desktopLanguage === 'zh-CN' ? '没有关联的 Claude Code 会话。' : 'No linked Claude Code session.' }))
       return
     }
 
-    setPendingActionStatusByKey((current) => ({ ...current, [item.displayKey]: desktopLanguage === 'zh-CN' ? '正在打开 Windows Terminal…' : 'Opening Windows Terminal…' }))
-    const result = await jumpToClaudeSessionTerminal(session)
+    setPendingActionStatusByKey((current) => ({ ...current, [item.displayKey]: terminalJumpBehavior === 'focus' ? (desktopLanguage === 'zh-CN' ? '正在切换到已有 Windows Terminal…' : 'Focusing Windows Terminal…') : (desktopLanguage === 'zh-CN' ? '正在打开 Windows Terminal…' : 'Opening Windows Terminal…') }))
+    const result = await jumpToClaudeSessionTerminal(session, terminalJumpBehavior)
     setPendingActionStatusByKey((current) => ({
       ...current,
       [item.displayKey]: terminalJumpMessage(result?.message, desktopLanguage),
     }))
+  }, [desktopLanguage, terminalJumpBehavior, terminalJumpEnabled])
+
+  const handlePendingChoice = useCallback(async (item: PendingQueueSurfaceItem, choice: PendingQueueChoice, answerText?: string): Promise<void> => {
+    const action = choice.intent ?? (choice.kind === 'dismiss' ? 'dismiss' : null)
+    if (!action || !item.intentId) {
+      setPendingActionStatusByKey((current) => ({ ...current, [item.displayKey]: desktopLanguage === 'zh-CN' ? '这条提醒没有可回写的安全协议。' : 'This reminder has no resolvable safety intent.' }))
+      return
+    }
+
+    const actionLabels: Record<PendingQueueIntent, string> = {
+      allowOnce: desktopLanguage === 'zh-CN' ? '正在发送允许一次…' : 'Sending allow once…',
+      deny: desktopLanguage === 'zh-CN' ? '正在发送拒绝…' : 'Sending denial…',
+      answerIntent: desktopLanguage === 'zh-CN' ? '正在记录回答意图…' : 'Recording answer intent…',
+      dismiss: desktopLanguage === 'zh-CN' ? '正在关闭提醒…' : 'Dismissing reminder…',
+    }
+    setPendingActionStatusByKey((current) => ({ ...current, [item.displayKey]: actionLabels[action] }))
+    const result = await resolveClaudePendingIntent({
+      intentId: item.intentId,
+      itemId: item.id,
+      displayKey: item.displayKey,
+      sessionId: item.sessionId ?? item.sourceSession?.sessionId ?? null,
+      action,
+      choiceId: choice.id,
+      answerText: answerText?.trim() || null,
+    })
+    const fallback = desktopLanguage === 'zh-CN' ? '浏览器预览中无法发送真实回写。' : 'Real intent submit is unavailable in browser preview.'
+    const message = result?.message ?? fallback
+    setPendingActionStatusByKey((current) => ({ ...current, [item.displayKey]: desktopLanguage === 'zh-CN'
+      ? message
+        .replace('Approval was sent to Claude Code.', '已把允许一次发送给 Claude Code。')
+        .replace('Denial was sent to Claude Code.', '已把拒绝发送给 Claude Code。')
+        .replace('Question answer intent was recorded.', '已记录回答意图；如终端仍在等待，请到终端发送。')
+        .replace('HUD reminder was dismissed.', '已关闭 HUD 提醒。')
+      : message }))
+    if (result?.status === 'accepted' && (action === 'dismiss' || action === 'allowOnce' || action === 'deny')) {
+      setDismissedPendingItemKeys((current) => ({ ...current, [item.displayKey]: true }))
+    }
   }, [desktopLanguage])
 
   const handleDismissPendingItem = useCallback((item: PendingQueueSurfaceItem): void => {
@@ -531,8 +581,9 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
                 queuePosition={activePendingQueuePosition}
                 queueTotal={pendingItems.length}
                 language={desktopLanguage}
-                onOpenTerminal={handleOpenPendingTerminal}
+                onOpenTerminal={terminalJumpEnabled ? handleOpenPendingTerminal : undefined}
                 onDismiss={handleDismissPendingItem}
+                onChoice={handlePendingChoice}
               />
             ) : null}
 
@@ -543,8 +594,9 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
                 queuePosition={activePendingQueuePosition}
                 queueTotal={pendingItems.length}
                 language={desktopLanguage}
-                onOpenTerminal={handleOpenPendingTerminal}
+                onOpenTerminal={terminalJumpEnabled ? handleOpenPendingTerminal : undefined}
                 onDismiss={handleDismissPendingItem}
+                onChoice={handlePendingChoice}
               />
             ) : null}
 
@@ -556,7 +608,7 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
                     session={item.session}
                     completedAt={item.completedAt}
                     language={desktopLanguage}
-                    onOpenTerminal={handleJumpToTerminal}
+                    onOpenTerminal={terminalJumpEnabled ? handleJumpToTerminal : undefined}
                     onDismiss={() => setDismissedCompletionKeys((current) => ({ ...current, [item.key]: true }))}
                   />
                 ))}
@@ -604,7 +656,7 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
                           active={sessionKey(session, index) === sessionKey(tickerSession, tickerIndex)}
                           visibleItems={desktopHud.visibleItems}
                           panelItems={panelItems}
-                          terminalJumpEnabled={desktopHud.terminalJumpBehavior !== 'disabled'}
+                          terminalJumpEnabled={terminalJumpEnabled}
                           terminalJumpStatus={terminalJumpStatusByKey[sessionKey(session, 0)]}
                           language={desktopLanguage}
                           onJumpToTerminal={handleJumpToTerminal}

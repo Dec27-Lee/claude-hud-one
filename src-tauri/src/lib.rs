@@ -4,7 +4,7 @@ use tauri::Manager;
 use window::{
     claude_global::ClaudeGlobalBridgeStatus,
     claude_session::ClaudeCodeSummary,
-    claude_status::ClaudeStatusBridgeState,
+    claude_status::{ClaudeStatusBridgeState, PendingIntentResolutionRequest, PendingIntentResolutionResult},
     diagnostics::DiagnosticsSummary,
     display::DisplayInfo,
     fullscreen::{FullscreenState, FullscreenTracker},
@@ -206,6 +206,11 @@ fn jump_to_claude_session_terminal(request: TerminalJumpRequest) -> Result<Termi
 }
 
 #[tauri::command]
+fn resolve_claude_pending_intent(request: PendingIntentResolutionRequest) -> Result<PendingIntentResolutionResult, String> {
+    window::claude_status::resolve_pending_intent(request)
+}
+
+#[tauri::command]
 fn get_update_state() -> Result<UpdateState, String> {
     Ok(window::updater::update_state())
 }
@@ -311,6 +316,7 @@ pub fn run() {
             open_app_data_dir,
             get_live_usage_cost_snapshot,
             jump_to_claude_session_terminal,
+            resolve_claude_pending_intent,
             get_update_state,
             check_for_updates,
             open_release_page,
