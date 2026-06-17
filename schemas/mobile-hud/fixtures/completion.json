@@ -1,0 +1,28 @@
+{
+  "name": "completion",
+  "description": "Completion card and low-sensitive completion notification.",
+  "envelope": {
+    "protocolVersion": 1,
+    "messageId": "msg_fixture_completion",
+    "seq": 1005,
+    "kind": "notification",
+    "sentAt": "2026-06-17T08:04:00Z",
+    "snapshotVersion": 1005,
+    "payload": {
+      "protocolVersion": 1,
+      "snapshotVersion": 1005,
+      "snapshotId": "snap_fixture_completion",
+      "generatedAt": "2026-06-17T08:04:00Z",
+      "displayMode": "trustedAppView",
+      "privacyLevel": "trustedAppView",
+      "summary": { "status": "idle", "statusText": "Claude Code is settled", "activeSessionCount": 1, "attentionCount": 0, "notificationCount": 1, "modelLabel": "Opus 4.8", "projectLabel": "claude-hud-one" },
+      "displayPolicy": { "visibleItems": ["activity", "project", "model", "contextValue", "sessionTokens", "cost"], "hiddenByDesktopConfig": [], "terminalJump": false, "approvalActions": false, "questionActions": false, "notificationsEnabled": true, "privacyNote": "Completion notification is low-sensitive." },
+      "capsule": { "mascot": "clawd", "state": "idle", "title": "Claude HUD One", "statusText": "Claude Code is settled", "ticker": [{ "id": "activity", "label": "Activity", "value": "Settled" }] },
+      "sessions": [{ "sessionRef": "session_fixture_completion", "sessionName": "Android HUD", "projectLabel": "claude-hud-one", "activity": "idle", "statusText": "Claude Code is settled", "modelLabel": "Opus 4.8", "contextUsedPercent": 48, "inputTokens": 2400, "outputTokens": 1040, "totalCostUsd": 0.42, "updatedAt": "2026-06-17T08:03:55Z", "privacyNote": "Sanitized mobile session card." }],
+      "attention": [],
+      "completion": { "sessionRef": "session_fixture_completion", "title": "Claude Code completed", "body": "A Claude Code task is ready to review on your PC.", "completedAt": "2026-06-17T08:03:55Z" },
+      "notificationEvents": [{ "eventId": "evt_fixture_completion", "dedupeKey": "completion:session_fixture_completion:1005", "collapseKey": "task-status:session_fixture_completion", "kind": "completed", "sensitivity": "low", "title": "Claude Code completed", "body": "A Claude Code task is ready to review on your PC.", "createdAt": "2026-06-17T08:03:55Z", "source": "activityTransition", "targetSessionRef": "session_fixture_completion" }]
+    }
+  },
+  "androidFallback": {}
+}

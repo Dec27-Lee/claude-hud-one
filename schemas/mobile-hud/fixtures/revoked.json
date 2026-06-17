@@ -1,0 +1,27 @@
+{
+  "name": "revoked",
+  "description": "PC revoked the Android device authorization.",
+  "envelope": {
+    "protocolVersion": 1,
+    "messageId": "msg_fixture_revoked",
+    "seq": 1007,
+    "kind": "revoke",
+    "sentAt": "2026-06-17T08:06:00Z",
+    "snapshotVersion": 1007,
+    "payload": {
+      "protocolVersion": 1,
+      "snapshotVersion": 1007,
+      "snapshotId": "snap_fixture_revoked",
+      "generatedAt": "2026-06-17T08:06:00Z",
+      "displayMode": "trustedAppView",
+      "privacyLevel": "trustedAppView",
+      "summary": { "status": "revoked", "statusText": "Device authorization was revoked", "activeSessionCount": 0, "attentionCount": 0, "notificationCount": 1 },
+      "displayPolicy": { "visibleItems": [], "hiddenByDesktopConfig": [], "terminalJump": false, "approvalActions": false, "questionActions": false, "notificationsEnabled": true, "privacyNote": "No session data is sent after revoke." },
+      "capsule": { "mascot": "clawd", "state": "idle", "title": "Claude HUD One", "statusText": "Pair again on your PC", "ticker": [] },
+      "sessions": [],
+      "attention": [],
+      "notificationEvents": [{ "eventId": "evt_fixture_revoked", "dedupeKey": "connection:revoked", "collapseKey": "connection", "kind": "connectionLost", "sensitivity": "low", "title": "Mobile HUD disconnected", "body": "Pair again from Claude HUD One on your PC.", "createdAt": "2026-06-17T08:06:00Z", "source": "connection" }]
+    }
+  },
+  "androidFallback": { "screen": "pairing" }
+}

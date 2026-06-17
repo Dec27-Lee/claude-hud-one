@@ -4,6 +4,7 @@ import type { AppLanguage, ChartStyle, CostStyle, IslandAppState, ProviderId, Se
 import { displayedProviderOrder } from '../../app/types'
 import { normalizeHudState } from '../../hud/normalize'
 import { DesktopHudPanel } from './DesktopHudPanel'
+import { MobileHudPanel } from './MobileHudPanel'
 import { TerminalHudPanel } from './TerminalHudPanel'
 
 type SettingsViewProps = {
@@ -21,7 +22,7 @@ type SettingsViewProps = {
 }
 
 type UILanguage = 'en' | 'zh-CN'
-type SettingsTab = 'general' | 'desktop' | 'terminal' | 'claude' | 'about'
+type SettingsTab = 'general' | 'desktop' | 'mobile' | 'terminal' | 'claude' | 'about'
 
 const chartStyles: ChartStyle[] = ['ring', 'bar', 'stepped', 'numeric', 'sparkline']
 const costStyles: CostStyle[] = ['usd', 'value', 'tokens', 'trend']
@@ -38,6 +39,7 @@ const settingsMessages = {
       general: 'General',
       terminal: 'Terminal HUD',
       desktop: 'Desktop HUD',
+      mobile: 'Mobile HUD',
       claude: 'Claude',
       about: 'About',
     },
@@ -163,6 +165,7 @@ const settingsMessages = {
       general: '通用',
       terminal: '终端 HUD',
       desktop: '桌面 HUD',
+      mobile: '移动 HUD',
       claude: 'Claude',
       about: '关于',
     },
@@ -333,6 +336,7 @@ const displayLabel = (display: DisplayInfo, copy: SettingsCopy): string => {
 const settingsTabs = (copy: SettingsCopy): Array<{ id: SettingsTab; label: string }> => [
   { id: 'general', label: copy.tabs.general },
   { id: 'desktop', label: copy.tabs.desktop },
+  { id: 'mobile', label: copy.tabs.mobile },
   { id: 'terminal', label: copy.tabs.terminal },
   { id: 'claude', label: copy.tabs.claude },
   { id: 'about', label: copy.tabs.about },
@@ -560,6 +564,8 @@ export function SettingsView({ state, displays, onClose, onOpenDiagnostics, onPa
             <DesktopHudPanel config={state.settings.desktopHud} language={uiLanguage} onPatchSettings={onPatchSettings} />
           </div>
         ) : null}
+
+        {activeTab === 'mobile' ? <MobileHudPanel config={state.settings.mobileHud} language={uiLanguage} onPatchSettings={onPatchSettings} /> : null}
 
         {activeTab === 'terminal' ? <TerminalHudPanel config={state.settings.terminalHud} language={uiLanguage} previewState={normalizedHudState} claudeContextWindowSize={globalBridge?.contextWindowSizeEnv ?? null} onPatchSettings={onPatchSettings} /> : null}
 

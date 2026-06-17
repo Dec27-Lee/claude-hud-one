@@ -1,0 +1,30 @@
+{
+  "name": "multi-session",
+  "description": "Two sanitized Claude Code sessions for Mobile HUD session list.",
+  "envelope": {
+    "protocolVersion": 1,
+    "messageId": "msg_fixture_multi_session",
+    "seq": 1004,
+    "kind": "snapshot",
+    "sentAt": "2026-06-17T08:03:00Z",
+    "snapshotVersion": 1004,
+    "payload": {
+      "protocolVersion": 1,
+      "snapshotVersion": 1004,
+      "snapshotId": "snap_fixture_multi_session",
+      "generatedAt": "2026-06-17T08:03:00Z",
+      "displayMode": "trustedAppView",
+      "privacyLevel": "trustedAppView",
+      "summary": { "status": "running", "statusText": "2 Claude Code sessions", "activeSessionCount": 2, "attentionCount": 0, "notificationCount": 0, "modelLabel": "Opus 4.8", "projectLabel": "claude-hud-one" },
+      "displayPolicy": { "visibleItems": ["activity", "project", "model", "tools", "contextValue", "sessionTokens", "usage", "cost", "agents", "todos"], "hiddenByDesktopConfig": [], "terminalJump": false, "approvalActions": false, "questionActions": false, "notificationsEnabled": true, "privacyNote": "Mobile session list uses opaque session refs." },
+      "capsule": { "mascot": "clawd", "state": "running", "title": "Claude HUD One", "statusText": "2 Claude Code sessions", "ticker": [{ "id": "activity", "label": "Activity", "value": "2 active sessions" }, { "id": "project", "label": "Project", "value": "claude-hud-one" }] },
+      "sessions": [
+        { "sessionRef": "session_fixture_a", "sessionName": "Android HUD", "projectLabel": "claude-hud-one", "activity": "running", "statusText": "Implementing Mobile HUD", "modelLabel": "Opus 4.8", "contextUsedPercent": 46, "inputTokens": 2200, "outputTokens": 900, "totalCostUsd": 0.36, "updatedAt": "2026-06-17T08:02:55Z", "privacyNote": "Sanitized mobile session card." },
+        { "sessionRef": "session_fixture_b", "sessionName": "Desktop HUD", "projectLabel": "claude-hud-one", "activity": "idle", "statusText": "Waiting", "modelLabel": "Sonnet 4.6", "contextUsedPercent": 18, "inputTokens": 600, "outputTokens": 120, "totalCostUsd": 0.05, "updatedAt": "2026-06-17T08:00:10Z", "privacyNote": "Sanitized mobile session card." }
+      ],
+      "attention": [],
+      "notificationEvents": []
+    }
+  },
+  "androidFallback": {}
+}

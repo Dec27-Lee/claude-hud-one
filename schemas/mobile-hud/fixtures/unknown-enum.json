@@ -1,0 +1,27 @@
+{
+  "name": "unknown-enum",
+  "description": "Future enum values that Android must handle with safe fallback UI.",
+  "envelope": {
+    "protocolVersion": 1,
+    "messageId": "msg_fixture_unknown_enum",
+    "seq": 1008,
+    "kind": "futureSnapshot",
+    "sentAt": "2026-06-17T08:07:00Z",
+    "snapshotVersion": 1008,
+    "payload": {
+      "protocolVersion": 1,
+      "snapshotVersion": 1008,
+      "snapshotId": "snap_fixture_unknown_enum",
+      "generatedAt": "2026-06-17T08:07:00Z",
+      "displayMode": "futureTrustedView",
+      "privacyLevel": "trustedAppView",
+      "summary": { "status": "futureStatus", "statusText": "Future status should fallback", "activeSessionCount": 1, "attentionCount": 1, "notificationCount": 1, "modelLabel": "Future Model", "projectLabel": "claude-hud-one" },
+      "displayPolicy": { "visibleItems": ["activity"], "hiddenByDesktopConfig": [], "terminalJump": false, "approvalActions": false, "questionActions": false, "notificationsEnabled": true, "privacyNote": "Unknown enum fallback fixture." },
+      "capsule": { "mascot": "futureClawd", "state": "futureState", "title": "Claude HUD One", "statusText": "Fallback expected", "ticker": [{ "id": "activity", "label": "Activity", "value": "Future", "emphasis": "futureEmphasis" }] },
+      "sessions": [{ "sessionRef": "session_fixture_unknown", "sessionName": "Future Session", "projectLabel": "claude-hud-one", "activity": "futureActivity", "statusText": "Future activity", "modelLabel": "Future Model", "updatedAt": "2026-06-17T08:06:55Z", "privacyNote": "Sanitized mobile session card." }],
+      "attention": [{ "itemRef": "att_fixture_unknown", "sessionRef": "session_fixture_unknown", "kind": "futureAttention", "status": "pending", "title": "Future attention", "summary": "Fallback expected.", "createdAt": "2026-06-17T08:06:55Z", "actionState": "readonly", "privacyNote": "Read-only future attention." }],
+      "notificationEvents": [{ "eventId": "evt_fixture_unknown", "dedupeKey": "future:unknown", "collapseKey": "future", "kind": "futureNotification", "sensitivity": "low", "title": "Claude needs attention", "body": "Open Claude HUD One on your PC.", "createdAt": "2026-06-17T08:06:55Z", "source": "futureSource", "targetSessionRef": "session_fixture_unknown" }]
+    }
+  },
+  "androidFallback": { "unknownEnumsShouldRender": true }
+}

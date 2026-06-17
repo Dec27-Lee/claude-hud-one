@@ -1,0 +1,74 @@
+{
+  "name": "running",
+  "description": "Single Claude Code session actively running with safe Mobile HUD fields.",
+  "envelope": {
+    "protocolVersion": 1,
+    "messageId": "msg_fixture_running",
+    "seq": 1001,
+    "kind": "snapshot",
+    "sentAt": "2026-06-17T08:00:00Z",
+    "snapshotVersion": 1001,
+    "payload": {
+      "protocolVersion": 1,
+      "snapshotVersion": 1001,
+      "snapshotId": "snap_fixture_running",
+      "generatedAt": "2026-06-17T08:00:00Z",
+      "displayMode": "trustedAppView",
+      "privacyLevel": "trustedAppView",
+      "summary": {
+        "status": "running",
+        "statusText": "Claude Code is working",
+        "activeSessionCount": 1,
+        "attentionCount": 0,
+        "notificationCount": 0,
+        "modelLabel": "Opus 4.8",
+        "projectLabel": "claude-hud-one"
+      },
+      "displayPolicy": {
+        "visibleItems": ["activity", "project", "model", "tools", "contextValue", "sessionTokens", "usage", "cost", "git", "addedDirs", "agents", "todos", "speed"],
+        "hiddenByDesktopConfig": [],
+        "terminalJump": false,
+        "approvalActions": false,
+        "questionActions": false,
+        "notificationsEnabled": true,
+        "privacyNote": "Mobile DTO only contains sanitized display fields. Sensitive local details stay on the PC."
+      },
+      "capsule": {
+        "mascot": "clawd",
+        "state": "running",
+        "title": "Claude HUD One",
+        "statusText": "Claude Code is working",
+        "ticker": [
+          { "id": "activity", "label": "Activity", "value": "Claude Code is working" },
+          { "id": "project", "label": "Project", "value": "claude-hud-one" },
+          { "id": "model", "label": "Model", "value": "Opus 4.8" },
+          { "id": "contextValue", "label": "Context", "value": "42% used", "emphasis": "normal" }
+        ]
+      },
+      "sessions": [
+        {
+          "sessionRef": "session_fixture_running",
+          "sessionName": "Android HUD",
+          "projectLabel": "claude-hud-one",
+          "activity": "running",
+          "statusText": "Claude Code is working",
+          "modelLabel": "Opus 4.8",
+          "contextUsedPercent": 42,
+          "contextRemainingPercent": 58,
+          "contextUsedTokens": 84000,
+          "inputTokens": 1200,
+          "outputTokens": 340,
+          "totalCostUsd": 0.1234,
+          "fiveHourUsedPercent": 12,
+          "sevenDayUsedPercent": 23,
+          "effortLevel": "high",
+          "updatedAt": "2026-06-17T07:59:58Z",
+          "privacyNote": "Sanitized mobile session card."
+        }
+      ],
+      "attention": [],
+      "notificationEvents": []
+    }
+  },
+  "androidFallback": {}
+}

@@ -1,0 +1,27 @@
+{
+  "name": "waiting-approval",
+  "description": "Approval is waiting on PC; mobile displays read-only attention and a low-sensitive notification.",
+  "envelope": {
+    "protocolVersion": 1,
+    "messageId": "msg_fixture_waiting_approval",
+    "seq": 1002,
+    "kind": "notification",
+    "sentAt": "2026-06-17T08:01:00Z",
+    "snapshotVersion": 1002,
+    "payload": {
+      "protocolVersion": 1,
+      "snapshotVersion": 1002,
+      "snapshotId": "snap_fixture_waiting_approval",
+      "generatedAt": "2026-06-17T08:01:00Z",
+      "displayMode": "trustedAppView",
+      "privacyLevel": "trustedAppView",
+      "summary": { "status": "waiting", "statusText": "Claude needs attention", "activeSessionCount": 1, "attentionCount": 1, "notificationCount": 1, "modelLabel": "Opus 4.8", "projectLabel": "claude-hud-one" },
+      "displayPolicy": { "visibleItems": ["activity", "project", "model", "tools", "contextValue", "sessionTokens", "usage", "cost"], "hiddenByDesktopConfig": [], "terminalJump": false, "approvalActions": false, "questionActions": false, "notificationsEnabled": true, "privacyNote": "Mobile is read-only for approvals." },
+      "capsule": { "mascot": "clawd", "state": "waiting", "title": "Claude HUD One", "statusText": "Claude needs attention", "ticker": [{ "id": "activity", "label": "Activity", "value": "Approval waiting", "emphasis": "warning" }] },
+      "sessions": [{ "sessionRef": "session_fixture_waiting", "sessionName": "Android HUD", "projectLabel": "claude-hud-one", "activity": "waiting", "statusText": "Claude needs attention", "modelLabel": "Opus 4.8", "contextUsedPercent": 44, "inputTokens": 1250, "outputTokens": 350, "totalCostUsd": 0.13, "updatedAt": "2026-06-17T08:00:55Z", "privacyNote": "Sanitized mobile session card." }],
+      "attention": [{ "itemRef": "att_fixture_approval", "sessionRef": "session_fixture_waiting", "kind": "approval", "status": "pending", "title": "Tool approval required", "summary": "Review and respond on your PC.", "toolName": "Bash", "createdAt": "2026-06-17T08:00:55Z", "actionState": "readonly", "privacyNote": "No action id, nonce or raw tool data is sent to mobile." }],
+      "notificationEvents": [{ "eventId": "evt_fixture_approval", "dedupeKey": "attention:session_fixture_waiting:att_fixture_approval", "collapseKey": "attention:session_fixture_waiting", "kind": "waitingAttention", "sensitivity": "low", "title": "Claude needs attention", "body": "A Claude Code approval is waiting on your PC.", "createdAt": "2026-06-17T08:00:55Z", "source": "pendingQueue", "targetSessionRef": "session_fixture_waiting" }]
+    }
+  },
+  "androidFallback": {}
+}

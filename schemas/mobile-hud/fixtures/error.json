@@ -1,0 +1,27 @@
+{
+  "name": "error",
+  "description": "Error state and low-sensitive error notification.",
+  "envelope": {
+    "protocolVersion": 1,
+    "messageId": "msg_fixture_error",
+    "seq": 1006,
+    "kind": "notification",
+    "sentAt": "2026-06-17T08:05:00Z",
+    "snapshotVersion": 1006,
+    "payload": {
+      "protocolVersion": 1,
+      "snapshotVersion": 1006,
+      "snapshotId": "snap_fixture_error",
+      "generatedAt": "2026-06-17T08:05:00Z",
+      "displayMode": "trustedAppView",
+      "privacyLevel": "trustedAppView",
+      "summary": { "status": "error", "statusText": "Claude Code needs local attention", "activeSessionCount": 1, "attentionCount": 0, "notificationCount": 1, "modelLabel": "Sonnet 4.6", "projectLabel": "claude-hud-one" },
+      "displayPolicy": { "visibleItems": ["activity", "project", "model", "usage"], "hiddenByDesktopConfig": [], "terminalJump": false, "approvalActions": false, "questionActions": false, "notificationsEnabled": true, "privacyNote": "Error notification is low-sensitive." },
+      "capsule": { "mascot": "clawd", "state": "error", "title": "Claude HUD One", "statusText": "Claude Code needs local attention", "ticker": [{ "id": "activity", "label": "Activity", "value": "Error", "emphasis": "critical" }] },
+      "sessions": [{ "sessionRef": "session_fixture_error", "sessionName": "Android HUD", "projectLabel": "claude-hud-one", "activity": "error", "statusText": "Claude Code needs local attention", "modelLabel": "Sonnet 4.6", "contextUsedPercent": 12, "updatedAt": "2026-06-17T08:04:55Z", "privacyNote": "Sanitized mobile session card." }],
+      "attention": [],
+      "notificationEvents": [{ "eventId": "evt_fixture_error", "dedupeKey": "error:session_fixture_error:1006", "collapseKey": "task-status:session_fixture_error", "kind": "failed", "sensitivity": "low", "title": "Claude Code needs attention", "body": "A Claude Code task needs attention on your PC.", "createdAt": "2026-06-17T08:04:55Z", "source": "bridgeActivity", "targetSessionRef": "session_fixture_error" }]
+    }
+  },
+  "androidFallback": {}
+}

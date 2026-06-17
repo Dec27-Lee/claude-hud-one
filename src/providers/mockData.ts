@@ -1,5 +1,5 @@
 import type { CostSummaryState, DailyTokenBucket, IslandAppState } from '../app/types'
-import { DEFAULT_DESKTOP_HUD_CONFIG, DEFAULT_TERMINAL_HUD_CONFIG } from '../hud/config'
+import { DEFAULT_DESKTOP_HUD_CONFIG, DEFAULT_MOBILE_HUD_CONFIG, DEFAULT_TERMINAL_HUD_CONFIG } from '../hud/config'
 
 const claudeCost: CostSummaryState = {
   todayUsd: 6.84,
@@ -245,6 +245,7 @@ export const createMockIslandState = (): IslandAppState => ({
     visibleProviders: { claude: true, codex: false },
     terminalHud: DEFAULT_TERMINAL_HUD_CONFIG,
     desktopHud: DEFAULT_DESKTOP_HUD_CONFIG,
+    mobileHud: DEFAULT_MOBILE_HUD_CONFIG,
   },
   alerts: { severity: 'none' },
   lastUsageSyncLabel: 'Synced 1m ago',

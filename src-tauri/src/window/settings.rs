@@ -35,6 +35,8 @@ pub struct AppSettings {
     pub terminal_hud: Value,
     #[serde(default = "default_desktop_hud")]
     pub desktop_hud: Value,
+    #[serde(default = "default_mobile_hud")]
+    pub mobile_hud: Value,
 }
 
 fn default_visible_providers() -> Value {
@@ -202,6 +204,59 @@ fn default_desktop_hud() -> Value {
     })
 }
 
+fn default_mobile_hud() -> Value {
+    json!({
+        "version": 1,
+        "enabled": false,
+        "preset": "mobile-default",
+        "density": "compact",
+        "connection": {
+            "mode": "wifiLan",
+            "port": 27431,
+            "autoStart": false,
+            "requirePcConfirmation": true
+        },
+        "security": {
+            "transport": "wssSpkiPinning",
+            "deviceSigning": "p256Ecdsa",
+            "pairingTokenTtlSeconds": 60,
+            "reconnectPolicy": "foregroundOnly"
+        },
+        "notifications": {
+            "enabled": true,
+            "attention": true,
+            "completion": true,
+            "errors": true,
+            "connection": true,
+            "privacy": "low"
+        },
+        "visibleItems": {
+            "activity": true,
+            "project": true,
+            "model": true,
+            "tools": true,
+            "contextValue": true,
+            "sessionTokens": true,
+            "usage": true,
+            "cost": true,
+            "git": true,
+            "addedDirs": true,
+            "agents": true,
+            "todos": true,
+            "speed": true,
+            "effortLevel": true
+        },
+        "sections": {
+            "capsule": ["activity", "project", "model"],
+            "live": ["contextValue", "sessionTokens", "usage", "cost"],
+            "sessions": ["activity", "project", "model", "tools"],
+            "attention": ["activity", "tools"],
+            "diagnostics": ["usage", "cost"]
+        },
+        "readOnly": true
+    })
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -224,6 +279,7 @@ impl Default for AppSettings {
             visible_providers: default_visible_providers(),
             terminal_hud: default_terminal_hud(),
             desktop_hud: default_desktop_hud(),
+            mobile_hud: default_mobile_hud(),
         }
     }
 }

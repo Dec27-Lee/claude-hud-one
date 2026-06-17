@@ -3,7 +3,7 @@ import { emit, listen } from '@tauri-apps/api/event'
 import type { AlertState, ChartStyle, CostStyle, CurrentSessionState, IslandAppState, LiveUsageCostSnapshot, ProviderId, ProviderLiveState, SettingsState, TokenCountMode } from '../app/types'
 import { displayedProviderOrder } from '../app/types'
 import { createMockIslandState } from '../providers/mockData'
-import { mergeDesktopHudConfig, mergeTerminalHudConfig } from '../hud/config'
+import { mergeDesktopHudConfig, mergeMobileHudConfig, mergeTerminalHudConfig } from '../hud/config'
 
 export type IslandStore = {
   state: IslandAppState
@@ -65,6 +65,7 @@ export const mergeSettings = (base: SettingsState, patch?: Partial<SettingsState
   },
   terminalHud: mergeTerminalHudConfig(base.terminalHud, patch?.terminalHud),
   desktopHud: mergeDesktopHudConfig(base.desktopHud, patch?.desktopHud),
+  mobileHud: mergeMobileHudConfig(base.mobileHud, patch?.mobileHud),
 })
 
 const mergeState = (stored: Partial<IslandAppState>): IslandAppState => {

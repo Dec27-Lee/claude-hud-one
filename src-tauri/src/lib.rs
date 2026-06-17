@@ -8,6 +8,11 @@ use window::{
     diagnostics::DiagnosticsSummary,
     display::DisplayInfo,
     fullscreen::{FullscreenState, FullscreenTracker},
+    mobile_hud::{
+        pairing::{MobileHudDeviceRegistry, MobileHudPairingOffer},
+        runtime::{MobileHudRuntime, MobileHudServiceStatus},
+        types::MobileHudEnvelope,
+    },
     overlay::{HitRegion, OverlayTracker},
     settings::{AppSettings, OverlayPosition},
     terminal_jump::{TerminalJumpRequest, TerminalJumpResult},
@@ -201,6 +206,74 @@ fn get_live_usage_cost_snapshot() -> Result<LiveUsageCostSnapshot, String> {
 }
 
 #[tauri::command]
+fn get_mobile_hud_snapshot() -> Result<MobileHudEnvelope, String> {
+    Ok(window::mobile_hud::snapshot::build_mobile_hud_envelope(
+        window::claude_status::get_claude_status_bridge_sessions(),
+        window::usage_cost::get_live_usage_cost_snapshot(),
+        window::settings::load_app_settings(),
+    ))
+}
+
+#[tauri::command]
+fn get_mobile_hud_security_preview() -> Result<serde_json::Value, String> {
+    let paths = window::mobile_hud::certificate::default_certificate_paths();
+    let certificate = window::mobile_hud::certificate::generate_server_certificate(&["127.0.0.1".to_string()])?;
+    Ok(serde_json::json!({
+        "transport": "wssSpkiPinning",
+        "deviceSigning": "p256Ecdsa",
+        "certificateDirectory": paths.directory,
+        "certificatePemPath": paths.certificate_pem,
+        "privateKeyPemPath": paths.private_key_pem,
+        "sampleSpkiFingerprint": certificate.spki_fingerprint,
+        "sampleCertificatePemBytes": certificate.certificate_pem.len(),
+        "privateKeyGenerated": !certificate.private_key_pem.is_empty(),
+        "privateKeyExposed": false
+    }))
+}
+
+#[tauri::command]
+fn get_mobile_hud_service_status(runtime: tauri::State<'_, MobileHudRuntime>) -> Result<MobileHudServiceStatus, String> {
+    Ok(runtime.status())
+}
+
+#[tauri::command]
+fn start_mobile_hud_service(runtime: tauri::State<'_, MobileHudRuntime>) -> Result<MobileHudServiceStatus, String> {
+    runtime.start(window::settings::load_app_settings())
+}
+
+#[tauri::command]
+fn stop_mobile_hud_service(runtime: tauri::State<'_, MobileHudRuntime>) -> Result<MobileHudServiceStatus, String> {
+    runtime.stop()
+}
+
+#[tauri::command]
+fn restart_mobile_hud_service(runtime: tauri::State<'_, MobileHudRuntime>) -> Result<MobileHudServiceStatus, String> {
+    runtime.restart(window::settings::load_app_settings())
+}
+
+#[tauri::command]
+fn create_mobile_hud_pairing_offer(runtime: tauri::State<'_, MobileHudRuntime>) -> Result<MobileHudPairingOffer, String> {
+    let offer = window::mobile_hud::pairing::create_pairing_offer(&runtime.status(), &window::settings::load_app_settings())?;
+    let _ = runtime.mark_pairing();
+    Ok(offer)
+}
+
+#[tauri::command]
+fn get_mobile_hud_device_registry() -> Result<MobileHudDeviceRegistry, String> {
+    Ok(window::mobile_hud::pairing::load_device_registry())
+}
+
+#[tauri::command]
+fn approve_mobile_hud_device(device_id: String) -> Result<MobileHudDeviceRegistry, String> {
+    window::mobile_hud::pairing::approve_device(&device_id)
+}
+
+#[tauri::command]
+fn revoke_mobile_hud_device(device_id: String) -> Result<MobileHudDeviceRegistry, String> {
+    window::mobile_hud::pairing::revoke_device(&device_id)
+}
+
+#[tauri::command]
 fn jump_to_claude_session_terminal(request: TerminalJumpRequest) -> Result<TerminalJumpResult, String> {
     window::terminal_jump::jump_to_terminal(request)
 }
@@ -233,11 +306,12 @@ fn load_app_settings() -> Result<AppSettings, String> {
 }
 
 #[tauri::command]
-fn save_app_settings(settings: AppSettings) -> Result<AppSettings, String> {
+fn save_app_settings(settings: AppSettings, runtime: tauri::State<'_, MobileHudRuntime>) -> Result<AppSettings, String> {
     let saved = window::settings::save_app_settings(settings)?;
     if let Some(context_window_size) = terminal_context_window_size_override(&saved) {
         let _ = window::claude_global::set_context_window_size_env(context_window_size);
     }
+    let _ = runtime.reconcile(saved.clone());
     Ok(saved)
 }
 
@@ -288,6 +362,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(OverlayTracker::default())
         .manage(FullscreenTracker::default())
+        .manage(MobileHudRuntime::default())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             update_overlay_hit_region,
@@ -315,6 +390,16 @@ pub fn run() {
             get_diagnostics_summary,
             open_app_data_dir,
             get_live_usage_cost_snapshot,
+            get_mobile_hud_snapshot,
+            get_mobile_hud_security_preview,
+            get_mobile_hud_service_status,
+            start_mobile_hud_service,
+            stop_mobile_hud_service,
+            restart_mobile_hud_service,
+            create_mobile_hud_pairing_offer,
+            get_mobile_hud_device_registry,
+            approve_mobile_hud_device,
+            revoke_mobile_hud_device,
             jump_to_claude_session_terminal,
             resolve_claude_pending_intent,
             get_update_state,
@@ -357,6 +442,10 @@ pub fn run() {
             window::single_instance::start_open_settings_listener(app.handle().clone());
 
             let _ = window::claude_global::ensure_global_bridge();
+
+            let settings = window::settings::load_app_settings();
+            let mobile_hud_runtime = app.state::<MobileHudRuntime>().inner().clone();
+            let _ = mobile_hud_runtime.reconcile(settings);
 
             window::tray::setup_tray(app.handle())?;
 

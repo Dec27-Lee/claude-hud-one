@@ -4,6 +4,7 @@ pub mod claude_status;
 pub mod diagnostics;
 pub mod display;
 pub mod fullscreen;
+pub mod mobile_hud;
 pub mod overlay;
 pub mod settings;
 pub mod single_instance;

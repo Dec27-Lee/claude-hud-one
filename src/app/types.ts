@@ -1,4 +1,4 @@
-import type { DesktopHudConfig, TerminalHudConfig } from '../hud/config'
+import type { DesktopHudConfig, MobileHudConfig, TerminalHudConfig } from '../hud/config'
 
 export type ProviderId = 'claude' | 'codex'
 export type IslandViewState = 'compact' | 'peek' | 'expanded'
@@ -315,6 +315,7 @@ export type SettingsState = {
   visibleProviders: Record<ProviderId, boolean>
   terminalHud: TerminalHudConfig
   desktopHud: DesktopHudConfig
+  mobileHud: MobileHudConfig
 }
 
 export type AlertState = {

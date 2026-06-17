@@ -21,9 +21,14 @@
   - 2026-06-16 复查优化：已将报告重写为“复查优化版”，重点修正 MVP 过大、明文 WebSocket 表述矛盾、字段 allowlist 偏宽、首版只读边界不够硬、Tauri 服务生命周期缺失、协议版本/contract fixtures 缺失、Android 仓库与构建链路不明确等问题。
   - 2026-06-16 范围澄清：用户明确第一阶段必须包含桌面 HUD 现有信息完整展示、手机通知、Wi-Fi 配对连接；需要复核并调整方案，避免 Phase 1 过度收窄。
   - 2026-06-16 一期目标澄清版：已并行复核 Desktop HUD 实际展示信息、一期范围调整、通知/配对安全边界，并将报告改写为“一期目标澄清版”。新方案明确 Phase 0 只是内部前置，Phase 1 才是用户可验收的一期，必须包含 Android App、Wi-Fi 配对二维码/链接、加密连接、Desktop HUD 信息等价展示、低敏手机通知；仍禁止手机端 allow/deny/answer/terminal jump。
+  - 2026-06-17 技术方案补漏：用户要求继续复盘技术方案遗漏，并写一份给 Claude 自己执行开发用的实现计划；已通过并行子代理复查 PC/Tauri、Android、Desktop 映射、安全协议四个方向。
+  - 2026-06-17 已更新研究报告为“技术方案补漏版”，补充 Tauri managed state/service reconcile、WSS pinning 默认路线、设备身份与 challenge-response、通知事件去重、Windows 防火墙/安装器、Android Gradle/APK/Deep Link/通知 Channel、contract fixtures 与验收矩阵。
+  - 2026-06-17 已新增执行计划：`local/需求讨论/2026-06-17-claude-hud-one-android-mobile-hud-一期开发执行计划.md`，用于后续开发逐项推进。
+  - 2026-06-17 已同步更新 `.claude/workspace-index.md` 和工作日志索引。
+  - 2026-06-17 自主验收要求：用户明确安装包测试成本高，后续实现时 Claude 必须从头到尾自动执行、逐步自动测试和验收，尽量自行模拟前端交互和截图验证，直到全流程自测通过后再让用户安装包测试；已写入研究报告最终建议和开发执行计划的执行总原则、自动化联调验收、自主修复循环、交付前停止条件。
 - 检查：
-  - 需求覆盖：已覆盖“第一阶段必须有桌面 HUD 现有信息展示、手机通知、Wi-Fi 配对连接，并检查当前方案是否有问题”。
-  - 产物明确：已更新原报告 `local/需求讨论/2026-06-16-claude-hud-one-android-mobile-hud-研究报告.md`，保留同一路径。
-  - 验证情况：本轮只修改研究报告和工作日志，未改代码；按项目规则无需重新打安装包。
-  - 风险/待确认：一期加密方案需在 WSS pinning 与成熟应用层加密之间做技术 spike；Desktop HUD 当前实际不展示但配置存在的 `usage`、`effortLevel` 是否纳入 Mobile 一期需确认；App 内项目名/cost/pending choices 的显示精度需确认。
+  - 需求覆盖：已覆盖“复盘研究报告技术方案遗漏、修改研究报告、基于研究报告写给 Claude 自己执行开发用的实现计划”，并补充“Claude 后续实现必须自测闭环后再交付用户安装测试”。
+  - 产物明确：已更新 `local/需求讨论/2026-06-16-claude-hud-one-android-mobile-hud-研究报告.md`；已更新 `local/需求讨论/2026-06-17-claude-hud-one-android-mobile-hud-一期开发执行计划.md`。
+  - 验证情况：本轮只修改研究报告、执行计划和工作日志，未改代码；按项目规则无需重新打安装包。
+  - 风险/待确认：WSS pinning 与 Android Keystore 设备签名需在 Phase 0 spike 中验证；如 WSS pinning 在真机/局域网证书上成本过高，再切 Noise/ECDH；Android release 签名证书仍需后续确认；Android emulator/真机自动化能力需在实现阶段确认本机环境。
   - 结论：已完成。

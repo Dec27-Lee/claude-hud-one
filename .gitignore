@@ -9,12 +9,25 @@ build/
 # Local materials and caches
 local/参考项目/
 .claude/bridge/state/
+.claude/worktrees/
 
 # Tauri / Rust outputs
 src-tauri/target/
 
+# Local toolchains
+.tools/
+
+# Android local files
+apps/android/.gradle/
+apps/android/local.properties
+apps/android/.idea/
+apps/android/*.jks
+apps/android/*.keystore
+apps/android/keystore.properties
+
 # Test outputs
 artifacts/screenshots/
+artifacts/*.xml
 playwright-report/
 test-results/
 

@@ -1,0 +1,27 @@
+{
+  "name": "connection-lost",
+  "description": "Connection lost notification with low-sensitive copy.",
+  "envelope": {
+    "protocolVersion": 1,
+    "messageId": "msg_fixture_connection_lost",
+    "seq": 1009,
+    "kind": "notification",
+    "sentAt": "2026-06-17T08:08:00Z",
+    "snapshotVersion": 1009,
+    "payload": {
+      "protocolVersion": 1,
+      "snapshotVersion": 1009,
+      "snapshotId": "snap_fixture_connection_lost",
+      "generatedAt": "2026-06-17T08:08:00Z",
+      "displayMode": "trustedAppView",
+      "privacyLevel": "trustedAppView",
+      "summary": { "status": "offline", "statusText": "Mobile HUD is disconnected", "activeSessionCount": 0, "attentionCount": 0, "notificationCount": 1 },
+      "displayPolicy": { "visibleItems": [], "hiddenByDesktopConfig": [], "terminalJump": false, "approvalActions": false, "questionActions": false, "notificationsEnabled": true, "privacyNote": "Connection events do not include session details." },
+      "capsule": { "mascot": "clawd", "state": "idle", "title": "Claude HUD One", "statusText": "Disconnected", "ticker": [] },
+      "sessions": [],
+      "attention": [],
+      "notificationEvents": [{ "eventId": "evt_fixture_connection_lost", "dedupeKey": "connection:lost", "collapseKey": "connection", "kind": "connectionLost", "sensitivity": "low", "title": "Mobile HUD disconnected", "body": "Check that Claude HUD One is running on your PC and both devices are on the same Wi-Fi.", "createdAt": "2026-06-17T08:08:00Z", "source": "connection" }]
+    }
+  },
+  "androidFallback": { "screen": "offline" }
+}

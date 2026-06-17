@@ -3,6 +3,7 @@ import type { HudDisplayItemId, HudLanguage } from './types'
 export type TerminalHudRow = HudDisplayItemId[]
 export type TerminalHudPreset = 'hud-plus-default' | 'minimal' | 'custom'
 export type DesktopHudPreset = 'one-default' | 'terminal-parity' | 'custom'
+export type MobileHudPreset = 'mobile-default' | 'minimal' | 'custom'
 export type DesktopHudTerminalJumpBehavior = 'focus' | 'openCwd' | 'disabled'
 
 export type TerminalHudRowOverflow = 'truncate' | 'wrap'
@@ -141,6 +142,40 @@ export type DesktopHudZoneKey = 'compact' | 'peek' | 'panel' | 'ticker' | 'usage
 export type DesktopHudZones = Record<DesktopHudZoneKey, HudDisplayItemId[]>
 
 export type DesktopHudItemOptions = Partial<Record<HudDisplayItemId, Record<string, unknown>>>
+
+export type MobileHudSectionKey = 'capsule' | 'live' | 'sessions' | 'attention' | 'diagnostics'
+
+export type MobileHudSections = Record<MobileHudSectionKey, HudDisplayItemId[]>
+
+export type MobileHudConfig = {
+  version: 1
+  enabled: boolean
+  preset: MobileHudPreset
+  density: 'compact' | 'comfortable'
+  connection: {
+    mode: 'wifiLan'
+    port: number
+    autoStart: boolean
+    requirePcConfirmation: boolean
+  }
+  security: {
+    transport: 'wssSpkiPinning' | 'noiseAead'
+    deviceSigning: 'p256Ecdsa' | 'applicationKey'
+    pairingTokenTtlSeconds: number
+    reconnectPolicy: 'foregroundOnly' | 'backgroundWhenAllowed'
+  }
+  notifications: {
+    enabled: boolean
+    attention: boolean
+    completion: boolean
+    errors: boolean
+    connection: boolean
+    privacy: 'low'
+  }
+  visibleItems: Partial<Record<HudDisplayItemId, boolean>>
+  sections: MobileHudSections
+  readOnly: true
+}
 
 export type DesktopHudConfig = {
   version: 4
@@ -303,6 +338,65 @@ export const DEFAULT_DESKTOP_HUD_ZONES: DesktopHudZones = {
   overviewPage: ['activity', 'project', 'git', 'agents', 'todos'],
 }
 
+export const DEFAULT_MOBILE_HUD_SECTIONS: MobileHudSections = {
+  capsule: ['activity', 'project', 'model'],
+  live: ['contextValue', 'sessionTokens', 'usage', 'cost'],
+  sessions: ['activity', 'project', 'model', 'tools'],
+  attention: ['activity', 'tools'],
+  diagnostics: ['usage', 'cost'],
+}
+
+export const DEFAULT_MOBILE_HUD_CONFIG: MobileHudConfig = {
+  version: 1,
+  enabled: false,
+  preset: 'mobile-default',
+  density: 'compact',
+  connection: {
+    mode: 'wifiLan',
+    port: 27431,
+    autoStart: false,
+    requirePcConfirmation: true,
+  },
+  security: {
+    transport: 'wssSpkiPinning',
+    deviceSigning: 'p256Ecdsa',
+    pairingTokenTtlSeconds: 60,
+    reconnectPolicy: 'foregroundOnly',
+  },
+  notifications: {
+    enabled: true,
+    attention: true,
+    completion: true,
+    errors: true,
+    connection: true,
+    privacy: 'low',
+  },
+  visibleItems: {
+    activity: true,
+    project: true,
+    model: true,
+    tools: true,
+    contextValue: true,
+    sessionTokens: true,
+    usage: true,
+    cost: true,
+    git: true,
+    addedDirs: true,
+    agents: true,
+    todos: true,
+    speed: true,
+    effortLevel: true,
+  },
+  sections: {
+    capsule: [...DEFAULT_MOBILE_HUD_SECTIONS.capsule],
+    live: [...DEFAULT_MOBILE_HUD_SECTIONS.live],
+    sessions: [...DEFAULT_MOBILE_HUD_SECTIONS.sessions],
+    attention: [...DEFAULT_MOBILE_HUD_SECTIONS.attention],
+    diagnostics: [...DEFAULT_MOBILE_HUD_SECTIONS.diagnostics],
+  },
+  readOnly: true,
+}
+
 export const DEFAULT_DESKTOP_HUD_CONFIG: DesktopHudConfig = {
   version: 4,
   enabled: true,
@@ -384,6 +478,89 @@ export const mergeTerminalHudConfig = (base: TerminalHudConfig, patch?: Partial<
       mergeGroups: displayPatch?.mergeGroups ?? base.display.mergeGroups,
     },
   }
+}
+
+type MobileHudPatch = Partial<Omit<MobileHudConfig, 'version' | 'sections'>> & {
+  version?: number
+  sections?: Partial<MobileHudSections>
+}
+
+const clampMobileNumber = (value: unknown, fallback: number, min: number, max: number): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(max, Math.max(min, Math.round(value)))
+}
+
+const mobileSection = (raw: unknown, fallback: HudDisplayItemId[]): HudDisplayItemId[] => (
+  Array.isArray(raw) ? raw.filter((item): item is HudDisplayItemId => typeof item === 'string') : [...fallback]
+)
+
+const isMobilePreset = (value: unknown): value is MobileHudPreset => value === 'mobile-default' || value === 'minimal' || value === 'custom'
+const isMobileDensity = (value: unknown): value is MobileHudConfig['density'] => value === 'compact' || value === 'comfortable'
+const isMobileTransport = (value: unknown): value is MobileHudConfig['security']['transport'] => value === 'wssSpkiPinning' || value === 'noiseAead'
+const isMobileDeviceSigning = (value: unknown): value is MobileHudConfig['security']['deviceSigning'] => value === 'p256Ecdsa' || value === 'applicationKey'
+const isMobileReconnectPolicy = (value: unknown): value is MobileHudConfig['security']['reconnectPolicy'] => value === 'foregroundOnly' || value === 'backgroundWhenAllowed'
+
+export const normalizeMobileHudConfig = (raw?: MobileHudPatch | Partial<MobileHudConfig> | null): MobileHudConfig => {
+  const base = DEFAULT_MOBILE_HUD_CONFIG
+  const patch = (raw ?? {}) as MobileHudPatch
+  const rawSections = patch.sections ?? {}
+
+  return {
+    ...base,
+    ...patch,
+    version: 1,
+    enabled: patch.enabled ?? base.enabled,
+    preset: isMobilePreset(patch.preset) ? patch.preset : base.preset,
+    density: isMobileDensity(patch.density) ? patch.density : base.density,
+    connection: {
+      ...base.connection,
+      ...patch.connection,
+      mode: 'wifiLan',
+      port: clampMobileNumber(patch.connection?.port, base.connection.port, 1024, 65535),
+      autoStart: patch.connection?.autoStart ?? base.connection.autoStart,
+      requirePcConfirmation: patch.connection?.requirePcConfirmation ?? base.connection.requirePcConfirmation,
+    },
+    security: {
+      ...base.security,
+      ...patch.security,
+      transport: isMobileTransport(patch.security?.transport) ? patch.security.transport : base.security.transport,
+      deviceSigning: isMobileDeviceSigning(patch.security?.deviceSigning) ? patch.security.deviceSigning : base.security.deviceSigning,
+      pairingTokenTtlSeconds: clampMobileNumber(patch.security?.pairingTokenTtlSeconds, base.security.pairingTokenTtlSeconds, 15, 300),
+      reconnectPolicy: isMobileReconnectPolicy(patch.security?.reconnectPolicy) ? patch.security.reconnectPolicy : base.security.reconnectPolicy,
+    },
+    notifications: {
+      ...base.notifications,
+      ...patch.notifications,
+      privacy: 'low',
+    },
+    visibleItems: {
+      ...base.visibleItems,
+      ...patch.visibleItems,
+    },
+    sections: {
+      capsule: mobileSection(rawSections.capsule, base.sections.capsule),
+      live: mobileSection(rawSections.live, base.sections.live),
+      sessions: mobileSection(rawSections.sessions, base.sections.sessions),
+      attention: mobileSection(rawSections.attention, base.sections.attention),
+      diagnostics: mobileSection(rawSections.diagnostics, base.sections.diagnostics),
+    },
+    readOnly: true,
+  }
+}
+
+export const mergeMobileHudConfig = (base: MobileHudConfig, patch?: MobileHudPatch): MobileHudConfig => {
+  const normalizedBase = normalizeMobileHudConfig(base)
+  return patch
+    ? normalizeMobileHudConfig({
+      ...normalizedBase,
+      ...patch,
+      connection: { ...normalizedBase.connection, ...patch.connection },
+      security: { ...normalizedBase.security, ...patch.security },
+      notifications: { ...normalizedBase.notifications, ...patch.notifications },
+      visibleItems: { ...normalizedBase.visibleItems, ...patch.visibleItems },
+      sections: { ...normalizedBase.sections, ...patch.sections },
+    })
+    : normalizedBase
 }
 
 type DesktopHudPatch = Partial<Omit<DesktopHudConfig, 'version' | 'zones' | 'itemOptions'>> & {
