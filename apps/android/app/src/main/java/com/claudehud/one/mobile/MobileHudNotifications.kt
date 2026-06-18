@@ -32,7 +32,7 @@ fun ensureMobileHudNotificationChannels(context: Context) {
 
 fun lowSensitiveNotificationText(event: MobileHudNotificationEvent): MobileHudNotificationText {
     val channel = when (event.kind) {
-        "waitingApproval", "waitingQuestion", "attention" -> MOBILE_HUD_ATTENTION_CHANNEL
+        "approval", "question", "waitingApproval", "waitingQuestion", "waitingAttention", "attention" -> MOBILE_HUD_ATTENTION_CHANNEL
         "completion" -> MOBILE_HUD_TASK_STATUS_CHANNEL
         "connectionLost", "connectionRestored" -> MOBILE_HUD_CONNECTION_CHANNEL
         else -> MOBILE_HUD_TASK_STATUS_CHANNEL

@@ -90,15 +90,25 @@ pub struct MobileHudSessionCard {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub context_used_percent: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_remaining_percent: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_size: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_used_tokens: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_tokens: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_tokens: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_creation_input_tokens: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_cost_usd: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,6 +117,40 @@ pub struct MobileHudSessionCard {
     pub seven_day_used_percent: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort_level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_dirty: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_ahead: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_behind: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added_dir_slugs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added_dirs_overflow_count: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools_count: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools_running_count: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agents_count: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agents_running_count: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub todos_active_count: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub todos_completed_count: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub todos_total_count: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_speed: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_assistant_response_at: Option<String>,
     pub updated_at: String,
     pub privacy_note: String,
 }

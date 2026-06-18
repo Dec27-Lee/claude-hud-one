@@ -85,6 +85,17 @@ fun buildMobileHudSnapshotRequest(config: MobileHudConnectionConfig): Request = 
     .get()
     .build()
 
+fun loadMobileHudSnapshot(config: MobileHudConnectionConfig): MobileHudViewModel {
+    buildMobileHudOkHttpClient(config.host, config.spkiFingerprint)
+        .newCall(buildMobileHudSnapshotRequest(config))
+        .execute()
+        .use { response ->
+            require(response.isSuccessful) { "PC Mobile HUD returned HTTP ${response.code}" }
+            val body = response.body?.string().orEmpty()
+            return parseMobileHudEnvelope(body).payload
+        }
+}
+
 fun parseMobileHudEnvelope(bodyJson: String): MobileHudEnvelope =
     MobileHudJson.decodeFromString(MobileHudEnvelope.serializer(), bodyJson)
 

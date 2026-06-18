@@ -1,4 +1,4 @@
-import type { CurrentSessionState } from '../../app/types'
+import type { CurrentSessionState, PendingQueueItem } from '../../app/types'
 import type { DesktopHudConfig } from '../../hud/config'
 import type { HudDisplayItemId } from '../../hud/types'
 import { ClawdMascot } from './ClawdMascot'
@@ -13,6 +13,7 @@ type SessionCardProps = {
   terminalJumpStatus?: string | null
   language?: DesktopHudLanguage
   onJumpToTerminal?: (session: CurrentSessionState) => void
+  onBindTerminal?: (session: CurrentSessionState) => void
 }
 
 const ageLabel = (iso: string | null | undefined): string => {
@@ -26,6 +27,13 @@ const ageLabel = (iso: string | null | undefined): string => {
   return `${Math.round(seconds / 86400)}d`
 }
 
+const pendingItemIsActive = (item: PendingQueueItem): boolean => {
+  if (item.status !== 'pending') return false
+  if (!item.expiresAt) return true
+  const expiresAt = Date.parse(item.expiresAt)
+  return !Number.isFinite(expiresAt) || expiresAt > Date.now()
+}
+
 const pendingSummaryLabel = (summary: string | null | undefined, language: DesktopHudLanguage): string => {
   if (!summary) return language === 'zh-CN' ? 'Claude Code 需要处理。' : 'Claude Code needs attention.'
   if (language !== 'zh-CN') return summary
@@ -37,14 +45,15 @@ const pendingSummaryLabel = (summary: string | null | undefined, language: Deskt
   return summaries[summary] ?? summary
 }
 
-export function SessionCard({ session, active = false, visibleItems, terminalJumpEnabled = true, terminalJumpStatus = null, language = 'en', onJumpToTerminal }: SessionCardProps) {
+export function SessionCard({ session, active = false, visibleItems, terminalJumpEnabled = true, terminalJumpStatus = null, language = 'en', onJumpToTerminal, onBindTerminal }: SessionCardProps) {
   const isVisible = (item: HudDisplayItemId): boolean => visibleItems[item] !== false
   const statusText = terminalJumpStatus ?? sessionStatusText(session, isVisible, language) ?? session.lastEventLabel
   const terminalCwd = session.terminal?.cwd ?? session.projectDir
-  const terminalTargetAvailable = Boolean(terminalCwd ?? session.terminal?.bridgeProcessId ?? session.terminal?.bridgeParentProcessId)
+  const terminalTargetAvailable = Boolean(terminalCwd ?? session.terminal?.bridgeProcessId ?? session.terminal?.bridgeParentProcessId ?? session.sessionKey ?? session.sessionId)
   const jumpDisabled = !terminalJumpEnabled || !terminalTargetAvailable || !onJumpToTerminal
-  const terminalJumpFailed = Boolean(terminalJumpStatus && /fail|unavailable|not found|no /i.test(terminalJumpStatus))
-  const inlinePendingItem = session.pendingQueue?.items.find((item) => item.status === 'pending') ?? null
+  const terminalJumpFailed = Boolean(terminalJumpStatus && /fail|unavailable|not found|no |没有找到|无法|缺少/i.test(terminalJumpStatus))
+  const terminalBindSuggested = Boolean(terminalJumpStatus && terminalJumpEnabled && /没有找到|No existing Windows Terminal|No visible Windows Terminal/i.test(terminalJumpStatus))
+  const inlinePendingItem = session.pendingQueue?.items.find((item) => pendingItemIsActive(item)) ?? null
   const tags = [
     session.modelLabel,
     session.activeToolName ? `$ ${session.activeToolName}` : null,
@@ -81,6 +90,9 @@ export function SessionCard({ session, active = false, visibleItems, terminalJum
       <div className="desktop-session-card__side">
         <span>{ageLabel(session.updatedAt)}</span>
         <button className="desktop-session-card__jump" type="button" disabled={jumpDisabled} onClick={(event) => { event.stopPropagation(); onJumpToTerminal?.(session) }}>{terminalJumpEnabled ? (language === 'zh-CN' ? '终端' : 'Terminal') : (language === 'zh-CN' ? '已禁用' : 'Disabled')}</button>
+        {terminalBindSuggested ? (
+          <button className="desktop-session-card__jump desktop-session-card__jump--bind" type="button" disabled={!onBindTerminal} onClick={(event) => { event.stopPropagation(); onBindTerminal?.(session) }}>{language === 'zh-CN' ? '绑定' : 'Bind'}</button>
+        ) : null}
       </div>
     </article>
   )

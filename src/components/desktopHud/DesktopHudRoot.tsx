@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent, PointerEvent } from 'react'
 import { cursorPosition, getCurrentWindow } from '@tauri-apps/api/window'
-import { jumpToClaudeSessionTerminal, resolveClaudePendingIntent, setOverlayPosition, updateOverlayHitRegions, updateOverlayLayout, type OverlayHitRegion } from '../../app/overlayBridge'
+import { bindCurrentForegroundTerminalToSession, jumpToClaudeSessionTerminal, resolveClaudePendingIntent, setOverlayPosition, updateOverlayHitRegions, updateOverlayLayout, type OverlayHitRegion } from '../../app/overlayBridge'
 import type { CurrentSessionState, IslandAppState, IslandViewState, OverlayPosition, PendingQueueChoice, PendingQueueIntent, PendingQueueItem, ProviderId, SessionActivityState } from '../../app/types'
 import type { HudDisplayItemId } from '../../hud/types'
 import { CompletionCard } from './CompletionCard'
@@ -68,6 +68,13 @@ const pendingTimestamp = (item: PendingQueueItem): number => {
   return Number.isFinite(timestamp) ? timestamp : 0
 }
 
+const pendingItemIsActive = (item: PendingQueueItem, now = Date.now()): boolean => {
+  if (item.status !== 'pending') return false
+  if (!item.expiresAt) return true
+  const expiresAt = Date.parse(item.expiresAt)
+  return !Number.isFinite(expiresAt) || expiresAt > now
+}
+
 const pendingItemDisplayKey = (item: PendingQueueItem, session: CurrentSessionState, sessionIndex: number): string => {
   const sessionPart = item.sessionId ?? session.sessionId ?? session.sessionKey ?? session.projectDir ?? session.projectSlug ?? `session-${sessionIndex}`
   return `${sessionPart}:${item.id}`
@@ -89,8 +96,13 @@ const terminalJumpMessage = (message: string | null | undefined, language: Deskt
   if (/program not found/i.test(message)) return '未找到 Windows Terminal（wt.exe）。请安装 Windows Terminal，或把 wt.exe 加入 PATH。'
   if (/Terminal jump is disabled/i.test(message)) return '终端跳转已在设置中禁用。'
   if (/No working directory/i.test(message)) return '没有采集到这个 Claude Code 会话的工作目录。'
-  if (/No existing Windows Terminal window/i.test(message)) return '没有找到这个 Claude Code 会话对应的已有 Windows Terminal。'
+  if (/No existing Windows Terminal window/i.test(message)) return '没有找到这个 Claude Code 会话对应的已有 Windows Terminal；已保持聚焦模式，不会误开新终端。可先切到对应 Windows Terminal，再回 HUD 绑定它。'
+  if (/No visible Windows Terminal window/i.test(message)) return '没有可绑定的 Windows Terminal 窗口。请先打开或切到对应终端。'
+  if (/No stable Claude Code session key/i.test(message)) return '这个会话缺少稳定标识，暂时无法建立终端绑定。'
   if (/unsupported/i.test(message)) return '当前平台暂不支持终端跳转。'
+  if (/Bound this Claude Code session/i.test(message)) return '已把这个会话绑定到 Windows Terminal；下次点击会优先定位该窗口。'
+  if (/Focused the bound Windows Terminal/i.test(message)) return '已按绑定窗口切换到 Windows Terminal。'
+  if (/Focused the most recently used Windows Terminal/i.test(message)) return '已切换到最近使用的 Windows Terminal，并为这个会话建立绑定。'
   if (/Focused (the|an) existing Windows Terminal/i.test(message)) return '已切换到已有 Windows Terminal。'
   if (/Opened Windows Terminal at (.+)$/i.test(message)) return `已在 ${message.replace(/^Opened Windows Terminal at /i, '')} 打开 Windows Terminal。`
   return message
@@ -147,7 +159,7 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
     const itemsByKey = new Map<string, PendingQueueSurfaceItem>()
     sessions.forEach((session, sessionIndex) => {
       for (const item of session.pendingQueue?.items ?? []) {
-        if (item.status !== 'pending') continue
+        if (!pendingItemIsActive(item)) continue
         const displayKey = pendingItemDisplayKey(item, session, sessionIndex)
         if (dismissedPendingItemKeys[displayKey]) continue
         itemsByKey.set(displayKey, { ...item, displayKey, sourceSession: session })
@@ -242,6 +254,16 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
       [key]: terminalJumpMessage(result?.message, desktopLanguage),
     }))
   }, [desktopLanguage, terminalJumpBehavior, terminalJumpEnabled])
+
+  const handleBindTerminal = useCallback(async (session: CurrentSessionState): Promise<void> => {
+    const key = sessionKey(session, 0)
+    setTerminalJumpStatusByKey((current) => ({ ...current, [key]: desktopLanguage === 'zh-CN' ? '正在绑定最近使用的 Windows Terminal…' : 'Binding the most recent Windows Terminal…' }))
+    const result = await bindCurrentForegroundTerminalToSession(session)
+    setTerminalJumpStatusByKey((current) => ({
+      ...current,
+      [key]: terminalJumpMessage(result?.message, desktopLanguage),
+    }))
+  }, [desktopLanguage])
 
   const handleOpenPendingTerminal = useCallback(async (item: PendingQueueSurfaceItem): Promise<void> => {
     const session = item.sourceSession
@@ -660,6 +682,7 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
                           terminalJumpStatus={terminalJumpStatusByKey[sessionKey(session, 0)]}
                           language={desktopLanguage}
                           onJumpToTerminal={handleJumpToTerminal}
+                          onBindTerminal={handleBindTerminal}
                         />
                       ))}
                     </div>

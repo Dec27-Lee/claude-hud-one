@@ -11,7 +11,7 @@ class MobileHudNotificationTest {
             eventId = "event_fixture",
             dedupeKey = "dedupe_fixture",
             collapseKey = "attention",
-            kind = "waitingApproval",
+            kind = "waitingAttention",
             sensitivity = "low",
             title = "Claude needs attention / secret/path",
             body = "prompt transcript cwd toolInput token=secret fp=secret",

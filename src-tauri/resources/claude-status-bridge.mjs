@@ -26,10 +26,10 @@ const CLAUDE_SETTINGS_PATH = (() => {
   if (process.env.HOME) return resolve(process.env.HOME, '.claude', 'settings.json')
   return null
 })()
-const RUNNING_HOOK_HOLD_MS = Number(process.env.CLAUDE_HUD_ONE_RUNNING_HOOK_HOLD_MS ?? 15 * 60_000)
+const RUNNING_HOOK_HOLD_MS = Number(process.env.CLAUDE_HUD_ONE_RUNNING_HOOK_HOLD_MS ?? 12_000)
 const TERMINAL_HOOK_HOLD_MS = Number(process.env.CLAUDE_HUD_ONE_TERMINAL_HOOK_HOLD_MS ?? 8_000)
-const PENDING_APPROVAL_TTL_MS = Number(process.env.CLAUDE_HUD_ONE_PENDING_APPROVAL_TTL_MS ?? 15 * 60_000)
-const PENDING_QUESTION_TTL_MS = Number(process.env.CLAUDE_HUD_ONE_PENDING_QUESTION_TTL_MS ?? 30 * 60_000)
+const PENDING_APPROVAL_TTL_MS = Number(process.env.CLAUDE_HUD_ONE_PENDING_APPROVAL_TTL_MS ?? 2 * 60_000)
+const PENDING_QUESTION_TTL_MS = Number(process.env.CLAUDE_HUD_ONE_PENDING_QUESTION_TTL_MS ?? 5 * 60_000)
 const MAX_PENDING_ITEMS = Number(process.env.CLAUDE_HUD_ONE_MAX_PENDING_ITEMS ?? 10)
 const PENDING_RESPONSE_WAIT_MS = Number(process.env.CLAUDE_HUD_ONE_PENDING_RESPONSE_WAIT_MS ?? 25_000)
 const PENDING_RESPONSE_POLL_MS = Number(process.env.CLAUDE_HUD_ONE_PENDING_RESPONSE_POLL_MS ?? 250)
@@ -1488,6 +1488,9 @@ const mergePendingQueue = (nextState, previousState) => {
     for (const [id, item] of itemsById) {
       if (item.kind === 'question') itemsById.delete(id)
     }
+  }
+  if (!hookEvent && nextState?.source === 'statusLine' && nextState?.activity !== 'waiting') {
+    itemsById.clear()
   }
 
   return {

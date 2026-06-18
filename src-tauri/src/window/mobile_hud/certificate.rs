@@ -1,7 +1,7 @@
 use std::{env, path::PathBuf};
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use rcgen::generate_simple_self_signed;
+use rcgen::{generate_simple_self_signed, KeyPair};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -36,7 +36,9 @@ pub fn certificate_paths_for_root(root: PathBuf) -> MobileHudCertificatePaths {
     }
 }
 
-pub fn generate_server_certificate(subject_alt_names: &[String]) -> Result<MobileHudServerCertificate, String> {
+pub fn generate_server_certificate(
+    subject_alt_names: &[String],
+) -> Result<MobileHudServerCertificate, String> {
     let names = if subject_alt_names.is_empty() {
         vec!["claude-hud-one.local".to_string()]
     } else {
@@ -68,6 +70,11 @@ pub fn spki_fingerprint_sha256(spki_der: &[u8]) -> String {
     format!("sha256/{}", BASE64_STANDARD.encode(digest))
 }
 
+pub fn spki_fingerprint_from_private_key_pem(private_key_pem: &str) -> Result<String, String> {
+    let key_pair = KeyPair::from_pem(private_key_pem).map_err(|error| error.to_string())?;
+    Ok(spki_fingerprint_sha256(key_pair.public_key_der().as_ref()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,12 +95,16 @@ mod tests {
         assert!(certificate.certificate_pem.contains("BEGIN CERTIFICATE"));
         assert!(certificate.private_key_pem.contains("BEGIN"));
         assert!(certificate.spki_fingerprint.starts_with("sha256/"));
-        assert!(!certificate.certificate_pem.contains(&certificate.private_key_pem));
+        assert!(!certificate
+            .certificate_pem
+            .contains(&certificate.private_key_pem));
     }
 
     #[test]
     fn certificate_paths_keep_private_key_out_of_settings_json() {
-        let paths = certificate_paths_for_root(PathBuf::from(r"C:\Users\Yue\AppData\Roaming\Claude HUD One"));
+        let paths = certificate_paths_for_root(PathBuf::from(
+            r"C:\Users\Yue\AppData\Roaming\Claude HUD One",
+        ));
 
         assert!(paths.directory.ends_with("mobile-hud"));
         assert!(paths.certificate_pem.ends_with("server-cert.pem"));

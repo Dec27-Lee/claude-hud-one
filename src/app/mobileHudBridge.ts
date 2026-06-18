@@ -170,3 +170,13 @@ export const revokeMobileHudDevice = async (deviceId: string): Promise<MobileHud
     return null
   }
 }
+
+export const deleteMobileHudDevice = async (deviceId: string): Promise<MobileHudDeviceRegistry | null> => {
+  if (!isTauriRuntime()) return null
+  try {
+    return await invoke<MobileHudDeviceRegistry>('delete_mobile_hud_device', { deviceId })
+  } catch (error) {
+    console.warn('Failed to delete Mobile HUD device', error)
+    return null
+  }
+}

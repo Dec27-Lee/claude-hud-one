@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { approveMobileHudDevice, createMobileHudPairingOffer, loadMobileHudDeviceRegistry, loadMobileHudServiceStatus, restartMobileHudService, revokeMobileHudDevice, startMobileHudService, stopMobileHudService, type MobileHudDeviceRegistry, type MobileHudPairingOffer, type MobileHudServiceStatus } from '../../app/mobileHudBridge'
+import { approveMobileHudDevice, createMobileHudPairingOffer, deleteMobileHudDevice, loadMobileHudDeviceRegistry, loadMobileHudServiceStatus, restartMobileHudService, revokeMobileHudDevice, startMobileHudService, stopMobileHudService, type MobileHudDeviceRegistry, type MobileHudPairingOffer, type MobileHudServiceStatus } from '../../app/mobileHudBridge'
 import type { SettingsState } from '../../app/types'
 import type { MobileHudConfig, MobileHudPreset, MobileHudSectionKey, MobileHudSections } from '../../hud/config'
 import { DEFAULT_MOBILE_HUD_CONFIG, normalizeMobileHudConfig } from '../../hud/config'
@@ -22,7 +22,7 @@ export function MobileHudPanel({ config, language, onPatchSettings }: MobileHudP
   const copy = language === 'zh-CN'
     ? {
         title: 'Mobile HUD',
-        hint: 'Android 手机 HUD 一期配置地基：先保存 Wi-Fi 局域网、WSS pinning、通知低敏和只读展示策略；真实配对服务会在后续 Phase 1A 接入。',
+        hint: 'Android 手机 HUD 已接入真实配对、设备授权和只读实时展示；这里用于管理 PC 服务、重复配对去重后的设备记录和低敏展示策略。',
         enabled: '启用 Mobile HUD',
         preset: '预设',
         density: '密度',
@@ -51,7 +51,7 @@ export function MobileHudPanel({ config, language, onPatchSettings }: MobileHudP
         sectionLabels: { capsule: '顶部 Capsule', live: 'Live HUD', sessions: 'Sessions', attention: 'Attention', diagnostics: 'Diagnostics' },
         notificationLabels: { enabled: '启用通知', attention: '等待处理', completion: '任务完成', errors: '错误', connection: '连接变化' },
         service: 'PC Mobile HUD 服务',
-        serviceHint: 'Phase 1A 本机 WSS 服务控制：先用于自动化 health/snapshot/WebSocket 验证，配对与设备注册随后接入。',
+        serviceHint: 'PC 端 WSS 服务会复用本机证书指纹，手机重开 APP 时可用上次授权恢复连接；如果证书或授权失效，这里会显示原因。',
         refresh: '刷新状态',
         start: '启动服务',
         stop: '停止服务',
@@ -76,11 +76,18 @@ export function MobileHudPanel({ config, language, onPatchSettings }: MobileHudP
         devices: '已注册设备',
         noDevices: '暂无设备',
         approve: '批准',
-        revoke: '撤销',
+        reject: '拒绝',
+        revoke: '撤销授权',
+        delete: '删除记录',
+        approved: '已授权',
+        revoked: '已撤销',
+        pendingDevice: '待批准',
+        actionOk: '操作成功',
+        actionFailed: '操作失败，请重试或查看服务状态。',
       }
     : {
         title: 'Mobile HUD',
-        hint: 'Android Mobile HUD Phase 1 foundation: stores Wi-Fi LAN, WSS pinning, low-sensitive notifications, and read-only display policy before the real pairing service lands in Phase 1A.',
+        hint: 'Android Mobile HUD now manages real pairing, device authorization, deduplicated phone records, and read-only live display policy from this panel.',
         enabled: 'Enable Mobile HUD',
         preset: 'Preset',
         density: 'Density',
@@ -109,7 +116,7 @@ export function MobileHudPanel({ config, language, onPatchSettings }: MobileHudP
         sectionLabels: { capsule: 'Capsule', live: 'Live HUD', sessions: 'Sessions', attention: 'Attention', diagnostics: 'Diagnostics' },
         notificationLabels: { enabled: 'Enable notifications', attention: 'Attention waiting', completion: 'Completion', errors: 'Errors', connection: 'Connection changes' },
         service: 'PC Mobile HUD service',
-        serviceHint: 'Phase 1A local WSS service controls for automated health/snapshot/WebSocket validation before pairing and device registry land.',
+        serviceHint: 'The PC WSS service reuses its certificate fingerprint so approved phones can restore the connection after reopening the app.',
         refresh: 'Refresh status',
         start: 'Start service',
         stop: 'Stop service',
@@ -134,11 +141,19 @@ export function MobileHudPanel({ config, language, onPatchSettings }: MobileHudP
         devices: 'Registered devices',
         noDevices: 'No devices yet',
         approve: 'Approve',
-        revoke: 'Revoke',
+        reject: 'Reject',
+        revoke: 'Revoke access',
+        delete: 'Delete record',
+        approved: 'Approved',
+        revoked: 'Revoked',
+        pendingDevice: 'Pending',
+        actionOk: 'Action completed',
+        actionFailed: 'Action failed. Retry or check the service status.',
       }
 
   const [serviceStatus, setServiceStatus] = useState<MobileHudServiceStatus | null>(null)
-  const [serviceBusy, setServiceBusy] = useState(false)
+  const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [pairingOffer, setPairingOffer] = useState<MobileHudPairingOffer | null>(null)
   const [pairingCopied, setPairingCopied] = useState(false)
   const [deviceRegistry, setDeviceRegistry] = useState<MobileHudDeviceRegistry | null>(null)
@@ -154,39 +169,81 @@ export function MobileHudPanel({ config, language, onPatchSettings }: MobileHudP
     await refreshDeviceRegistry()
   }
 
-  const runServiceAction = async (action: () => Promise<MobileHudServiceStatus | null>): Promise<void> => {
-    setServiceBusy(true)
-    const status = await action()
-    if (status) setServiceStatus(status)
-    setServiceBusy(false)
+  const refreshServiceStatusWithFeedback = async (): Promise<void> => {
+    setBusyAction('service:refresh')
+    setStatusMessage(null)
+    try {
+      await refreshServiceStatus()
+      setStatusMessage(copy.actionOk)
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const runServiceAction = async (key: string, action: () => Promise<MobileHudServiceStatus | null>): Promise<void> => {
+    setBusyAction(key)
+    setStatusMessage(null)
+    try {
+      const status = await action()
+      if (status) {
+        setServiceStatus(status)
+        setStatusMessage(copy.actionOk)
+      } else {
+        setStatusMessage(copy.actionFailed)
+      }
+    } finally {
+      setBusyAction(null)
+    }
   }
 
   const createPairingOffer = async (): Promise<void> => {
-    setServiceBusy(true)
-    const offer = await createMobileHudPairingOffer()
-    if (offer) {
-      setPairingOffer(offer)
-      setPairingCopied(false)
-      await refreshServiceStatus()
+    setBusyAction('pairing:create')
+    setStatusMessage(null)
+    try {
+      const offer = await createMobileHudPairingOffer()
+      if (offer) {
+        setPairingOffer(offer)
+        setPairingCopied(false)
+        setStatusMessage(copy.actionOk)
+        await refreshServiceStatus()
+      } else {
+        setStatusMessage(copy.actionFailed)
+      }
+    } finally {
+      setBusyAction(null)
     }
-    setServiceBusy(false)
   }
 
   const copyPairingLink = async (): Promise<void> => {
     if (!pairingOffer?.deeplink) return
+    setBusyAction('pairing:copy')
+    setStatusMessage(null)
     try {
       await navigator.clipboard.writeText(pairingOffer.deeplink)
       setPairingCopied(true)
+      setStatusMessage(copy.copiedPairing)
     } catch (error) {
       console.warn('Failed to copy Mobile HUD pairing link', error)
+      setStatusMessage(copy.actionFailed)
+    } finally {
+      setBusyAction(null)
     }
   }
 
-  const runDeviceAction = async (action: () => Promise<MobileHudDeviceRegistry | null>): Promise<void> => {
-    setServiceBusy(true)
-    const registry = await action()
-    if (registry) setDeviceRegistry(registry)
-    setServiceBusy(false)
+  const runDeviceAction = async (key: string, action: () => Promise<MobileHudDeviceRegistry | null>): Promise<void> => {
+    setBusyAction(key)
+    setStatusMessage(null)
+    try {
+      const registry = await action()
+      if (registry) {
+        setDeviceRegistry(registry)
+        setStatusMessage(copy.actionOk)
+      } else {
+        setStatusMessage(copy.actionFailed)
+      }
+    } finally {
+      setBusyAction(null)
+    }
   }
 
   useEffect(() => {
@@ -196,6 +253,9 @@ export function MobileHudPanel({ config, language, onPatchSettings }: MobileHudP
   const phaseLabel = serviceStatus?.phase ?? copy.unavailable
   const endpointLabel = serviceStatus?.wsUrl ?? serviceStatus?.baseUrl ?? copy.hidden
   const fingerprintLabel = serviceStatus?.serverFingerprint ?? copy.hidden
+  const serviceBusy = busyAction !== null
+  const deviceStatusLabel = (device: MobileHudDeviceRegistry['devices'][number]): string => device.revoked ? copy.revoked : device.approved ? copy.approved : copy.pendingDevice
+  const deviceStatusClass = (device: MobileHudDeviceRegistry['devices'][number]): string => device.revoked ? 'revoked' : device.approved ? 'approved' : 'pending'
 
   const patchMobileHud = (patch: Partial<MobileHudConfig>): void => {
     onPatchSettings({
@@ -265,11 +325,12 @@ export function MobileHudPanel({ config, language, onPatchSettings }: MobileHudP
           <span>{copy.clients}</span><strong>{serviceStatus?.connectedClients ?? 0}</strong>
         </div>
         {serviceStatus?.lastError ? <p className="settings-note settings-note--warning">{serviceStatus.lastError}</p> : null}
+        {statusMessage ? <p className="settings-status" role="status">{statusMessage}</p> : null}
         <div className="settings-actions">
-          <button className="secondary-button" disabled={serviceBusy} onClick={() => void refreshServiceStatus()}>{copy.refresh}</button>
-          <button className="secondary-button" disabled={serviceBusy} onClick={() => void runServiceAction(startMobileHudService)}>{copy.start}</button>
-          <button className="secondary-button" disabled={serviceBusy} onClick={() => void runServiceAction(stopMobileHudService)}>{copy.stop}</button>
-          <button className="secondary-button" disabled={serviceBusy} onClick={() => void runServiceAction(restartMobileHudService)}>{copy.restart}</button>
+          <button className="secondary-button" disabled={serviceBusy} onClick={() => void refreshServiceStatusWithFeedback()}>{busyAction === 'service:refresh' ? '…' : copy.refresh}</button>
+          <button className="secondary-button" disabled={serviceBusy} onClick={() => void runServiceAction('service:start', startMobileHudService)}>{busyAction === 'service:start' ? '…' : copy.start}</button>
+          <button className="secondary-button" disabled={serviceBusy} onClick={() => void runServiceAction('service:stop', stopMobileHudService)}>{busyAction === 'service:stop' ? '…' : copy.stop}</button>
+          <button className="secondary-button" disabled={serviceBusy} onClick={() => void runServiceAction('service:restart', restartMobileHudService)}>{busyAction === 'service:restart' ? '…' : copy.restart}</button>
         </div>
       </section>
 
@@ -280,8 +341,8 @@ export function MobileHudPanel({ config, language, onPatchSettings }: MobileHudP
           <p>{copy.pairingSteps}</p>
         </div>
         <div className="settings-actions">
-          <button className="secondary-button" disabled={serviceBusy} onClick={() => void createPairingOffer()}>{copy.createPairing}</button>
-          <button className="secondary-button" disabled={serviceBusy || !pairingOffer?.deeplink} onClick={() => void copyPairingLink()}>{copy.copyPairing}</button>
+          <button className="secondary-button" disabled={serviceBusy} onClick={() => void createPairingOffer()}>{busyAction === 'pairing:create' ? '…' : copy.createPairing}</button>
+          <button className="secondary-button" disabled={serviceBusy || !pairingOffer?.deeplink} onClick={() => void copyPairingLink()}>{busyAction === 'pairing:copy' ? '…' : copy.copyPairing}</button>
         </div>
         {pairingOffer?.deeplink ? (
           <p className="settings-note">{pairingCopied ? copy.copiedPairing : `${pairingOffer.host}:${pairingOffer.port} · ${pairingOffer.tokenHint} · ${pairingOffer.fingerprintHint}`}</p>
@@ -294,16 +355,31 @@ export function MobileHudPanel({ config, language, onPatchSettings }: MobileHudP
           <span>{copy.fingerprintHint}</span><strong>{pairingOffer?.fingerprintHint ?? copy.hidden}</strong>
         </div>
         {deviceRegistry?.devices.length ? (
-          <div className="settings-check-grid settings-check-grid--compact">
-            {deviceRegistry.devices.map((device) => (
-              <div className="settings-note" key={device.deviceId}>
-                <span>{device.deviceLabel} · {device.revoked ? 'revoked' : device.approved ? 'approved' : 'pending'}</span>
-                <div className="settings-actions">
-                  <button className="secondary-button" disabled={serviceBusy || device.revoked || device.approved} onClick={() => void runDeviceAction(() => approveMobileHudDevice(device.deviceId))}>{copy.approve}</button>
-                  <button className="secondary-button" disabled={serviceBusy || device.revoked} onClick={() => void runDeviceAction(() => revokeMobileHudDevice(device.deviceId))}>{copy.revoke}</button>
+          <div className="mobile-device-list">
+            {deviceRegistry.devices.map((device) => {
+              const statusClass = deviceStatusClass(device)
+              const approveKey = `device:${device.deviceId}:approve`
+              const revokeKey = `device:${device.deviceId}:revoke`
+              const deleteKey = `device:${device.deviceId}:delete`
+              return (
+                <div className="mobile-device-card" key={device.deviceId}>
+                  <div className="mobile-device-card__main">
+                    <strong>{device.deviceLabel}</strong>
+                    <span className={`mobile-device-status mobile-device-status--${statusClass}`}>{deviceStatusLabel(device)}</span>
+                    <small>{device.lastSeenAt ? `${language === 'zh-CN' ? '最近配对' : 'Last seen'} ${device.lastSeenAt}` : `${language === 'zh-CN' ? '注册时间' : 'Registered'} ${device.registeredAt}`}</small>
+                  </div>
+                  <div className="settings-actions mobile-device-card__actions">
+                    {!device.approved && !device.revoked ? (
+                      <button className="secondary-button" disabled={serviceBusy} onClick={() => void runDeviceAction(approveKey, () => approveMobileHudDevice(device.deviceId))}>{busyAction === approveKey ? '…' : copy.approve}</button>
+                    ) : null}
+                    {!device.revoked ? (
+                      <button className="secondary-button" disabled={serviceBusy} onClick={() => void runDeviceAction(revokeKey, () => revokeMobileHudDevice(device.deviceId))}>{busyAction === revokeKey ? '…' : device.approved ? copy.revoke : copy.reject}</button>
+                    ) : null}
+                    <button className="secondary-button secondary-button--danger" disabled={serviceBusy} onClick={() => void runDeviceAction(deleteKey, () => deleteMobileHudDevice(device.deviceId))}>{busyAction === deleteKey ? '…' : copy.delete}</button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : <p className="settings-note">{copy.noDevices}</p>}
       </section>

@@ -462,7 +462,9 @@ button { color: inherit; }
 .desktop-session-card__pending em { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: normal; }
 .desktop-session-card__pending strong { color: rgba(255,255,255,.76); }
 .desktop-session-card__side { display: grid; justify-items: end; gap: 7px; color: rgba(255,255,255,.48); font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
-.desktop-session-card__jump { border: 1px solid rgba(255,255,255,.12); border-radius: 5px; padding: 4px 6px; color: rgba(255,255,255,.56); background: rgba(255,255,255,.055); font: 700 9.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.desktop-session-card__jump { border: 1px solid rgba(255,255,255,.12); border-radius: 5px; padding: 4px 6px; color: rgba(255,255,255,.56); background: rgba(255,255,255,.055); font: 700 9.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace; transition: transform 120ms ease, border-color 120ms ease, background 120ms ease, color 120ms ease; }
+.desktop-session-card__jump:not(:disabled):hover { transform: translateY(-1px); border-color: rgba(255,255,255,.24); color: rgba(255,255,255,.84); background: rgba(255,255,255,.1); }
+.desktop-session-card__jump--bind { color: #b9f6ca; border-color: rgba(74,222,128,.3); background: rgba(74,222,128,.1); }
 
 
 .desktop-stage {
@@ -792,8 +794,14 @@ button { color: inherit; }
   background: rgba(255,255,255,.06);
   border-radius: 999px;
   padding: 7px 11px;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease, color 120ms ease, opacity 120ms ease;
 }
 .provider-chip--active, .style-tile--active, .segmented-control__item--active { background: rgba(255,255,255,.16); }
+.secondary-button:not(:disabled):hover, .icon-button:not(:disabled):hover { transform: translateY(-1px); border-color: rgba(255,255,255,.26); background: rgba(255,255,255,.11); }
+.secondary-button:not(:disabled):active, .icon-button:not(:disabled):active { transform: translateY(0); background: rgba(255,255,255,.16); }
+.secondary-button:focus-visible, .icon-button:focus-visible { outline: 2px solid rgba(96,165,250,.72); outline-offset: 2px; }
+.secondary-button--danger { color: #fecaca; border-color: rgba(248,113,113,.3); background: rgba(239,68,68,.1); }
+.secondary-button--danger:not(:disabled):hover { border-color: rgba(248,113,113,.55); background: rgba(239,68,68,.18); }
 .secondary-button:disabled, .icon-button:disabled { cursor: not-allowed; opacity: .45; }
 .icon-button { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; }
 .page-dot { width: 8px; height: 8px; border: 0; border-radius: 999px; background: rgba(148, 163, 184, .45); padding: 0; }
@@ -1076,6 +1084,36 @@ button { color: inherit; }
 .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; max-width: 760px; }
 .settings-actions--grid { display: flex; }
 .settings-actions .secondary-button { min-height: 38px; white-space: nowrap; }
+.settings-status {
+  max-width: 760px;
+  margin: 10px 0 0;
+  border: 1px solid rgba(96,165,250,.22);
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: #bfdbfe;
+  background: rgba(59,130,246,.1);
+  font-size: 12px;
+  font-weight: 750;
+}
+.mobile-device-list { display: grid; gap: 10px; max-width: 760px; }
+.mobile-device-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255,255,255,.045);
+}
+.mobile-device-card__main { display: grid; gap: 5px; min-width: 0; }
+.mobile-device-card__main strong { color: #f8fafc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-device-card__main small { color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-device-card__actions { justify-content: flex-end; }
+.mobile-device-status { width: fit-content; border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 850; letter-spacing: .04em; }
+.mobile-device-status--approved { color: #86efac; background: rgba(34,197,94,.13); }
+.mobile-device-status--pending { color: #fde68a; background: rgba(245,158,11,.14); }
+.mobile-device-status--revoked { color: #fecaca; background: rgba(239,68,68,.14); }
 .placement-hint {
   display: flex;
   justify-content: space-between;

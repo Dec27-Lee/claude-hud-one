@@ -100,7 +100,10 @@ impl MobileHudRuntime {
             let status = self.status();
             let desired_port = mobile_hud_port(&settings);
             let desired_transport = mobile_hud_transport(&settings);
-            if is_active_phase(&status.phase) && status.port == desired_port && status.transport == desired_transport {
+            if is_active_phase(&status.phase)
+                && status.port == desired_port
+                && status.transport == desired_transport
+            {
                 return Ok(status);
             }
             return self.restart(settings);
@@ -123,9 +126,12 @@ impl MobileHudRuntime {
         let host = mobile_hud_host();
         let port = mobile_hud_port(&settings);
         let transport = mobile_hud_transport(&settings);
-        let server_certificate = certificate::generate_server_certificate(&[host.clone(), "127.0.0.1".to_string(), "localhost".to_string()])?;
-        let certificate_paths = persist_server_certificate(&server_certificate)?;
-        let fingerprint = Some(server_certificate.spki_fingerprint.clone());
+        let (certificate_paths, server_fingerprint) = prepare_server_certificate(&[
+            host.clone(),
+            "127.0.0.1".to_string(),
+            "localhost".to_string(),
+        ])?;
+        let fingerprint = Some(server_fingerprint);
 
         self.set_status(
             MobileHudServiceStatus {
@@ -148,7 +154,14 @@ impl MobileHudRuntime {
         let runtime = self.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(error) = runtime
-                .run_server(host, port, transport, fingerprint, certificate_paths.certificate_pem, certificate_paths.private_key_pem)
+                .run_server(
+                    host,
+                    port,
+                    transport,
+                    fingerprint,
+                    certificate_paths.certificate_pem,
+                    certificate_paths.private_key_pem,
+                )
                 .await
             {
                 let _ = runtime.fail(error);
@@ -193,7 +206,11 @@ impl MobileHudRuntime {
         Ok(state.status.clone())
     }
 
-    fn set_status(&self, status: MobileHudServiceStatus, shutdown: Option<oneshot::Sender<()>>) -> Result<(), String> {
+    fn set_status(
+        &self,
+        status: MobileHudServiceStatus,
+        shutdown: Option<oneshot::Sender<()>>,
+    ) -> Result<(), String> {
         let mut state = self
             .inner
             .lock()
@@ -205,7 +222,12 @@ impl MobileHudRuntime {
 
     fn connection_opened(&self) {
         if let Ok(mut state) = self.inner.lock() {
-            if state.status.enabled && !matches!(state.status.phase, MobileHudServicePhase::Stopping | MobileHudServicePhase::Disabled) {
+            if state.status.enabled
+                && !matches!(
+                    state.status.phase,
+                    MobileHudServicePhase::Stopping | MobileHudServicePhase::Disabled
+                )
+            {
                 state.status.connected_clients = state.status.connected_clients.saturating_add(1);
                 state.status.phase = MobileHudServicePhase::Connected;
             }
@@ -217,7 +239,9 @@ impl MobileHudRuntime {
             if state.status.connected_clients > 0 {
                 state.status.connected_clients -= 1;
             }
-            if state.status.connected_clients == 0 && matches!(state.status.phase, MobileHudServicePhase::Connected) {
+            if state.status.connected_clients == 0
+                && matches!(state.status.phase, MobileHudServicePhase::Connected)
+            {
                 state.status.phase = MobileHudServicePhase::Listening;
             }
         }
@@ -312,11 +336,14 @@ async fn snapshot_handler(Query(auth): Query<MobileHudAuthQuery>) -> impl IntoRe
                 "error": "authorized device is required",
                 "privacy": "unauthorized callers cannot read Mobile HUD snapshots"
             })),
-        ).into_response()
+        )
+            .into_response()
     }
 }
 
-async fn pairing_claim_handler(Json(request): Json<pairing::MobileHudPairingClaimRequest>) -> Json<serde_json::Value> {
+async fn pairing_claim_handler(
+    Json(request): Json<pairing::MobileHudPairingClaimRequest>,
+) -> Json<serde_json::Value> {
     match pairing::claim_pairing_device(request) {
         Ok(result) => Json(json!({ "ok": true, "result": result })),
         Err(error) => Json(json!({
@@ -327,7 +354,11 @@ async fn pairing_claim_handler(Json(request): Json<pairing::MobileHudPairingClai
     }
 }
 
-async fn ws_handler(Query(auth): Query<MobileHudAuthQuery>, State(runtime): State<MobileHudRuntime>, ws: WebSocketUpgrade) -> impl IntoResponse {
+async fn ws_handler(
+    Query(auth): Query<MobileHudAuthQuery>,
+    State(runtime): State<MobileHudRuntime>,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
     if !authorized_query(&auth) {
         return (
             StatusCode::UNAUTHORIZED,
@@ -336,9 +367,11 @@ async fn ws_handler(Query(auth): Query<MobileHudAuthQuery>, State(runtime): Stat
                 "error": "authorized device is required",
                 "privacy": "unauthorized callers cannot open the Mobile HUD WebSocket"
             })),
-        ).into_response();
+        )
+            .into_response();
     }
-    ws.on_upgrade(move |socket| handle_socket(runtime, socket)).into_response()
+    ws.on_upgrade(move |socket| handle_socket(runtime, socket))
+        .into_response()
 }
 
 async fn handle_socket(runtime: MobileHudRuntime, socket: WebSocket) {
@@ -411,20 +444,45 @@ fn authorized_query(auth: &MobileHudAuthQuery) -> bool {
         .unwrap_or(false)
 }
 
-fn persist_server_certificate(
-    server_certificate: &certificate::MobileHudServerCertificate,
-) -> Result<certificate::MobileHudCertificatePaths, String> {
+fn prepare_server_certificate(
+    subject_alt_names: &[String],
+) -> Result<(certificate::MobileHudCertificatePaths, String), String> {
     let paths = certificate::default_certificate_paths();
     fs::create_dir_all(&paths.directory).map_err(|error| {
-        format!("Mobile HUD failed to create certificate directory {}: {error}", paths.directory.display())
+        format!(
+            "Mobile HUD failed to create certificate directory {}: {error}",
+            paths.directory.display()
+        )
     })?;
+
+    if paths.certificate_pem.exists() && paths.private_key_pem.exists() {
+        let private_key_pem = fs::read_to_string(&paths.private_key_pem).map_err(|error| {
+            format!(
+                "Mobile HUD failed to read private key {}: {error}",
+                paths.private_key_pem.display()
+            )
+        })?;
+        if let Ok(fingerprint) =
+            certificate::spki_fingerprint_from_private_key_pem(&private_key_pem)
+        {
+            return Ok((paths, fingerprint));
+        }
+    }
+
+    let server_certificate = certificate::generate_server_certificate(subject_alt_names)?;
     fs::write(&paths.certificate_pem, &server_certificate.certificate_pem).map_err(|error| {
-        format!("Mobile HUD failed to write certificate {}: {error}", paths.certificate_pem.display())
+        format!(
+            "Mobile HUD failed to write certificate {}: {error}",
+            paths.certificate_pem.display()
+        )
     })?;
     fs::write(&paths.private_key_pem, &server_certificate.private_key_pem).map_err(|error| {
-        format!("Mobile HUD failed to write private key {}: {error}", paths.private_key_pem.display())
+        format!(
+            "Mobile HUD failed to write private key {}: {error}",
+            paths.private_key_pem.display()
+        )
     })?;
-    Ok(paths)
+    Ok((paths, server_certificate.spki_fingerprint))
 }
 
 fn mobile_hud_enabled(settings: &AppSettings) -> bool {
@@ -482,7 +540,10 @@ fn mobile_hud_transport(settings: &AppSettings) -> String {
 fn is_active_phase(phase: &MobileHudServicePhase) -> bool {
     matches!(
         phase,
-        MobileHudServicePhase::Starting | MobileHudServicePhase::Listening | MobileHudServicePhase::Pairing | MobileHudServicePhase::Connected
+        MobileHudServicePhase::Starting
+            | MobileHudServicePhase::Listening
+            | MobileHudServicePhase::Pairing
+            | MobileHudServicePhase::Connected
     )
 }
 
@@ -544,7 +605,11 @@ mod tests {
     #[test]
     fn mobile_hud_host_can_generate_certificate_san() {
         let host = mobile_hud_host();
-        let certificate = certificate::generate_server_certificate(&[host, "127.0.0.1".to_string(), "localhost".to_string()]);
+        let certificate = certificate::generate_server_certificate(&[
+            host,
+            "127.0.0.1".to_string(),
+            "localhost".to_string(),
+        ]);
 
         assert!(certificate.is_ok());
     }
@@ -577,7 +642,9 @@ mod tests {
                     base_url: Some("https://127.0.0.1:27431".to_string()),
                     ws_url: Some("wss://127.0.0.1:27431/ws".to_string()),
                     transport: "wssSpkiPinning".to_string(),
-                    server_fingerprint: Some("sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".to_string()),
+                    server_fingerprint: Some(
+                        "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".to_string(),
+                    ),
                     certificate_pem_path: None,
                     last_error: None,
                     connected_clients: 0,

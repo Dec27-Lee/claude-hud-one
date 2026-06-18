@@ -1,8 +1,11 @@
-use std::{path::Path, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::window::{
@@ -18,7 +21,7 @@ use super::types::{
 };
 
 const PROTOCOL_VERSION: u8 = 1;
-const DEFAULT_VISIBLE_ITEMS: [&str; 13] = [
+const DEFAULT_VISIBLE_ITEMS: [&str; 14] = [
     "activity",
     "project",
     "model",
@@ -32,7 +35,9 @@ const DEFAULT_VISIBLE_ITEMS: [&str; 13] = [
     "agents",
     "todos",
     "speed",
+    "effortLevel",
 ];
+const MOBILE_SESSION_FRESH_SECONDS: i64 = 10 * 60;
 #[cfg(test)]
 const SENSITIVE_KEYWORDS: [&str; 14] = [
     "\"transcriptPath\"",
@@ -73,16 +78,22 @@ pub fn build_mobile_hud_view_model(
     usage: LiveUsageCostSnapshot,
     settings: AppSettings,
 ) -> MobileHudViewModel {
-    let generated_at = now_rfc3339();
+    let now = OffsetDateTime::now_utc();
+    let generated_at = format_rfc3339(now);
     let snapshot_version = unix_millis();
     let visible_items = mobile_visible_items(&settings.mobile_hud);
     let hidden_by_desktop_config = hidden_by_desktop_config(&settings.desktop_hud, &visible_items);
-    let notifications_enabled = json_bool(&settings.mobile_hud, &["notifications", "enabled"]).unwrap_or(true);
+    let notifications_enabled =
+        json_bool(&settings.mobile_hud, &["notifications", "enabled"]).unwrap_or(true);
 
-    let cards = sessions.iter().map(session_card).collect::<Vec<_>>();
-    let attention = sessions
+    let fresh_sessions = sessions
+        .into_iter()
+        .filter(|session| bridge_session_is_fresh(session, now))
+        .collect::<Vec<_>>();
+    let cards = fresh_sessions.iter().map(session_card).collect::<Vec<_>>();
+    let attention = fresh_sessions
         .iter()
-        .flat_map(attention_items_for_session)
+        .flat_map(|session| attention_items_for_session(session, now))
         .collect::<Vec<_>>();
     let notification_events = attention
         .iter()
@@ -133,13 +144,15 @@ pub fn build_mobile_hud_view_model(
         },
         sessions: cards,
         attention,
-        completion: completion_card_placeholder(&sessions, &generated_at),
+        completion: completion_card_placeholder(&fresh_sessions, &generated_at),
         notification_events,
     }
 }
 
 #[cfg(test)]
-pub fn serialized_snapshot_contains_sensitive_keywords(value: &MobileHudViewModel) -> Vec<&'static str> {
+pub fn serialized_snapshot_contains_sensitive_keywords(
+    value: &MobileHudViewModel,
+) -> Vec<&'static str> {
     let serialized = serde_json::to_string(value).unwrap_or_default();
     SENSITIVE_KEYWORDS
         .iter()
@@ -158,21 +171,46 @@ fn session_card(state: &ClaudeStatusBridgeState) -> MobileHudSessionCard {
         activity: state.activity.clone(),
         status_text: fallback_string(&state.status_text, "Waiting for Claude Code"),
         model_label: first_non_empty([state.model_name.as_deref(), state.model_id.as_deref()]).map(ToString::to_string),
+        active_tool_name: state.tool_name.clone(),
+        permission_mode: state.permission_mode.clone(),
         context_used_percent: rounded_percent(state.context_used_percent),
         context_remaining_percent: rounded_percent(state.context_remaining_percent),
+        context_window_size: rounded_number(state.context_window_size),
         context_used_tokens: rounded_number(state.context_used_tokens),
         input_tokens: rounded_number(state.input_tokens),
         output_tokens: rounded_number(state.output_tokens),
+        cache_creation_input_tokens: rounded_number(state.cache_creation_input_tokens),
+        cache_read_input_tokens: rounded_number(state.cache_read_input_tokens),
         total_cost_usd: state.total_cost_usd.map(|value| (value * 10000.0).round() / 10000.0),
         five_hour_used_percent: rounded_percent(state.five_hour_used_percent),
         seven_day_used_percent: rounded_percent(state.seven_day_used_percent),
         effort_level: state.effort_level.clone(),
+        thinking_enabled: state.thinking_enabled,
+        git_branch: state.git_branch.clone(),
+        git_dirty: state.git_dirty,
+        git_ahead: rounded_number(state.git_ahead),
+        git_behind: rounded_number(state.git_behind),
+        added_dir_slugs: state.added_dir_slugs.clone(),
+        added_dirs_overflow_count: rounded_number(state.added_dirs_overflow_count),
+        tools_count: rounded_number(state.tools_count),
+        tools_running_count: rounded_number(state.tools_running_count),
+        agents_count: rounded_number(state.agents_count),
+        agents_running_count: rounded_number(state.agents_running_count),
+        todos_active_count: rounded_number(state.todos_active_count),
+        todos_completed_count: rounded_number(state.todos_completed_count),
+        todos_total_count: rounded_number(state.todos_total_count),
+        output_speed: state.output_speed.map(|value| (value * 10.0).round() / 10.0),
+        session_started_at: state.session_started_at.clone(),
+        last_assistant_response_at: state.last_assistant_response_at.clone(),
         updated_at: state.updated_at.clone(),
         privacy_note: "Sanitized mobile session card. Full path, transcript and terminal metadata are held on the PC only.".to_string(),
     }
 }
 
-fn attention_items_for_session(state: &ClaudeStatusBridgeState) -> Vec<MobileHudAttentionItem> {
+fn attention_items_for_session(
+    state: &ClaudeStatusBridgeState,
+    now: OffsetDateTime,
+) -> Vec<MobileHudAttentionItem> {
     let session_ref = session_ref(state);
     state
         .pending_queue
@@ -181,11 +219,36 @@ fn attention_items_for_session(state: &ClaudeStatusBridgeState) -> Vec<MobileHud
             queue
                 .items
                 .iter()
-                .filter(|item| item.status != "resolved" && item.status != "dismissed")
+                .filter(|item| pending_item_is_active(item, now))
                 .map(|item| attention_item(&session_ref, item))
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default()
+}
+
+fn bridge_session_is_fresh(state: &ClaudeStatusBridgeState, now: OffsetDateTime) -> bool {
+    is_fresh_rfc3339(&state.updated_at, now, MOBILE_SESSION_FRESH_SECONDS)
+}
+
+fn pending_item_is_active(item: &PendingQueueItem, now: OffsetDateTime) -> bool {
+    if item.status != "pending" {
+        return false;
+    }
+    item.expires_at
+        .as_deref()
+        .and_then(parse_rfc3339)
+        .map(|expires_at| expires_at > now)
+        .unwrap_or(true)
+}
+
+fn is_fresh_rfc3339(value: &str, now: OffsetDateTime, ttl_seconds: i64) -> bool {
+    parse_rfc3339(value)
+        .map(|timestamp| now - timestamp <= Duration::seconds(ttl_seconds))
+        .unwrap_or(false)
+}
+
+fn parse_rfc3339(value: &str) -> Option<OffsetDateTime> {
+    OffsetDateTime::parse(value, &Rfc3339).ok()
 }
 
 fn attention_item(session_ref: &str, item: &PendingQueueItem) -> MobileHudAttentionItem {
@@ -211,7 +274,10 @@ fn waiting_attention_notification(item: &MobileHudAttentionItem) -> MobileHudNot
         _ => "waitingAttention",
     };
     MobileHudNotificationEvent {
-        event_id: short_hash(&format!("notification:{}:{}", item.session_ref, item.item_ref)),
+        event_id: short_hash(&format!(
+            "notification:{}:{}",
+            item.session_ref, item.item_ref
+        )),
         dedupe_key: format!("attention:{}:{}", item.session_ref, item.item_ref),
         collapse_key: format!("attention:{}", item.session_ref),
         kind: kind.to_string(),
@@ -228,10 +294,17 @@ fn waiting_attention_notification(item: &MobileHudAttentionItem) -> MobileHudNot
     }
 }
 
-fn completion_card_placeholder(sessions: &[ClaudeStatusBridgeState], generated_at: &str) -> Option<MobileHudCompletionCard> {
+fn completion_card_placeholder(
+    sessions: &[ClaudeStatusBridgeState],
+    generated_at: &str,
+) -> Option<MobileHudCompletionCard> {
     let settled = sessions.iter().find(|session| {
         matches!(session.activity.as_str(), "idle" | "completed" | "success")
-            && session.pending_queue.as_ref().map(|queue| queue.items.is_empty()).unwrap_or(true)
+            && session
+                .pending_queue
+                .as_ref()
+                .map(|queue| queue.items.is_empty())
+                .unwrap_or(true)
     })?;
 
     Some(MobileHudCompletionCard {
@@ -249,16 +322,172 @@ fn build_ticker(
 ) -> Vec<MobileHudDisplayItem> {
     let mut items = Vec::new();
     if let Some(session) = primary {
-        push_item(&mut items, visible_items, "activity", "Activity", session.status_text.clone(), None);
-        push_item(&mut items, visible_items, "project", "Project", session.project_label.clone(), None);
+        push_item(
+            &mut items,
+            visible_items,
+            "activity",
+            "Activity",
+            localized_status_text(&session.status_text),
+            None,
+        );
+        push_item(
+            &mut items,
+            visible_items,
+            "project",
+            "Project",
+            format!(
+                "{} {}",
+                session.project_label,
+                compact_label(&session.session_name, 18)
+            ),
+            None,
+        );
+        if let Some(tool) = session.active_tool_name.as_ref() {
+            push_item(
+                &mut items,
+                visible_items,
+                "tools",
+                "Tools",
+                format!("Tool {}", short_tool_name(tool)),
+                None,
+            );
+        } else if let Some(count) = positive_count(session.tools_count) {
+            push_item(
+                &mut items,
+                visible_items,
+                "tools",
+                "Tools",
+                format!("Tools {count}"),
+                None,
+            );
+        }
         if let Some(model) = session.model_label.as_ref() {
-            push_item(&mut items, visible_items, "model", "Model", model.clone(), None);
+            push_item(
+                &mut items,
+                visible_items,
+                "model",
+                "Model",
+                compact_label(model, 18),
+                None,
+            );
         }
-        if let Some(percent) = session.context_used_percent {
-            push_item(&mut items, visible_items, "contextValue", "Context", format!("{percent:.0}% used"), Some(context_emphasis(percent)));
+        if let Some(tokens) = session.context_used_tokens {
+            push_item(
+                &mut items,
+                visible_items,
+                "contextValue",
+                "Context",
+                format!("{} context", compact_tokens(tokens)),
+                session.context_used_percent.map(context_emphasis),
+            );
+        } else if let Some(percent) = session.context_used_percent {
+            push_item(
+                &mut items,
+                visible_items,
+                "contextValue",
+                "Context",
+                format!("{percent:.0}% used"),
+                Some(context_emphasis(percent)),
+            );
         }
-        if let Some(cost) = session.total_cost_usd {
-            push_item(&mut items, visible_items, "cost", "Cost", format!("${cost:.4}"), None);
+        if let Some(total) = session_token_total(session) {
+            push_item(
+                &mut items,
+                visible_items,
+                "sessionTokens",
+                "Tokens",
+                format!("{} session", compact_tokens(total)),
+                None,
+            );
+        }
+        if let Some(cost) = session.total_cost_usd.filter(|value| *value > 0.0) {
+            push_item(
+                &mut items,
+                visible_items,
+                "cost",
+                "Cost",
+                format!("${:.2}", cost),
+                None,
+            );
+        }
+        if let Some(branch) = session.git_branch.as_ref() {
+            let dirty = if session.git_dirty == Some(true) {
+                "*"
+            } else {
+                ""
+            };
+            push_item(
+                &mut items,
+                visible_items,
+                "git",
+                "Git",
+                format!("git {}{}", compact_label(branch, 18), dirty),
+                None,
+            );
+        }
+        if let Some(dirs) = session
+            .added_dir_slugs
+            .as_ref()
+            .filter(|dirs| !dirs.is_empty())
+        {
+            let overflow = positive_count(session.added_dirs_overflow_count)
+                .map(|count| format!(" +{count}"))
+                .unwrap_or_default();
+            push_item(
+                &mut items,
+                visible_items,
+                "addedDirs",
+                "Dirs",
+                format!(
+                    "Dirs {}{}",
+                    dirs.iter().take(2).cloned().collect::<Vec<_>>().join(", "),
+                    overflow
+                ),
+                None,
+            );
+        }
+        if let Some(count) = positive_count(session.agents_count)
+            .or_else(|| positive_count(session.agents_running_count))
+        {
+            push_item(
+                &mut items,
+                visible_items,
+                "agents",
+                "Agents",
+                format!("Agents {count}"),
+                None,
+            );
+        }
+        if let Some(total) = positive_count(session.todos_total_count) {
+            let done = positive_count(session.todos_completed_count).unwrap_or(0);
+            push_item(
+                &mut items,
+                visible_items,
+                "todos",
+                "Todos",
+                format!("Todos {done}/{total}"),
+                None,
+            );
+        }
+        if let Some(speed) = session.output_speed.filter(|value| *value > 0.0) {
+            push_item(
+                &mut items,
+                visible_items,
+                "speed",
+                "Speed",
+                format!("{speed:.1} tok/s"),
+                None,
+            );
+        }
+        if let Some(effort) = session.effort_level.as_ref() {
+            push_item(
+                &mut items,
+                visible_items,
+                "effortLevel",
+                "Effort",
+                format!("Effort {effort}"),
+                None,
+            );
         }
     }
     push_item(
@@ -266,7 +495,11 @@ fn build_ticker(
         visible_items,
         "usage",
         "Usage",
-        format!("5h {:.0}% · 7d {:.0}%", usage.claude_provider.five_hour.used_percent * 100.0, usage.claude_provider.weekly.used_percent * 100.0),
+        format!(
+            "5h {:.0}% · 7d {:.0}%",
+            usage.claude_provider.five_hour.used_percent * 100.0,
+            usage.claude_provider.weekly.used_percent * 100.0
+        ),
         None,
     );
     items
@@ -302,10 +535,18 @@ fn mobile_visible_items(settings: &Value) -> Vec<String> {
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
         })
-        .unwrap_or_else(|| DEFAULT_VISIBLE_ITEMS.iter().map(ToString::to_string).collect());
+        .unwrap_or_else(|| {
+            DEFAULT_VISIBLE_ITEMS
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        });
 
     if configured.is_empty() {
-        DEFAULT_VISIBLE_ITEMS.iter().map(ToString::to_string).collect()
+        DEFAULT_VISIBLE_ITEMS
+            .iter()
+            .map(ToString::to_string)
+            .collect()
     } else {
         configured
     }
@@ -396,6 +637,83 @@ fn rounded_number(value: Option<f64>) -> Option<f64> {
     value.map(|number| number.round())
 }
 
+fn positive_count(value: Option<f64>) -> Option<u64> {
+    let count = value?.round();
+    if count > 0.0 && count.is_finite() {
+        Some(count as u64)
+    } else {
+        None
+    }
+}
+
+fn compact_label(value: &str, max_length: usize) -> String {
+    if value.chars().count() <= max_length {
+        return value.to_string();
+    }
+    value
+        .chars()
+        .take(max_length.saturating_sub(1))
+        .collect::<String>()
+        + "…"
+}
+
+fn compact_tokens(tokens: f64) -> String {
+    if tokens < 1_000.0 {
+        format!("{:.0}", tokens)
+    } else if tokens < 10_000.0 {
+        format!("{:.1}K", tokens / 1_000.0)
+    } else if tokens < 1_000_000.0 {
+        format!("{:.0}K", tokens / 1_000.0)
+    } else {
+        format!("{:.1}M", tokens / 1_000_000.0)
+    }
+}
+
+fn session_token_total(session: &MobileHudSessionCard) -> Option<f64> {
+    let total = [
+        session.input_tokens,
+        session.output_tokens,
+        session.cache_creation_input_tokens,
+        session.cache_read_input_tokens,
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|value| *value > 0.0 && value.is_finite())
+    .sum::<f64>();
+    if total > 0.0 {
+        Some(total)
+    } else {
+        None
+    }
+}
+
+fn short_tool_name(value: &str) -> String {
+    value
+        .strip_prefix("mcp__")
+        .unwrap_or(value)
+        .split("__")
+        .last()
+        .unwrap_or(value)
+        .to_string()
+}
+
+fn localized_status_text(value: &str) -> String {
+    if let Some(tool) = value.strip_prefix("Tool running: ") {
+        return format!("工具运行中：{}", short_tool_name(tool));
+    }
+    if let Some(tool) = value.strip_prefix("Tool finished: ") {
+        return format!("工具已完成：{}", short_tool_name(tool));
+    }
+    match value {
+        "Generating response" => "正在生成回复".to_string(),
+        "Tool running" => "工具运行中".to_string(),
+        "Tool finished" => "工具已完成".to_string(),
+        "Needs attention" => "需要处理".to_string(),
+        "Waiting for user" => "等待用户".to_string(),
+        other => other.to_string(),
+    }
+}
+
 fn context_emphasis(percent: f64) -> String {
     if percent >= 85.0 {
         "critical".to_string()
@@ -418,8 +736,13 @@ fn capsule_state(status: &str, has_attention: bool) -> String {
     }
 }
 
+#[cfg(test)]
 fn now_rfc3339() -> String {
-    OffsetDateTime::now_utc()
+    format_rfc3339(OffsetDateTime::now_utc())
+}
+
+fn format_rfc3339(value: OffsetDateTime) -> String {
+    value
         .format(&Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
@@ -438,7 +761,10 @@ mod tests {
     use crate::window::{
         claude_status::{PendingQueueItem, PendingQueueState},
         settings::AppSettings,
-        usage_cost::{CostSummaryStateDto, DailyTokenBucketDto, LiveUsageCostSnapshot, ProviderLiveStateDto, WindowUsageStateDto},
+        usage_cost::{
+            CostSummaryStateDto, DailyTokenBucketDto, LiveUsageCostSnapshot, ProviderLiveStateDto,
+            WindowUsageStateDto,
+        },
     };
 
     use super::*;
@@ -446,9 +772,13 @@ mod tests {
     #[test]
     fn mobile_snapshot_drops_sensitive_fields() {
         let settings = AppSettings::default();
-        let snapshot = build_mobile_hud_view_model(vec![sample_session()], sample_usage(), settings);
+        let snapshot =
+            build_mobile_hud_view_model(vec![sample_session()], sample_usage(), settings);
 
-        assert_eq!(serialized_snapshot_contains_sensitive_keywords(&snapshot), Vec::<&'static str>::new());
+        assert_eq!(
+            serialized_snapshot_contains_sensitive_keywords(&snapshot),
+            Vec::<&'static str>::new()
+        );
         assert_eq!(snapshot.attention[0].action_state, "readonly");
         assert!(!snapshot.display_policy.approval_actions);
         assert!(!snapshot.display_policy.question_actions);
@@ -457,7 +787,11 @@ mod tests {
 
     #[test]
     fn mobile_snapshot_serializes_protocol_envelope() {
-        let envelope = build_mobile_hud_envelope(vec![sample_session()], sample_usage(), AppSettings::default());
+        let envelope = build_mobile_hud_envelope(
+            vec![sample_session()],
+            sample_usage(),
+            AppSettings::default(),
+        );
         let value = serde_json::to_value(envelope).expect("mobile envelope should serialize");
 
         assert_eq!(value["protocolVersion"], json!(1));
@@ -468,7 +802,11 @@ mod tests {
 
     #[test]
     fn mobile_snapshot_uses_low_sensitive_notification_text() {
-        let snapshot = build_mobile_hud_view_model(vec![sample_session()], sample_usage(), AppSettings::default());
+        let snapshot = build_mobile_hud_view_model(
+            vec![sample_session()],
+            sample_usage(),
+            AppSettings::default(),
+        );
         let serialized = serde_json::to_string(&snapshot.notification_events).unwrap();
 
         assert!(serialized.contains("Claude needs attention"));
@@ -476,10 +814,46 @@ mod tests {
         assert!(!serialized.contains("dangerous shell command"));
     }
 
+    #[test]
+    fn mobile_snapshot_filters_stale_sessions_like_desktop_hud() {
+        let fresh = sample_session();
+        let mut stale = sample_session();
+        stale.session_key = Some("stale-session".to_string());
+        stale.session_name = Some("stale session".to_string());
+        stale.updated_at = format_rfc3339(
+            OffsetDateTime::now_utc() - Duration::seconds(MOBILE_SESSION_FRESH_SECONDS + 1),
+        );
+        stale.activity = "running".to_string();
+
+        let snapshot =
+            build_mobile_hud_view_model(vec![stale, fresh], sample_usage(), AppSettings::default());
+
+        assert_eq!(snapshot.summary.active_session_count, 1);
+        assert_eq!(snapshot.sessions.len(), 1);
+        assert_eq!(snapshot.sessions[0].session_name, "Android HUD");
+    }
+
+    #[test]
+    fn mobile_snapshot_drops_expired_pending_attention() {
+        let mut session = sample_session();
+        if let Some(queue) = session.pending_queue.as_mut() {
+            queue.items[0].expires_at = Some(format_rfc3339(
+                OffsetDateTime::now_utc() - Duration::seconds(1),
+            ));
+        }
+
+        let snapshot =
+            build_mobile_hud_view_model(vec![session], sample_usage(), AppSettings::default());
+
+        assert!(snapshot.attention.is_empty());
+        assert!(snapshot.notification_events.is_empty());
+    }
+
     fn sample_session() -> ClaudeStatusBridgeState {
+        let now = now_rfc3339();
         ClaudeStatusBridgeState {
             schema_version: 1,
-            updated_at: "2026-06-17T08:00:00Z".to_string(),
+            updated_at: now.clone(),
             activity_started_at: Some("2026-06-17T07:59:00Z".to_string()),
             event: "PreToolUse".to_string(),
             activity: "waiting".to_string(),
@@ -516,16 +890,34 @@ mod tests {
             thinking_enabled: Some(true),
             agent_name: None,
             hook_event_name: Some("PreToolUse".to_string()),
+            permission_mode: Some("default".to_string()),
+            tool_name: Some("Bash".to_string()),
+            output_speed: Some(12.3),
+            added_dir_slugs: Some(vec!["apps/android".to_string()]),
+            added_dirs_overflow_count: Some(1.0),
+            git_branch: Some("main".to_string()),
+            git_dirty: Some(true),
+            git_ahead: Some(0.0),
+            git_behind: Some(0.0),
+            session_started_at: Some("2026-06-17T07:55:00Z".to_string()),
+            last_assistant_response_at: Some(now.clone()),
+            tools_count: Some(3.0),
+            tools_running_count: Some(1.0),
+            agents_count: Some(2.0),
+            agents_running_count: Some(1.0),
+            todos_active_count: Some(1.0),
+            todos_completed_count: Some(2.0),
+            todos_total_count: Some(3.0),
             pending_queue: Some(PendingQueueState {
                 schema_version: 1,
-                updated_at: "2026-06-17T08:00:00Z".to_string(),
+                updated_at: now.clone(),
                 items: vec![PendingQueueItem {
                     id: "pending-1".to_string(),
                     kind: "approval".to_string(),
                     status: "pending".to_string(),
                     session_id: Some("session-id".to_string()),
-                    created_at: "2026-06-17T08:00:00Z".to_string(),
-                    updated_at: "2026-06-17T08:00:00Z".to_string(),
+                    created_at: now.clone(),
+                    updated_at: now.clone(),
                     expires_at: None,
                     source: "hook".to_string(),
                     hook_event_name: Some("PreToolUse".to_string()),

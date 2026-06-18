@@ -4,7 +4,9 @@ use tauri::Manager;
 use window::{
     claude_global::ClaudeGlobalBridgeStatus,
     claude_session::ClaudeCodeSummary,
-    claude_status::{ClaudeStatusBridgeState, PendingIntentResolutionRequest, PendingIntentResolutionResult},
+    claude_status::{
+        ClaudeStatusBridgeState, PendingIntentResolutionRequest, PendingIntentResolutionResult,
+    },
     diagnostics::DiagnosticsSummary,
     display::DisplayInfo,
     fullscreen::{FullscreenState, FullscreenTracker},
@@ -15,7 +17,7 @@ use window::{
     },
     overlay::{HitRegion, OverlayTracker},
     settings::{AppSettings, OverlayPosition},
-    terminal_jump::{TerminalJumpRequest, TerminalJumpResult},
+    terminal_jump::{TerminalBindRequest, TerminalJumpRequest, TerminalJumpResult},
     updater::UpdateState,
     usage_cost::LiveUsageCostSnapshot,
 };
@@ -129,7 +131,9 @@ fn set_fullscreen_avoidance_enabled(
     if enabled {
         Ok(tracker.state())
     } else {
-        Ok(window::fullscreen::show_overlay_after_disabled(&app, &tracker))
+        Ok(window::fullscreen::show_overlay_after_disabled(
+            &app, &tracker,
+        ))
     }
 }
 
@@ -181,7 +185,9 @@ fn remove_claude_global_bridge_hooks() -> Result<ClaudeGlobalBridgeStatus, Strin
 }
 
 #[tauri::command]
-fn set_claude_hud_context_window_size(value: Option<String>) -> Result<ClaudeGlobalBridgeStatus, String> {
+fn set_claude_hud_context_window_size(
+    value: Option<String>,
+) -> Result<ClaudeGlobalBridgeStatus, String> {
     window::claude_global::set_context_window_size_env(value)
 }
 
@@ -217,7 +223,8 @@ fn get_mobile_hud_snapshot() -> Result<MobileHudEnvelope, String> {
 #[tauri::command]
 fn get_mobile_hud_security_preview() -> Result<serde_json::Value, String> {
     let paths = window::mobile_hud::certificate::default_certificate_paths();
-    let certificate = window::mobile_hud::certificate::generate_server_certificate(&["127.0.0.1".to_string()])?;
+    let certificate =
+        window::mobile_hud::certificate::generate_server_certificate(&["127.0.0.1".to_string()])?;
     Ok(serde_json::json!({
         "transport": "wssSpkiPinning",
         "deviceSigning": "p256Ecdsa",
@@ -232,28 +239,41 @@ fn get_mobile_hud_security_preview() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-fn get_mobile_hud_service_status(runtime: tauri::State<'_, MobileHudRuntime>) -> Result<MobileHudServiceStatus, String> {
+fn get_mobile_hud_service_status(
+    runtime: tauri::State<'_, MobileHudRuntime>,
+) -> Result<MobileHudServiceStatus, String> {
     Ok(runtime.status())
 }
 
 #[tauri::command]
-fn start_mobile_hud_service(runtime: tauri::State<'_, MobileHudRuntime>) -> Result<MobileHudServiceStatus, String> {
+fn start_mobile_hud_service(
+    runtime: tauri::State<'_, MobileHudRuntime>,
+) -> Result<MobileHudServiceStatus, String> {
     runtime.start(window::settings::load_app_settings())
 }
 
 #[tauri::command]
-fn stop_mobile_hud_service(runtime: tauri::State<'_, MobileHudRuntime>) -> Result<MobileHudServiceStatus, String> {
+fn stop_mobile_hud_service(
+    runtime: tauri::State<'_, MobileHudRuntime>,
+) -> Result<MobileHudServiceStatus, String> {
     runtime.stop()
 }
 
 #[tauri::command]
-fn restart_mobile_hud_service(runtime: tauri::State<'_, MobileHudRuntime>) -> Result<MobileHudServiceStatus, String> {
+fn restart_mobile_hud_service(
+    runtime: tauri::State<'_, MobileHudRuntime>,
+) -> Result<MobileHudServiceStatus, String> {
     runtime.restart(window::settings::load_app_settings())
 }
 
 #[tauri::command]
-fn create_mobile_hud_pairing_offer(runtime: tauri::State<'_, MobileHudRuntime>) -> Result<MobileHudPairingOffer, String> {
-    let offer = window::mobile_hud::pairing::create_pairing_offer(&runtime.status(), &window::settings::load_app_settings())?;
+fn create_mobile_hud_pairing_offer(
+    runtime: tauri::State<'_, MobileHudRuntime>,
+) -> Result<MobileHudPairingOffer, String> {
+    let offer = window::mobile_hud::pairing::create_pairing_offer(
+        &runtime.status(),
+        &window::settings::load_app_settings(),
+    )?;
     let _ = runtime.mark_pairing();
     Ok(offer)
 }
@@ -274,12 +294,28 @@ fn revoke_mobile_hud_device(device_id: String) -> Result<MobileHudDeviceRegistry
 }
 
 #[tauri::command]
-fn jump_to_claude_session_terminal(request: TerminalJumpRequest) -> Result<TerminalJumpResult, String> {
+fn delete_mobile_hud_device(device_id: String) -> Result<MobileHudDeviceRegistry, String> {
+    window::mobile_hud::pairing::delete_device(&device_id)
+}
+
+#[tauri::command]
+fn jump_to_claude_session_terminal(
+    request: TerminalJumpRequest,
+) -> Result<TerminalJumpResult, String> {
     window::terminal_jump::jump_to_terminal(request)
 }
 
 #[tauri::command]
-fn resolve_claude_pending_intent(request: PendingIntentResolutionRequest) -> Result<PendingIntentResolutionResult, String> {
+fn bind_current_foreground_terminal_to_session(
+    request: TerminalBindRequest,
+) -> Result<TerminalJumpResult, String> {
+    window::terminal_jump::bind_current_foreground_terminal_to_session(request)
+}
+
+#[tauri::command]
+fn resolve_claude_pending_intent(
+    request: PendingIntentResolutionRequest,
+) -> Result<PendingIntentResolutionResult, String> {
     window::claude_status::resolve_pending_intent(request)
 }
 
@@ -306,7 +342,10 @@ fn load_app_settings() -> Result<AppSettings, String> {
 }
 
 #[tauri::command]
-fn save_app_settings(settings: AppSettings, runtime: tauri::State<'_, MobileHudRuntime>) -> Result<AppSettings, String> {
+fn save_app_settings(
+    settings: AppSettings,
+    runtime: tauri::State<'_, MobileHudRuntime>,
+) -> Result<AppSettings, String> {
     let saved = window::settings::save_app_settings(settings)?;
     if let Some(context_window_size) = terminal_context_window_size_override(&saved) {
         let _ = window::claude_global::set_context_window_size_env(context_window_size);
@@ -400,7 +439,9 @@ pub fn run() {
             get_mobile_hud_device_registry,
             approve_mobile_hud_device,
             revoke_mobile_hud_device,
+            delete_mobile_hud_device,
             jump_to_claude_session_terminal,
+            bind_current_foreground_terminal_to_session,
             resolve_claude_pending_intent,
             get_update_state,
             check_for_updates,
@@ -419,7 +460,11 @@ pub fn run() {
                     let _ = window::display::set_overlay_position(app.handle(), position);
                 } else {
                     let display_id = settings_target_display_id(&settings);
-                    let _ = window::display::center_overlay_on_display(app.handle(), display_id, Some(settings.top_offset_px));
+                    let _ = window::display::center_overlay_on_display(
+                        app.handle(),
+                        display_id,
+                        Some(settings.top_offset_px),
+                    );
                 }
                 window::overlay::start_hit_test_tracker(&window, tracker)?;
             }

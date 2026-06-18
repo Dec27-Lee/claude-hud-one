@@ -10,7 +10,7 @@ export type OverlayHitRegion = {
 }
 
 export type TerminalJumpResult = {
-  action: 'opened' | 'focused' | 'unsupported' | 'notFound' | 'disabled'
+  action: 'opened' | 'focused' | 'unsupported' | 'notFound' | 'disabled' | 'bound'
   cwd: string | null
   message: string
 }
@@ -128,9 +128,20 @@ export type DiagnosticsSummary = {
 
 const isTauriRuntime = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
+const terminalJumpRequestForSession = (session: CurrentSessionState, behavior?: DesktopHudTerminalJumpBehavior) => ({
+  behavior,
+  cwd: session.terminal?.cwd ?? session.projectDir ?? null,
+  fallbackCwd: session.projectDir ?? null,
+  bridgeProcessId: session.terminal?.bridgeProcessId ?? null,
+  bridgeParentProcessId: session.terminal?.bridgeParentProcessId ?? null,
+  windowTitleHint: session.terminal?.windowTitleHint ?? session.projectSlug ?? session.sessionName ?? null,
+  sessionKey: session.sessionKey ?? null,
+  sessionId: session.sessionId ?? null,
+})
+
 export const jumpToClaudeSessionTerminal = async (
   session: CurrentSessionState,
-  behavior: DesktopHudTerminalJumpBehavior = 'openCwd',
+  behavior: DesktopHudTerminalJumpBehavior = 'focus',
 ): Promise<TerminalJumpResult | null> => {
   const cwd = session.terminal?.cwd ?? session.projectDir ?? null
   if (behavior === 'disabled') {
@@ -144,17 +155,28 @@ export const jumpToClaudeSessionTerminal = async (
 
   try {
     return await invoke<TerminalJumpResult>('jump_to_claude_session_terminal', {
-      request: {
-        behavior,
-        cwd,
-        fallbackCwd: session.projectDir ?? null,
-        bridgeProcessId: session.terminal?.bridgeProcessId ?? null,
-        bridgeParentProcessId: session.terminal?.bridgeParentProcessId ?? null,
-        windowTitleHint: session.terminal?.windowTitleHint ?? session.projectSlug ?? session.sessionName ?? null,
-      },
+      request: terminalJumpRequestForSession(session, behavior),
     })
   } catch (error) {
     console.warn('Failed to jump to Claude Code session terminal', error)
+    return {
+      action: 'notFound',
+      cwd,
+      message: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+export const bindCurrentForegroundTerminalToSession = async (session: CurrentSessionState): Promise<TerminalJumpResult | null> => {
+  const cwd = session.terminal?.cwd ?? session.projectDir ?? null
+  if (!isTauriRuntime()) return null
+
+  try {
+    return await invoke<TerminalJumpResult>('bind_current_foreground_terminal_to_session', {
+      request: terminalJumpRequestForSession(session),
+    })
+  } catch (error) {
+    console.warn('Failed to bind Claude Code session terminal', error)
     return {
       action: 'notFound',
       cwd,

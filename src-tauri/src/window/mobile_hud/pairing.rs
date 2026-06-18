@@ -82,7 +82,12 @@ pub fn create_pairing_offer(
     status: &MobileHudServiceStatus,
     settings: &AppSettings,
 ) -> Result<MobileHudPairingOffer, String> {
-    if !matches!(status.phase, MobileHudServicePhase::Listening | MobileHudServicePhase::Pairing | MobileHudServicePhase::Connected) {
+    if !matches!(
+        status.phase,
+        MobileHudServicePhase::Listening
+            | MobileHudServicePhase::Pairing
+            | MobileHudServicePhase::Connected
+    ) {
         return Err("Start the Mobile HUD service before creating a pairing offer.".to_string());
     }
 
@@ -112,7 +117,9 @@ pub fn create_pairing_offer(
 
     let mut registry = load_device_registry();
     registry.version = 1;
-    registry.pending_pairings.retain(|pairing| pairing.expires_at > created_at);
+    registry
+        .pending_pairings
+        .retain(|pairing| pairing.expires_at > created_at);
     registry.pending_pairings.push(MobileHudPendingPairing {
         pairing_id: pairing_id.clone(),
         token_hash: hash_secret(&token),
@@ -160,7 +167,9 @@ pub fn save_device_registry(registry: &MobileHudDeviceRegistry) -> Result<(), St
     fs::write(path, content).map_err(|error| error.to_string())
 }
 
-pub fn claim_pairing_device(request: MobileHudPairingClaimRequest) -> Result<MobileHudPairingClaimResult, String> {
+pub fn claim_pairing_device(
+    request: MobileHudPairingClaimRequest,
+) -> Result<MobileHudPairingClaimResult, String> {
     if request.pairing_id.trim().is_empty() || request.token.trim().is_empty() {
         return Err("Pairing id and token are required.".to_string());
     }
@@ -170,7 +179,9 @@ pub fn claim_pairing_device(request: MobileHudPairingClaimRequest) -> Result<Mob
 
     let now = now_rfc3339();
     let mut registry = load_device_registry();
-    registry.pending_pairings.retain(|pairing| pairing.expires_at > now);
+    registry
+        .pending_pairings
+        .retain(|pairing| pairing.expires_at > now);
     let pending = registry
         .pending_pairings
         .iter()
@@ -181,19 +192,19 @@ pub fn claim_pairing_device(request: MobileHudPairingClaimRequest) -> Result<Mob
         return Err("Pairing token is invalid.".to_string());
     }
 
-    let device_id = Uuid::new_v4().to_string();
     let device_label = sanitize_device_label(request.device_label.as_deref());
-    let approved = !pending.require_pc_confirmation;
-    registry.devices.push(MobileHudDeviceRecord {
-        device_id: device_id.clone(),
-        device_label: device_label.clone(),
-        public_key_hash: hash_secret(request.device_public_key.trim()),
-        approved,
-        revoked: false,
-        registered_at: now,
-        last_seen_at: None,
-    });
-    registry.pending_pairings.retain(|pairing| pairing.pairing_id != pending.pairing_id);
+    let public_key_hash = hash_secret(request.device_public_key.trim());
+    let requested_approval = !pending.require_pc_confirmation;
+    let (device_id, approved) = upsert_device_record(
+        &mut registry,
+        device_label.clone(),
+        public_key_hash,
+        requested_approval,
+        now.clone(),
+    );
+    registry
+        .pending_pairings
+        .retain(|pairing| pairing.pairing_id != pending.pairing_id);
     save_device_registry(&registry)?;
 
     Ok(MobileHudPairingClaimResult {
@@ -205,13 +216,50 @@ pub fn claim_pairing_device(request: MobileHudPairingClaimRequest) -> Result<Mob
     })
 }
 
+fn upsert_device_record(
+    registry: &mut MobileHudDeviceRegistry,
+    device_label: String,
+    public_key_hash: String,
+    requested_approval: bool,
+    now: String,
+) -> (String, bool) {
+    if let Some(device) = registry
+        .devices
+        .iter_mut()
+        .find(|device| device.public_key_hash == public_key_hash)
+    {
+        device.device_label = device_label;
+        device.approved = if device.revoked {
+            requested_approval
+        } else {
+            device.approved || requested_approval
+        };
+        device.revoked = false;
+        device.last_seen_at = Some(now);
+        return (device.device_id.clone(), device.approved);
+    }
+
+    let device_id = Uuid::new_v4().to_string();
+    registry.devices.push(MobileHudDeviceRecord {
+        device_id: device_id.clone(),
+        device_label,
+        public_key_hash,
+        approved: requested_approval,
+        revoked: false,
+        registered_at: now,
+        last_seen_at: None,
+    });
+    (device_id, requested_approval)
+}
+
 pub fn is_device_authorized(device_id: &str) -> bool {
     if device_id.trim().is_empty() {
         return false;
     }
-    load_device_registry().devices.iter().any(|device| {
-        device.device_id == device_id && device.approved && !device.revoked
-    })
+    load_device_registry()
+        .devices
+        .iter()
+        .any(|device| device.device_id == device_id && device.approved && !device.revoked)
 }
 
 pub fn approve_device(device_id: &str) -> Result<MobileHudDeviceRegistry, String> {
@@ -237,10 +285,22 @@ pub fn revoke_device(device_id: &str) -> Result<MobileHudDeviceRegistry, String>
     Ok(registry)
 }
 
+pub fn delete_device(device_id: &str) -> Result<MobileHudDeviceRegistry, String> {
+    let mut registry = load_device_registry();
+    registry
+        .devices
+        .retain(|device| device.device_id != device_id);
+    save_device_registry(&registry)?;
+    Ok(registry)
+}
+
 fn registry_path() -> Option<PathBuf> {
-    env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .map(|appdata| appdata.join("Claude HUD One").join("mobile-hud").join("device-registry.json"))
+    env::var_os("APPDATA").map(PathBuf::from).map(|appdata| {
+        appdata
+            .join("Claude HUD One")
+            .join("mobile-hud")
+            .join("device-registry.json")
+    })
 }
 
 fn pairing_ttl_seconds(settings: &AppSettings) -> u64 {
@@ -292,7 +352,9 @@ fn hash_secret(secret: &str) -> String {
 fn mask_secret(secret: &str) -> String {
     let compact = secret.replace('-', "");
     let start = compact.get(0..4).unwrap_or("****");
-    let end = compact.get(compact.len().saturating_sub(4)..).unwrap_or("****");
+    let end = compact
+        .get(compact.len().saturating_sub(4)..)
+        .unwrap_or("****");
     format!("{}…{}", start, end)
 }
 
@@ -307,7 +369,9 @@ fn encode_component(value: &str) -> String {
     value
         .bytes()
         .flat_map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => vec![byte as char],
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                vec![byte as char]
+            }
             _ => format!("%{byte:02X}").chars().collect(),
         })
         .collect()
@@ -346,6 +410,63 @@ mod tests {
         let encoded = encode_component("sha256/abc+=");
 
         assert_eq!(encoded, "sha256%2Fabc%2B%3D");
+    }
+
+    #[test]
+    fn same_public_key_upserts_existing_device() {
+        let mut registry = MobileHudDeviceRegistry::default();
+        let public_key_hash = hash_secret("phone-public-key");
+        let (first_id, first_approved) = upsert_device_record(
+            &mut registry,
+            "Yue Phone".to_string(),
+            public_key_hash.clone(),
+            false,
+            "2026-06-18T08:00:00Z".to_string(),
+        );
+        let (second_id, second_approved) = upsert_device_record(
+            &mut registry,
+            "Yue Phone Again".to_string(),
+            public_key_hash,
+            true,
+            "2026-06-18T08:01:00Z".to_string(),
+        );
+
+        assert_eq!(registry.devices.len(), 1);
+        assert_eq!(first_id, second_id);
+        assert!(!first_approved);
+        assert!(second_approved);
+        assert_eq!(registry.devices[0].device_label, "Yue Phone Again");
+        assert_eq!(
+            registry.devices[0].last_seen_at.as_deref(),
+            Some("2026-06-18T08:01:00Z")
+        );
+    }
+
+    #[test]
+    fn revoked_public_key_reuses_record_as_pending() {
+        let mut registry = MobileHudDeviceRegistry::default();
+        let public_key_hash = hash_secret("phone-public-key");
+        let (device_id, _) = upsert_device_record(
+            &mut registry,
+            "Yue Phone".to_string(),
+            public_key_hash.clone(),
+            true,
+            "2026-06-18T08:00:00Z".to_string(),
+        );
+        registry.devices[0].revoked = true;
+        registry.devices[0].approved = false;
+        let (new_device_id, approved) = upsert_device_record(
+            &mut registry,
+            "Yue Phone".to_string(),
+            public_key_hash,
+            false,
+            "2026-06-18T08:02:00Z".to_string(),
+        );
+
+        assert_eq!(registry.devices.len(), 1);
+        assert_eq!(device_id, new_device_id);
+        assert!(!approved);
+        assert!(!registry.devices[0].revoked);
     }
 
     #[test]

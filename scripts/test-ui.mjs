@@ -68,8 +68,8 @@ const killPort = async () => {
   await execShell(command)
 }
 
-const probeServer = () => new Promise((resolve) => {
-  const request = http.get(URL, { timeout: 2_000 }, (response) => {
+const probeUrl = (path = '/', timeout = 2_000) => new Promise((resolve) => {
+  const request = http.get(`${URL}${path}`, { timeout }, (response) => {
     response.resume()
     resolve(Boolean(response.statusCode && response.statusCode >= 200 && response.statusCode < 500))
   })
@@ -82,6 +82,8 @@ const probeServer = () => new Promise((resolve) => {
   request.on('error', () => resolve(false))
 })
 
+const probeServer = () => probeUrl()
+
 const waitForServer = async () => {
   const deadline = Date.now() + 45_000
   while (Date.now() < deadline) {
@@ -90,6 +92,18 @@ const waitForServer = async () => {
   }
 
   throw new Error(`Vite dev server did not become ready on ${URL}.`)
+}
+
+const prewarmVite = async () => {
+  const deadline = Date.now() + 60_000
+  const paths = ['/@vite/client', '/src/main.tsx']
+  while (Date.now() < deadline) {
+    const results = await Promise.all(paths.map((path) => probeUrl(path, 10_000)))
+    if (results.every(Boolean)) return
+    await delay(500)
+  }
+
+  throw new Error(`Vite dev server did not prewarm ${paths.join(', ')} on ${URL}.`)
 }
 
 await killPort()
@@ -115,6 +129,7 @@ server.on('exit', (code, signal) => {
 
 try {
   await waitForServer()
+  await prewarmVite()
   if (serverExited) throw new Error('Vite dev server exited before Playwright started.')
 
   const playwrightArgs = ['playwright', 'test', ...process.argv.slice(2)]

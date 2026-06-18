@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    env,
+    env, fs,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -16,6 +16,46 @@ pub struct TerminalJumpRequest {
     pub bridge_process_id: Option<u32>,
     pub bridge_parent_process_id: Option<u32>,
     pub window_title_hint: Option<String>,
+    pub session_key: Option<String>,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalBindRequest {
+    pub cwd: Option<String>,
+    pub fallback_cwd: Option<String>,
+    pub window_title_hint: Option<String>,
+    pub session_key: Option<String>,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalWindowBinding {
+    session_key: String,
+    hwnd: isize,
+    pid: u32,
+    title: String,
+    class_name: String,
+    cwd: Option<String>,
+    window_title_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalBindingRegistry {
+    schema_version: u8,
+    bindings: HashMap<String, TerminalWindowBinding>,
+}
+
+impl Default for TerminalBindingRegistry {
+    fn default() -> Self {
+        Self {
+            schema_version: 1,
+            bindings: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,7 +71,12 @@ fn raw_cwd_label(request: &TerminalJumpRequest) -> Option<String> {
         .cwd
         .as_deref()
         .filter(|value| !value.trim().is_empty())
-        .or_else(|| request.fallback_cwd.as_deref().filter(|value| !value.trim().is_empty()))
+        .or_else(|| {
+            request
+                .fallback_cwd
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+        })
         .map(|value| value.trim().to_string())
 }
 
@@ -55,7 +100,7 @@ pub fn jump_to_terminal(request: TerminalJumpRequest) -> Result<TerminalJumpResu
 
     #[cfg(target_os = "windows")]
     {
-        let behavior = request.behavior.as_deref().unwrap_or("openCwd");
+        let behavior = request.behavior.as_deref().unwrap_or("focus");
         let cwd_label = raw_cwd_label(&request);
 
         if behavior == "disabled" {
@@ -63,6 +108,15 @@ pub fn jump_to_terminal(request: TerminalJumpRequest) -> Result<TerminalJumpResu
                 action: "disabled".to_string(),
                 cwd: cwd_label,
                 message: "Terminal jump is disabled.".to_string(),
+            });
+        }
+
+        if focus_bound_terminal(&request) {
+            return Ok(TerminalJumpResult {
+                action: "focused".to_string(),
+                cwd: cwd_label,
+                message: "Focused the bound Windows Terminal for this Claude Code session."
+                    .to_string(),
             });
         }
 
@@ -75,7 +129,16 @@ pub fn jump_to_terminal(request: TerminalJumpRequest) -> Result<TerminalJumpResu
             return Ok(TerminalJumpResult {
                 action: "focused".to_string(),
                 cwd: cwd_label,
-                message: "Focused an existing Windows Terminal for this Claude Code session.".to_string(),
+                message: "Focused an existing Windows Terminal for this Claude Code session."
+                    .to_string(),
+            });
+        }
+
+        if focus_recent_terminal_and_bind(&request) {
+            return Ok(TerminalJumpResult {
+                action: "focused".to_string(),
+                cwd: cwd_label,
+                message: "Focused the most recently used Windows Terminal and bound it to this Claude Code session.".to_string(),
             });
         }
 
@@ -83,7 +146,7 @@ pub fn jump_to_terminal(request: TerminalJumpRequest) -> Result<TerminalJumpResu
             return Ok(TerminalJumpResult {
                 action: "notFound".to_string(),
                 cwd: cwd_label,
-                message: "No existing Windows Terminal window was found for this Claude Code session.".to_string(),
+                message: "No existing Windows Terminal window matched this Claude Code session. Claude HUD One did not open a new terminal because the current setting is focus-only.".to_string(),
             });
         }
 
@@ -91,8 +154,15 @@ pub fn jump_to_terminal(request: TerminalJumpRequest) -> Result<TerminalJumpResu
             .cwd
             .as_deref()
             .filter(|value| !value.trim().is_empty())
-            .or_else(|| request.fallback_cwd.as_deref().filter(|value| !value.trim().is_empty()))
-            .ok_or_else(|| "No working directory was captured for this Claude Code session.".to_string())?;
+            .or_else(|| {
+                request
+                    .fallback_cwd
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+            })
+            .ok_or_else(|| {
+                "No working directory was captured for this Claude Code session.".to_string()
+            })?;
 
         let canonical_cwd = canonical_directory(cwd)?;
         let canonical_label = canonical_cwd.to_string_lossy().to_string();
@@ -136,7 +206,9 @@ fn focus_existing_terminal(
         return false;
     };
 
-    for terminal_pid in terminal_ancestor_pids(&processes, bridge_process_id, bridge_parent_process_id) {
+    for terminal_pid in
+        terminal_ancestor_pids(&processes, bridge_process_id, bridge_parent_process_id)
+    {
         if focus_visible_top_level_window_for_pid(terminal_pid) {
             return true;
         }
@@ -157,6 +229,303 @@ fn focus_existing_terminal(
 }
 
 #[cfg(target_os = "windows")]
+fn focus_bound_terminal(request: &TerminalJumpRequest) -> bool {
+    let Some(binding_key) = terminal_binding_key_for_jump(request) else {
+        return false;
+    };
+    let mut registry = load_terminal_binding_registry();
+    let Some(binding) = registry.bindings.get(&binding_key).cloned() else {
+        return false;
+    };
+    let Some(processes) = snapshot_processes() else {
+        return false;
+    };
+    let hwnd = windows::Win32::Foundation::HWND(binding.hwnd as *mut std::ffi::c_void);
+    if terminal_window_is_usable(hwnd, &processes) && focus_window(hwnd) {
+        return true;
+    }
+
+    registry.bindings.remove(&binding_key);
+    let _ = save_terminal_binding_registry(&registry);
+    false
+}
+
+#[cfg(target_os = "windows")]
+fn focus_recent_terminal_and_bind(request: &TerminalJumpRequest) -> bool {
+    let Some(binding_key) = terminal_binding_key_for_jump(request) else {
+        return false;
+    };
+    let Some(processes) = snapshot_processes() else {
+        return false;
+    };
+    let terminal_windows = visible_terminal_windows(&processes);
+    let hints = terminal_window_hints(
+        raw_cwd_label(request).as_deref(),
+        request.window_title_hint.as_deref(),
+    );
+    let window = best_terminal_window_title_match(&terminal_windows, &hints)
+        .cloned()
+        .or_else(|| terminal_windows.first().cloned());
+    let Some(window) = window else {
+        return false;
+    };
+
+    if !focus_window(window.hwnd) {
+        return false;
+    }
+
+    let _ = save_terminal_window_binding(
+        binding_key,
+        &window,
+        raw_cwd_label(request),
+        request.window_title_hint.clone(),
+    );
+    true
+}
+
+pub fn bind_current_foreground_terminal_to_session(
+    request: TerminalBindRequest,
+) -> Result<TerminalJumpResult, String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(TerminalJumpResult {
+            action: "unsupported".to_string(),
+            cwd: raw_cwd_label_for_bind(&request),
+            message: "Terminal binding is currently only supported on Windows.".to_string(),
+        })
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let cwd_label = raw_cwd_label_for_bind(&request);
+        let binding_key = terminal_binding_key_for_bind(&request).ok_or_else(|| {
+            "No stable Claude Code session key was captured for terminal binding.".to_string()
+        })?;
+        let processes = snapshot_processes().ok_or_else(|| {
+            "Unable to inspect Windows processes for terminal binding.".to_string()
+        })?;
+        let window = foreground_terminal_window(&processes)
+            .or_else(|| {
+                let terminal_windows = visible_terminal_windows(&processes);
+                let hints = terminal_window_hints(
+                    cwd_label.as_deref(),
+                    request.window_title_hint.as_deref(),
+                );
+                best_terminal_window_title_match(&terminal_windows, &hints)
+                    .cloned()
+                    .or_else(|| terminal_windows.first().cloned())
+            })
+            .ok_or_else(|| {
+                "No visible Windows Terminal window is available to bind.".to_string()
+            })?;
+
+        save_terminal_window_binding(
+            binding_key,
+            &window,
+            cwd_label.clone(),
+            request.window_title_hint.clone(),
+        )?;
+        let _ = focus_window(window.hwnd);
+
+        Ok(TerminalJumpResult {
+            action: "bound".to_string(),
+            cwd: cwd_label,
+            message: "Bound this Claude Code session to the selected Windows Terminal window."
+                .to_string(),
+        })
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn raw_cwd_label_for_bind(request: &TerminalBindRequest) -> Option<String> {
+    request
+        .cwd
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            request
+                .fallback_cwd
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .map(|value| value.trim().to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn raw_cwd_label_for_bind(request: &TerminalBindRequest) -> Option<String> {
+    request
+        .cwd
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            request
+                .fallback_cwd
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .map(|value| value.trim().to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn terminal_binding_key_for_jump(request: &TerminalJumpRequest) -> Option<String> {
+    terminal_binding_key(
+        request.session_key.as_deref(),
+        request.session_id.as_deref(),
+        raw_cwd_label(request).as_deref(),
+        request.window_title_hint.as_deref(),
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn terminal_binding_key_for_bind(request: &TerminalBindRequest) -> Option<String> {
+    terminal_binding_key(
+        request.session_key.as_deref(),
+        request.session_id.as_deref(),
+        raw_cwd_label_for_bind(request).as_deref(),
+        request.window_title_hint.as_deref(),
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn terminal_binding_key(
+    session_key: Option<&str>,
+    session_id: Option<&str>,
+    cwd: Option<&str>,
+    window_title_hint: Option<&str>,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    push_binding_key_part(&mut parts, "sessionKey", session_key);
+    push_binding_key_part(&mut parts, "sessionId", session_id);
+    if parts.is_empty() {
+        push_binding_key_part(&mut parts, "cwd", cwd);
+        push_binding_key_part(&mut parts, "title", window_title_hint);
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "terminal:{}",
+            sha256_hex(parts.join("|").as_bytes())
+        ))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn push_binding_key_part(parts: &mut Vec<String>, name: &str, value: Option<&str>) {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    parts.push(format!("{name}={}", value.to_ascii_lowercase()));
+}
+
+#[cfg(target_os = "windows")]
+fn sha256_hex(value: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    let digest = Sha256::digest(value);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(target_os = "windows")]
+fn terminal_binding_registry_path() -> Option<PathBuf> {
+    env::var_os("APPDATA").map(PathBuf::from).map(|appdata| {
+        appdata
+            .join("Claude HUD One")
+            .join("terminal-bindings.json")
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn load_terminal_binding_registry() -> TerminalBindingRegistry {
+    terminal_binding_registry_path()
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|content| serde_json::from_str::<TerminalBindingRegistry>(&content).ok())
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "windows")]
+fn save_terminal_binding_registry(registry: &TerminalBindingRegistry) -> Result<(), String> {
+    let path =
+        terminal_binding_registry_path().ok_or_else(|| "APPDATA is not available".to_string())?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let content = serde_json::to_string_pretty(registry).map_err(|error| error.to_string())?;
+    fs::write(path, content).map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn save_terminal_window_binding(
+    binding_key: String,
+    window: &TerminalWindowMatch,
+    cwd: Option<String>,
+    window_title_hint: Option<String>,
+) -> Result<(), String> {
+    let mut registry = load_terminal_binding_registry();
+    registry.schema_version = 1;
+    registry.bindings.insert(
+        binding_key.clone(),
+        TerminalWindowBinding {
+            session_key: binding_key,
+            hwnd: window.hwnd.0 as isize,
+            pid: window.pid,
+            title: window.title.clone(),
+            class_name: window.class_name.clone(),
+            cwd,
+            window_title_hint,
+        },
+    );
+    save_terminal_binding_registry(&registry)
+}
+
+#[cfg(target_os = "windows")]
+fn foreground_terminal_window(
+    processes: &HashMap<u32, ProcessInfo>,
+) -> Option<TerminalWindowMatch> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0.is_null() {
+        return None;
+    }
+    let mut window_pid = 0_u32;
+    unsafe {
+        GetWindowThreadProcessId(hwnd, Some(&mut window_pid));
+    }
+    if !is_windows_terminal_window(hwnd, window_pid, processes) {
+        return None;
+    }
+    Some(TerminalWindowMatch {
+        hwnd,
+        pid: window_pid,
+        title: window_text(hwnd),
+        class_name: window_class_name(hwnd),
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn terminal_window_is_usable(
+    hwnd: windows::Win32::Foundation::HWND,
+    processes: &HashMap<u32, ProcessInfo>,
+) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowThreadProcessId, IsWindow, IsWindowVisible,
+    };
+
+    if hwnd.0.is_null()
+        || !unsafe { IsWindow(Some(hwnd)).as_bool() }
+        || !unsafe { IsWindowVisible(hwnd).as_bool() }
+    {
+        return false;
+    }
+    let mut window_pid = 0_u32;
+    unsafe {
+        GetWindowThreadProcessId(hwnd, Some(&mut window_pid));
+    }
+    is_windows_terminal_window(hwnd, window_pid, processes)
+}
+
+#[cfg(target_os = "windows")]
 fn terminal_ancestor_pids(
     processes: &HashMap<u32, ProcessInfo>,
     bridge_process_id: Option<u32>,
@@ -166,7 +535,9 @@ fn terminal_ancestor_pids(
     if let Some(pid) = bridge_process_id.filter(|pid| *pid > 0) {
         start_pids.push(pid);
     }
-    if let Some(pid) = bridge_parent_process_id.filter(|pid| *pid > 0 && Some(*pid) != bridge_process_id) {
+    if let Some(pid) =
+        bridge_parent_process_id.filter(|pid| *pid > 0 && Some(*pid) != bridge_process_id)
+    {
         start_pids.push(pid);
     }
 
@@ -227,7 +598,9 @@ fn snapshot_processes() -> Option<HashMap<u32, ProcessInfo>> {
 }
 
 #[cfg(target_os = "windows")]
-fn process_entry_exe_name(entry: &windows::Win32::System::Diagnostics::ToolHelp::PROCESSENTRY32W) -> String {
+fn process_entry_exe_name(
+    entry: &windows::Win32::System::Diagnostics::ToolHelp::PROCESSENTRY32W,
+) -> String {
     let len = entry
         .szExeFile
         .iter()
@@ -238,9 +611,12 @@ fn process_entry_exe_name(entry: &windows::Win32::System::Diagnostics::ToolHelp:
 }
 
 #[cfg(target_os = "windows")]
+#[derive(Debug, Clone)]
 struct TerminalWindowMatch {
     hwnd: windows::Win32::Foundation::HWND,
+    pid: u32,
     title: String,
+    class_name: String,
 }
 
 #[cfg(target_os = "windows")]
@@ -252,7 +628,9 @@ fn terminal_window_hints(cwd_label: Option<&str>, window_title_hint: Option<&str
     if let Some(cwd) = cwd_label {
         push_terminal_hint(
             &mut hints,
-            Path::new(cwd.trim()).file_name().and_then(|value| value.to_str()),
+            Path::new(cwd.trim())
+                .file_name()
+                .and_then(|value| value.to_str()),
         );
     }
 
@@ -276,7 +654,6 @@ fn best_terminal_window_title_match<'a>(
     hints: &[String],
 ) -> Option<&'a TerminalWindowMatch> {
     let mut best: Option<(&TerminalWindowMatch, usize)> = None;
-    let mut ambiguous = false;
 
     for window in windows {
         let score = terminal_title_match_score(&window.title, hints);
@@ -285,26 +662,12 @@ fn best_terminal_window_title_match<'a>(
         }
 
         match best {
-            Some((_, best_score)) if score > best_score => {
-                best = Some((window, score));
-                ambiguous = false;
-            }
-            Some((_, best_score)) if score == best_score => {
-                ambiguous = true;
-            }
-            None => {
-                best = Some((window, score));
-                ambiguous = false;
-            }
-            _ => {}
+            Some((_, best_score)) if score <= best_score => {}
+            _ => best = Some((window, score)),
         }
     }
 
-    if ambiguous {
-        None
-    } else {
-        best.map(|(window, _)| window)
-    }
+    best.map(|(window, _)| window)
 }
 
 #[cfg(target_os = "windows")]
@@ -316,10 +679,14 @@ fn terminal_title_match_score(title: &str, hints: &[String]) -> usize {
     let normalized_title = title.to_ascii_lowercase();
     hints
         .iter()
-        .filter(|hint| normalized_title.contains(hint.as_str()))
-        .map(|hint| hint.len())
-        .max()
-        .unwrap_or(0)
+        .enumerate()
+        .filter(|(_, hint)| normalized_title.contains(hint.as_str()))
+        .map(|(index, hint)| {
+            let exact_bonus = if normalized_title == *hint { 10_000 } else { 0 };
+            let priority_multiplier = if index == 0 { 4 } else { 1 };
+            exact_bonus + hint.len() * priority_multiplier
+        })
+        .sum()
 }
 
 #[cfg(target_os = "windows")]
@@ -355,7 +722,9 @@ fn visible_terminal_windows(processes: &HashMap<u32, ProcessInfo>) -> Vec<Termin
 
         collect.windows.push(TerminalWindowMatch {
             hwnd,
+            pid: window_pid,
             title: window_text(hwnd),
+            class_name: window_class_name(hwnd),
         });
 
         BOOL(1)
@@ -500,7 +869,10 @@ fn open_windows_terminal(cwd: &Path) -> Result<(), String> {
         }
     }
 
-    Err(format!("Failed to open Windows Terminal. Tried {}", errors.join("; ")))
+    Err(format!(
+        "Failed to open Windows Terminal. Tried {}",
+        errors.join("; ")
+    ))
 }
 
 #[cfg(target_os = "windows")]
@@ -508,11 +880,23 @@ fn windows_terminal_candidates() -> Vec<PathBuf> {
     let mut candidates = vec![PathBuf::from("wt.exe")];
 
     if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
-        candidates.push(PathBuf::from(local_app_data).join("Microsoft").join("WindowsApps").join("wt.exe"));
+        candidates.push(
+            PathBuf::from(local_app_data)
+                .join("Microsoft")
+                .join("WindowsApps")
+                .join("wt.exe"),
+        );
     }
 
     if let Some(user_profile) = env::var_os("USERPROFILE") {
-        candidates.push(PathBuf::from(user_profile).join("AppData").join("Local").join("Microsoft").join("WindowsApps").join("wt.exe"));
+        candidates.push(
+            PathBuf::from(user_profile)
+                .join("AppData")
+                .join("Local")
+                .join("Microsoft")
+                .join("WindowsApps")
+                .join("wt.exe"),
+        );
     }
 
     candidates

@@ -1,4 +1,10 @@
-use std::{collections::HashMap, env, fs::{self, OpenOptions}, io::Write, path::{Path, PathBuf}};
+use std::{
+    collections::HashMap,
+    env,
+    fs::{self, OpenOptions},
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -104,6 +110,24 @@ pub struct ClaudeStatusBridgeState {
     pub thinking_enabled: Option<bool>,
     pub agent_name: Option<String>,
     pub hook_event_name: Option<String>,
+    pub permission_mode: Option<String>,
+    pub tool_name: Option<String>,
+    pub output_speed: Option<f64>,
+    pub added_dir_slugs: Option<Vec<String>>,
+    pub added_dirs_overflow_count: Option<f64>,
+    pub git_branch: Option<String>,
+    pub git_dirty: Option<bool>,
+    pub git_ahead: Option<f64>,
+    pub git_behind: Option<f64>,
+    pub session_started_at: Option<String>,
+    pub last_assistant_response_at: Option<String>,
+    pub tools_count: Option<f64>,
+    pub tools_running_count: Option<f64>,
+    pub agents_count: Option<f64>,
+    pub agents_running_count: Option<f64>,
+    pub todos_active_count: Option<f64>,
+    pub todos_completed_count: Option<f64>,
+    pub todos_total_count: Option<f64>,
     pub pending_queue: Option<PendingQueueState>,
     pub terminal: Option<SessionTerminalMetadata>,
     pub source: String,
@@ -111,9 +135,7 @@ pub struct ClaudeStatusBridgeState {
 }
 
 pub fn get_claude_status_bridge_state() -> Option<ClaudeStatusBridgeState> {
-    state_paths()
-        .into_iter()
-        .find_map(read_state_file)
+    state_paths().into_iter().find_map(read_state_file)
 }
 
 pub fn get_claude_status_bridge_sessions() -> Vec<ClaudeStatusBridgeState> {
@@ -165,7 +187,9 @@ pub struct PendingIntentResolutionResult {
     pub message: String,
 }
 
-pub fn resolve_pending_intent(request: PendingIntentResolutionRequest) -> Result<PendingIntentResolutionResult, String> {
+pub fn resolve_pending_intent(
+    request: PendingIntentResolutionRequest,
+) -> Result<PendingIntentResolutionResult, String> {
     let action = request.action.trim();
     if !matches!(action, "allowOnce" | "deny" | "answerIntent" | "dismiss") {
         return Err("Unsupported pending intent action.".to_string());
@@ -183,7 +207,12 @@ pub fn resolve_pending_intent(request: PendingIntentResolutionRequest) -> Result
     let allowed = pending_request
         .get("allowedIntents")
         .and_then(serde_json::Value::as_array)
-        .map(|items| items.iter().filter_map(serde_json::Value::as_str).any(|value| value == action))
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .any(|value| value == action)
+        })
         .unwrap_or(false);
     if !allowed {
         return Err("This action is not allowed for the pending item.".to_string());
@@ -249,11 +278,21 @@ fn state_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
     if let Some(appdata) = env::var_os("APPDATA") {
-        paths.push(PathBuf::from(appdata).join("Claude HUD One").join("claude-status.json"));
+        paths.push(
+            PathBuf::from(appdata)
+                .join("Claude HUD One")
+                .join("claude-status.json"),
+        );
     }
 
     if let Ok(current_dir) = env::current_dir() {
-        paths.push(current_dir.join(".claude").join("bridge").join("state").join("claude-status.json"));
+        paths.push(
+            current_dir
+                .join(".claude")
+                .join("bridge")
+                .join("state")
+                .join("claude-status.json"),
+        );
     }
 
     paths
@@ -263,11 +302,21 @@ fn session_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
     if let Some(appdata) = env::var_os("APPDATA") {
-        dirs.push(PathBuf::from(appdata).join("Claude HUD One").join("sessions"));
+        dirs.push(
+            PathBuf::from(appdata)
+                .join("Claude HUD One")
+                .join("sessions"),
+        );
     }
 
     if let Ok(current_dir) = env::current_dir() {
-        dirs.push(current_dir.join(".claude").join("bridge").join("state").join("sessions"));
+        dirs.push(
+            current_dir
+                .join(".claude")
+                .join("bridge")
+                .join("state")
+                .join("sessions"),
+        );
     }
 
     dirs
@@ -303,11 +352,21 @@ fn pending_intent_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
     if let Some(appdata) = env::var_os("APPDATA") {
-        dirs.push(PathBuf::from(appdata).join("Claude HUD One").join("pending-intents"));
+        dirs.push(
+            PathBuf::from(appdata)
+                .join("Claude HUD One")
+                .join("pending-intents"),
+        );
     }
 
     if let Ok(current_dir) = env::current_dir() {
-        dirs.push(current_dir.join(".claude").join("bridge").join("state").join("pending-intents"));
+        dirs.push(
+            current_dir
+                .join(".claude")
+                .join("bridge")
+                .join("state")
+                .join("pending-intents"),
+        );
     }
 
     dirs
@@ -321,24 +380,41 @@ fn safe_path_segment(value: &str) -> Option<String> {
         .collect::<Vec<_>>()
         .join("-")
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') { ch } else { '-' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
+                ch
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .chars()
         .take(160)
         .collect::<String>();
 
-    if safe.is_empty() { None } else { Some(safe) }
+    if safe.is_empty() {
+        None
+    } else {
+        Some(safe)
+    }
 }
 
 fn read_pending_intent_request(intent_id: &str) -> Option<serde_json::Value> {
     pending_intent_dirs()
         .into_iter()
         .map(|dir| dir.join("requests").join(format!("{intent_id}.json")))
-        .find_map(|path| fs::read_to_string(path).ok().and_then(|content| serde_json::from_str(&content).ok()))
+        .find_map(|path| {
+            fs::read_to_string(path)
+                .ok()
+                .and_then(|content| serde_json::from_str(&content).ok())
+        })
 }
 
-fn write_pending_intent_response(intent_id: &str, response: &serde_json::Value) -> Result<(), String> {
+fn write_pending_intent_response(
+    intent_id: &str,
+    response: &serde_json::Value,
+) -> Result<(), String> {
     let dirs = pending_intent_dirs();
     if dirs.is_empty() {
         return Err("No pending intent directory is available.".to_string());
