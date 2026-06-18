@@ -40,7 +40,7 @@ Dec27-Lee <lipengyue31@163.com>
 
 - 结论：已完成第一阶段 Phase 1。
 - 需求覆盖：已按报告路径开始执行桌面 HUD 修改，完成 CodeIsland 风格 Desktop HUD V2 视觉骨架；只做 Claude Code；Terminal HUD 保留且未改动；真实 blocking approval/question、Terminal jump 精确跳转按计划留到后续阶段。
-- 产物路径：`src/components/desktopHud/`；`src/app/App.tsx`；`src/styles.css`；工作记录 `\.claude/skills/work-journal/resources/records/2026-06-12-codeisland-desktop-hud-v2-implementation.md`。
+- 产物路径：`src/components/desktopHud/`；`src/app/App.tsx`；`src/styles.css`；工作记录 `local/work-journal/records/2026-06-12-codeisland-desktop-hud-v2-implementation.md`。
 - 验证情况：`npm run build` 通过；`npm run test:ui` 通过（6 passed）；`npm run tauri:build` 通过并生成 `src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`。
-- 索引维护：`.claude/skills/work-journal/resources/index.md` 已新增本记录；本轮新增的是代码组件目录，不是长期资料入口，`.claude/workspace-index.md` 无需因 `src/components/desktopHud/` 单独更新。
+- 索引维护：`local/work-journal/index.md` 已新增本记录；本轮新增的是代码组件目录，不是长期资料入口，`.claude/workspace-index.md` 无需因 `src/components/desktopHud/` 单独更新。
 - 风险：Phase 1 只是视觉和展示骨架，approval/question 目前仍未接真实 blocking response；Terminal jump 按钮目前是视觉占位，后续需实现 Windows TerminalActivator；需要继续做 Phase 2 配置迁移和设置页。

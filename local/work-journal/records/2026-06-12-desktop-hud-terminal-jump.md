@@ -42,5 +42,5 @@ Dec27-Lee <lipengyue31@163.com>
 - 安全边界：只打开 canonical cwd；不做模糊窗口标题匹配；不模拟键盘；不执行任意命令；不恢复 Windows Terminal tab/pane；找不到 cwd 或 wt.exe 失败时返回错误反馈，不假装成功。
 - 产物路径：`.claude/bridge/claude-status-bridge.mjs`；`src-tauri/resources/claude-status-bridge.mjs`；`src/app/types.ts`；`src-tauri/src/window/claude_status.rs`；`src/providers/claudeCodeSummary.ts`；`src-tauri/src/window/terminal_jump.rs`；`src-tauri/src/window/mod.rs`；`src-tauri/src/lib.rs`；`src/app/overlayBridge.ts`；`src/components/desktopHud/SessionCard.tsx`；`src/components/desktopHud/DesktopHudRoot.tsx`。
 - 验证情况：`npm run build` 通过；`npm run test:ui` 通过（6 passed）；`npm run tauri:build` 通过并生成 `src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`。
-- 索引维护：`.claude/skills/work-journal/resources/index.md` 已登记本记录；本轮未新增长期资料入口，`.claude/workspace-index.md` 无需因 Phase 5 额外更新。
+- 索引维护：`local/work-journal/index.md` 已登记本记录；本轮未新增长期资料入口，`.claude/workspace-index.md` 无需因 Phase 5 额外更新。
 - 后续可选：若要继续对标 CodeIsland，可进入可信窗口级 focus / Windows Terminal tab-pane 识别，或先做 Phase 4 blocking response 安全协议。

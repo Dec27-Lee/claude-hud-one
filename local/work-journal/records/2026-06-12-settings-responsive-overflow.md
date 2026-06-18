@@ -55,7 +55,7 @@
 ## 检查
 
 - 需求覆盖：第二轮 6 项均已覆盖：顶部固定、三卡片独立滚动、拖拽添加、组件库中英文混合、参数本地化、最大宽度对齐、诊断页移除；第三轮长按/拖动组件库无法拖拽的问题已改为 pointer/mouse 手势处理并覆盖测试；第四轮“删除选择添加”和“组件库隐藏已配置组件”已覆盖。
-- 产物路径：`src/components/settings/TerminalHudPanel.tsx`、`src/styles.css`、`tests/ui.spec.ts`、`.claude/skills/work-journal/resources/index.md`、本记录文件；另有之前按用户要求写入的 `CLAUDE.md` 打包规则仍在工作区变更中。
+- 产物路径：`src/components/settings/TerminalHudPanel.tsx`、`src/styles.css`、`tests/ui.spec.ts`、`local/work-journal/index.md`、本记录文件；另有之前按用户要求写入的 `CLAUDE.md` 打包规则仍在工作区变更中。
 - 验证情况：`npm run build` 通过；`npm run test:ui` 通过（6 passed）；`git diff --check` 无 whitespace 错误，仅有 LF/CRLF 提示；`npm run tauri:build` 通过。
 - 安装包：`src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`。
 - 风险：未额外启动真实 Tauri GUI 做人工目视微调；当前通过浏览器 UI smoke、响应式断言和 Tauri release 打包验证。

@@ -40,7 +40,7 @@
 ## 检查
 
 - 需求覆盖：已覆盖“点击应用后，除了启动悬浮窗，还需要直接打开设置页面”。
-- 产物路径：`src-tauri/src/lib.rs`；`src-tauri/src/main.rs`；`src-tauri/src/window/mod.rs`；`src-tauri/src/window/tray.rs`；`src-tauri/src/window/single_instance.rs`；工作记录 `records/2026-06-11-open-settings-on-launch.md`；索引 `.claude/skills/work-journal/resources/index.md`；安装包 `src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`。
+- 产物路径：`src-tauri/src/lib.rs`；`src-tauri/src/main.rs`；`src-tauri/src/window/mod.rs`；`src-tauri/src/window/tray.rs`；`src-tauri/src/window/single_instance.rs`；工作记录 `records/2026-06-11-open-settings-on-launch.md`；索引 `local/work-journal/index.md`；安装包 `src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`。
 - 验证情况：`npm run build` 通过；`cargo check --manifest-path src-tauri/Cargo.toml` 通过；`npm run tauri:build` 通过并生成 NSIS 安装包。
 - 风险：当前行为是每次应用进程启动、应用已运行时再次点击应用图标、托盘图标左键/双击都会打开设置页；如需仅首次启动打开，需要再加持久化开关。
 - 工作区索引：未新增长期入口，不需要更新 `.claude/workspace-index.md`。

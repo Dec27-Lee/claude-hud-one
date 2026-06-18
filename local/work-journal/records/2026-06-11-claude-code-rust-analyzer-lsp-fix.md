@@ -30,7 +30,7 @@
 ## 检查
 
 - 需求覆盖：已解释报错含义，并修复 `rust-analyzer-lsp` 启动失败的根因。
-- 产物路径：本记录文件；`.claude/skills/work-journal/resources/index.md` 已新增并完成本条记录索引。
+- 产物路径：本记录文件；`local/work-journal/index.md` 已新增并完成本条记录索引。
 - 验证情况：已验证 Rust Analyzer 可执行文件和 rustup 组件恢复正常；`claude doctor` 交互式复测需在当前 Claude Code 会话中执行 `/reload-plugins` 或重启后再跑 `/doctor`。
 - 风险：当前会话里的 LSP 已达到崩溃重试上限，可能需要 `/reload-plugins` 或重启 Claude Code 才会重新拉起 LSP。
 - 结论：已完成。

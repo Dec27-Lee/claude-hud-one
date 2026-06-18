@@ -1,3 +1,10 @@
+<!--
+ * @Description: 
+ * @LastEditors: 他们叫我跃总 Dec27-Lee
+ * @Date: 2026-06-11 15:55:00
+ * @LastEditTime: 2026-06-18 08:39:51
+ * @FilePath: \claude-hud-one\.claude\skills\work-journal\resources\records\2026-06-08-win11-claude-code-status-hud.md
+-->
 # 2026-06-08 Win11 Claude HUD One 产品基座与一期复刻
 
 ## 原始需求

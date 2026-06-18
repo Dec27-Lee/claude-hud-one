@@ -39,5 +39,5 @@ Dec27-Lee <lipengyue31@163.com>
 - 需求覆盖：已实现完成态卡片、完成后自动 peek、智能隐藏非关注 idle session；Terminal HUD 保持不变。
 - 产物路径：`src/components/desktopHud/CompletionCard.tsx`；`src/components/desktopHud/DesktopHudRoot.tsx`；`src/styles.css`。
 - 验证情况：`npm run build` 通过；`npm run test:ui` 通过（6 passed）；`npm run tauri:build` 通过并生成安装包。
-- 索引维护：`.claude/skills/work-journal/resources/index.md` 已登记本记录；本轮新增长期入口为代码组件，入口仍由 `src/app/App.tsx` / `src/components/desktopHud/` 归属现有工作区索引，无需额外更新 `.claude/workspace-index.md`。
+- 索引维护：`local/work-journal/index.md` 已登记本记录；本轮新增长期入口为代码组件，入口仍由 `src/app/App.tsx` / `src/components/desktopHud/` 归属现有工作区索引，无需额外更新 `.claude/workspace-index.md`。
 - 风险：completion card 只基于脱敏 session metadata 和 activity 转场，不读取 transcript、prompt、tool input 或 tool result；后续如做任务摘要，需要继续保持脱敏边界。

@@ -31,7 +31,7 @@ Dec27-Lee <lipengyue31@163.com>
 ## 进展
 
 - 2026-06-16：已创建本记录；当前 Git 身份为 `Dec27-Lee <lipengyue31@163.com>`。
-- 2026-06-16：已通过 `.claude/workspace-index.md` 和 `.claude/skills/work-journal/resources/index.md` 定位，只读取强相关历史记录：`2026-06-12-codeisland-source-level-desktop-hud-parity-pass.md`、`2026-06-12-desktop-hud-approval-question-protocol.md`、`2026-06-12-desktop-hud-terminal-jump.md`。
+- 2026-06-16：已通过 `.claude/workspace-index.md` 和 `local/work-journal/index.md` 定位，只读取强相关历史记录：`2026-06-12-codeisland-source-level-desktop-hud-parity-pass.md`、`2026-06-12-desktop-hud-approval-question-protocol.md`、`2026-06-12-desktop-hud-terminal-jump.md`。
 - 2026-06-16：完成 Phase 4 安全 intent 地基：bridge 为 `PreToolUse` approval 生成 `intentId`、`allowedIntents`、TTL 和私有 nonce request 文件；Tauri 新增 `resolve_claude_pending_intent`，校验 request、写 response 与 audit；hook 在 timeout 内等待 response，验证 nonce/TTL/session/action 后输出 `allow` / `deny`，否则 fail-safe `defer`。
 - 2026-06-16：同步更新 `.claude/bridge/claude-status-bridge.mjs` 与 `src-tauri/resources/claude-status-bridge.mjs`；项目 `.claude/settings.json` 的 `PreToolUse` hook timeout 调整为 30 秒，安装器侧 `claude_global.rs` 也为 PreToolUse 设置 30 秒并会修正既有 bridge hook timeout。
 - 2026-06-16：完成 Desktop HUD approval/question UI 接入：`PendingQueueSurface` 启用安全允许一次/拒绝按钮，`DesktopHudRoot` 调用 Tauri command 并显示提交状态；Question 增加自由输入框和 `answerIntent` 提交路径。由于当前 Claude Code `Notification` / `Stop` 不是通用 answer blocking 协议，Question 回写目前按安全 intent/audit 记录，不伪造键盘或剪贴板注入。

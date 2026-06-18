@@ -40,5 +40,5 @@ Dec27-Lee <lipengyue31@163.com>
 - 需求覆盖：已继续推进 Desktop HUD V2 配置迁移与设置页；实现 V2 schema、旧配置兼容、Settings 控制和 DesktopHudRoot 消费新 zones；Terminal HUD 配置和设置页未改动。
 - 产物路径：`src/hud/config.ts`；`src-tauri/src/window/settings.rs`；`src/components/settings/DesktopHudPanel.tsx`；`src/components/desktopHud/DesktopHudRoot.tsx`；`src/styles.css`。
 - 验证情况：`npm run build` 通过；`npm run test:ui` 通过（6 passed）；`npm run tauri:build` 通过并生成 `src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`。
-- 索引维护：`.claude/skills/work-journal/resources/index.md` 已登记本记录；本轮未新增长期资料入口，`.claude/workspace-index.md` 无需更新。
+- 索引维护：`local/work-journal/index.md` 已登记本记录；本轮未新增长期资料入口，`.claude/workspace-index.md` 无需更新。
 - 风险：Phase 2 仍未实现 approval/question 队列和真实 blocking response；Terminal jump 仍只有配置与视觉占位，后续进入 Phase 3/5。

@@ -1,6 +1,6 @@
 ---
 name: work-journal
-description: 当用户需要记录需求、继续历史事项、沉淀计划/进度、复盘过程、检查任务是否完成，或说“记录一下”“继续上次”“检查完成情况”“做复盘/总结”时使用。
+description: 工作日志：记录需求、续接历史、复盘进度、完成检查。
 version: 1.1.0
 ---
 
@@ -8,12 +8,18 @@ version: 1.1.0
 
 当前工作区的轻量工作日志技能：用于杂事、文档、临时任务和少量代码任务的需求记录、过程续接、完成检查。
 
+## 不触发场景
+
+纯 Git 操作不使用本技能：用户仅要求提交、推送、拉取、同步当前工作区或分支时，直接执行 Git 流程，不创建、不更新工作记录。
+
+只有用户明确要求记录、复盘或沉淀提交过程时，才进入 work-journal。
+
 ## 使用原则
 
 1. **遵守工作区规则**：使用和维护索引的规则只以根目录 `CLAUDE.md` 为准。
-2. **先读索引**：先读 `.claude/workspace-index.md`，再读 `.claude/skills/work-journal/resources/index.md`。
-3. **记录按需读取**：`.claude/skills/work-journal/resources/records/` 下的历史记录不能默认全量读取，只能根据 `.claude/skills/work-journal/resources/index.md` 命中的记录路径按需读取。
-4. **默认单文件**：多数任务只更新一个 `.claude/skills/work-journal/resources/records/YYYY-MM-DD-短标题.md`。
+2. **先读索引**：先读 `.claude/workspace-index.md`，再读 `local/work-journal/index.md`。
+3. **记录按需读取**：`local/work-journal/records/` 下的历史记录不能默认全量读取，只能根据 `local/work-journal/index.md` 命中的记录路径按需读取。
+4. **默认单文件**：多数任务只更新一个 `local/work-journal/records/YYYY-MM-DD-短标题.md`。
 5. **新需求默认新记录**：除非用户明确说继续历史事项，或索引显示强相关，否则不要把新需求追加到旧记录。
 6. **尊重只读意图**：用户明确要求“只读检查/只给建议/不要修改文件/不要落盘”时，不创建或更新记录，只回复检查结论。
 7. **完成前检查**：只有覆盖需求、产物明确、验证说明清楚，才能说“已完成”。
@@ -23,8 +29,8 @@ version: 1.1.0
 
 ### 1. 定位记录
 
-- 新需求：先读 `.claude/skills/work-journal/resources/index.md` 判断是否命中强相关记录；如果没有且任务需要跨轮追踪、复盘或落盘，再创建新记录并更新索引。
-- 继续任务：先读 `.claude/skills/work-journal/resources/index.md`，根据标题、关键词、状态、备注定位对应记录，只读取命中的 `.claude/skills/work-journal/resources/records/<文件名>.md`。
+- 新需求：先读 `local/work-journal/index.md` 判断是否命中强相关记录；如果没有且任务需要跨轮追踪、复盘或落盘，再创建新记录并更新索引。
+- 继续任务：先读 `local/work-journal/index.md`，根据标题、关键词、状态、备注定位对应记录，只读取命中的 `local/work-journal/records/<文件名>.md`。
 - 复盘/检查：如果是当前任务，读取当前记录；如果是历史任务，先用索引定位，不读取无关记录。
 - 只读请求：用户明确不希望修改文件或落盘时，只做只读检查，不创建、不更新 record，也不补写索引。
 
@@ -48,7 +54,7 @@ version: 1.1.0
 - 能测试的是否已测试？不能测试是否说明？
 - 是否还有待确认、风险或下一步？
 - 是否按 `CLAUDE.md` 判断过是否需要更新 `.claude/workspace-index.md`？
-- 如果读取了历史工作记录，是否是通过 `.claude/skills/work-journal/resources/index.md` 定位后按需读取？
+- 如果读取了历史工作记录，是否是通过 `local/work-journal/index.md` 定位后按需读取？
 
 结论只能是：`已完成` / `部分完成` / `未完成`。
 
@@ -103,7 +109,7 @@ version: 1.1.0
 - 需要比较多个方案、多个判断口径或多个风险视角。
 - 分析过程会明显膨胀主会话上下文，但最终只需要短结论写回记录。
 
-实现方式：主会话启动独立子代理，把 `thinking-brief`、允许读取的最小文件路径和输出格式交给子代理；子代理可按需读取 `clear-thinking` 技能入口和 `.claude/skills/clear-thinking/resources/` 下的必要资料，但不得全量读取 `records/`。
+实现方式：主会话启动独立子代理，把 `thinking-brief`、允许读取的最小文件路径和输出格式交给子代理；子代理可按需读取 `clear-thinking` 技能入口和 `.claude/skills/clear-thinking/resources/` 下的必要资料，但不得全量读取 `local/work-journal/records/`。
 
 若当前环境无法使用子代理，则在主会话只读取最小必要材料，压缩为短结论；不要为了模拟子代理而展开全量资料。
 
@@ -123,7 +129,7 @@ version: 1.1.0
 - 场景类型：新需求 / 继续历史 / 复盘检查 / Workflow 前置 / 简单任务
 - 用户原始请求：
 - 当前记录路径：
-- 命中历史记录：无 / records/xxx.md
+- 命中历史记录：无 / `local/work-journal/records/xxx.md`
 - 已知事实：最多 5 条
 - 当前目标：1 条
 - 硬约束：最多 5 条
@@ -135,7 +141,7 @@ version: 1.1.0
   4. 验收方式是什么？
   5. 是否需要 Workflow / 子代理 / 专业技能？
 - 输出限制：
-  - 不全量读取 `.claude/skills/work-journal/resources/records/`
+  - 不全量读取 `local/work-journal/records/`
   - 不输出长方法论
   - 返回可写入工作记录的 5-8 条摘要
 ```
@@ -143,7 +149,7 @@ version: 1.1.0
 不要默认传递：
 
 - 全量聊天记录。
-- `.claude/skills/work-journal/resources/index.md` 的无关内容。
+- `local/work-journal/index.md` 的无关内容。
 - 无关文件、无关背景材料。
 - 已经完成的长篇中间思考。
 

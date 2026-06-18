@@ -1,6 +1,6 @@
 # 工作区 Claude 规则
 
-Claude HUD One 是一款为 Windows 打造的 Claude Code 动态岛 HUD，将当前会话状态、工具调用、上下文用量与任务进展。默认用中文沟通，低风险本地操作可直接执行。
+这个仓库是杂事型工作区，文档整理、材料生成、临时验证和少量代码任务都会发生。默认用中文沟通，低风险本地操作可直接执行。
 
 ## 上下文读取顺序
 
@@ -14,17 +14,18 @@ Claude HUD One 是一款为 Windows 打造的 Claude Code 动态岛 HUD，将当
 
 历史记录采用两级索引，不能跳过索引直接读 `records/`：
 
-1. 先读 `.claude/workspace-index.md`，确认工作日志的二级索引入口是 `.claude/skills/work-journal/resources/index.md`。
-2. 再读 `.claude/skills/work-journal/resources/index.md`，根据日期、标题、状态、关键词/适用场景、备注判断是否命中历史记录。
-3. 只有命中时，才读取索引表中对应的 `.claude/skills/work-journal/resources/records/*.md`。
-4. 新需求默认和历史记录无关；除非用户明确说“继续/上次/之前那个”，或 `.claude/skills/work-journal/resources/index.md` 显示强相关，否则新建记录。
+1. 先读 `.claude/workspace-index.md`，确认工作日志的二级索引入口是 `local/work-journal/index.md`。
+2. 再读 `local/work-journal/index.md`，根据日期、标题、状态、关键词/适用场景、备注判断是否命中历史记录。
+3. 只有命中时，才读取索引表中对应的 `local/work-journal/records/*.md`。
+4. 新需求默认和历史记录无关；除非用户明确说“继续/上次/之前那个”，或 `local/work-journal/index.md` 显示强相关，否则新建记录。
 
 ## 工作日志
 
-- 当用户提出新需求、继续历史需求、要求记录沟通内容、要求检查完成情况，或任务会跨多轮推进时，优先使用 `.claude/skills/work-journal/SKILL.md`。
-- 工作记录统一落在 `.claude/skills/work-journal/resources/records/`，总索引在 `.claude/skills/work-journal/resources/index.md`。
-- `.claude/skills/work-journal/resources/records/` 下的历史记录必须按需访问：先读 `.claude/skills/work-journal/resources/index.md`，根据标题、关键词、状态、备注定位相关记录，只读取命中的记录文件。
-- 不要默认遍历或全量读取 `.claude/skills/work-journal/resources/records/`；后续需求和历史需求默认不相关，除非用户明确说“继续/上次/之前那个”，或索引显示强相关。
+- 当用户提出需要跨轮推进的新需求、继续历史需求、要求记录沟通内容、要求检查完成情况，或任务需要沉淀过程时，优先使用 `.claude/skills/work-journal/SKILL.md`。
+- 用户仅要求 Git 提交、推送、拉取、同步当前工作区或分支时，属于纯 Git 操作，不创建或更新工作记录；直接检查 Git 身份、状态、提交并推送，完成后汇报提交号和推送结果。
+- 工作记录统一落在 `local/work-journal/records/`，总索引在 `local/work-journal/index.md`。
+- `local/work-journal/records/` 下的历史记录必须按需访问：先读 `local/work-journal/index.md`，根据标题、关键词、状态、备注定位相关记录，只读取命中的记录文件。
+- 不要默认遍历或全量读取 `local/work-journal/records/`；后续需求和历史需求默认不相关，除非用户明确说“继续/上次/之前那个”，或索引显示强相关。
 - 新需求默认新建一条记录；只有确认与已有记录相关时，才追加到已有记录。
 - 用户明确要求“只读检查/只给建议/不要修改文件/不要落盘”时，不创建或更新工作记录；仅在回复中说明检查结论。
 - 轻任务只写一条记录；只有跨项目、长周期、强验证任务才升级为多文件工作台。
@@ -50,6 +51,7 @@ Claude HUD One 是一款为 Windows 打造的 Claude Code 动态岛 HUD，将当
 | 场景 | 默认处理方式 |
 | --- | --- |
 | 单点明确、低风险、无需跨轮追踪 | 主会话直接处理 |
+| 纯 Git 提交/推送/拉取/同步 | 主会话直接处理，不创建/更新工作记录 |
 | 需要记录、续接、复盘或完成检查 | 先用 `work-journal` 定位并判断是否创建/更新记录 |
 | 目标不清、多目标冲突、需要取舍判断 | 用 `clear-thinking` 输出短结论；需要多材料时交给子代理 |
 | 可拆成多个独立专项且并行收益明显 | 多个子代理并行，主会话汇总 |
@@ -59,8 +61,9 @@ Claude HUD One 是一款为 Windows 打造的 Claude Code 动态岛 HUD，将当
 ## Claude 技能目录结构
 
 - 所有技能相关文件统一放在 `.claude/skills/` 下，不再另建 `.claude/skill-materials/` 或 `.claude/work-journal/` 这类外部技能目录。
-- `.claude/skills/<skill-name>/SKILL.md` 是技能入口；该技能的配套资料、方法论、模板、检查清单、hooks、records 等放在 `.claude/skills/<skill-name>/resources/` 下。
-- 修改技能资料目录结构时，同步更新技能内引用、工作区索引、hook 配置和相关工作记录。
+- `.claude/skills/<skill-name>/SKILL.md` 是技能入口；该技能的配套资料、方法论、模板、检查清单、hooks 等放在 `.claude/skills/<skill-name>/resources/` 下。
+- 技能在当前工作区生成或维护的长期数据，统一放在 `local/<skill-name>/` 下；例如工作日志索引和记录放在 `local/work-journal/`。
+- 修改技能资料目录结构或技能生成数据入口时，同步更新技能内引用、工作区索引、hook 配置和相关工作记录。
 
 ## 工作区索引维护
 
@@ -69,7 +72,7 @@ Claude HUD One 是一款为 Windows 打造的 Claude Code 动态岛 HUD，将当
 - 发现某目录下更权威的 `README.md`、`INDEX.md`、`CLAUDE.md` 时，也应更新索引。
 - 临时产物、一次性脚本输出、普通中间文件不写入索引，避免索引变重。
 - 更新索引时，只写路径、用途和入口文件，不在索引文件中写使用方法或维护规则。
-- 历史工作记录的具体路径和描述不直接写进 `.claude/workspace-index.md`，而是写进二级索引 `.claude/skills/work-journal/resources/index.md`。
+- 历史工作记录的具体路径和描述不直接写进 `.claude/workspace-index.md`，而是写进二级索引 `local/work-journal/index.md`。
 
 ## 完成声明规则
 
@@ -78,9 +81,9 @@ Claude HUD One 是一款为 Windows 打造的 Claude Code 动态岛 HUD，将当
 1. 用户本轮要做的事项是否都覆盖。
 2. 文件修改或产物路径是否明确。
 3. 能验证的内容是否已验证；不能验证的原因是否说明。
-4. 当前工作区只要完成过代码文件修改，必须重新打安装包；默认使用 `npm run tauri:build`，若无法打包必须明确说明原因，不能把“已修改但未打包”说成“已完成”。如果只是需求讨论文档、工作流程文档，不需要打包。
-5. 是否需要更新 `.claude/workspace-index.md`；如果需要，是否已经更新。
-6. 是否需要读取历史工作记录；如果需要，是否只通过 `.claude/skills/work-journal/resources/index.md` 定位并按需读取。
-7. 未完成、待确认、风险点是否写清。
+4. 是否需要更新 `.claude/workspace-index.md`；如果需要，是否已经更新。
+5. 是否需要读取历史工作记录；如果需要，是否只通过 `local/work-journal/index.md` 定位并按需读取。
+6. 未完成、待确认、风险点是否写清。
+7. 当前工作区只要完成过代码文件修改，必须重新打安装包；默认使用 `npm run tauri:build`，若无法打包必须明确说明原因，不能把“已修改但未打包”说成“已完成”。如果只是需求讨论文档、工作流程文档，不需要打包。
 
 不要把“已修改但未验证/未按需打包”说成“已完成”。

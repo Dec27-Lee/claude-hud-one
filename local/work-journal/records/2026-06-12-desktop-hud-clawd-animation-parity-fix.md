@@ -39,5 +39,5 @@ Dec27-Lee <lipengyue31@163.com>
 - 需求覆盖：已承认并修正前一版“只是骨架，不是直接动画对标”的问题；Clawd 三态和面板展开/收起动画已按 CodeIsland 关键节奏重写。
 - 产物路径：`src/components/desktopHud/ClawdMascot.tsx`；`src/components/desktopHud/DesktopHudRoot.tsx`；`src/styles.css`。
 - 验证情况：`npm run build` 通过；`npm run test:ui` 通过（6 passed）；`npm run tauri:build` 通过并生成安装包。
-- 索引维护：`.claude/skills/work-journal/resources/index.md` 已登记本记录；未新增长期资料入口，`.claude/workspace-index.md` 无需额外更新。
+- 索引维护：`local/work-journal/index.md` 已登记本记录；未新增长期资料入口，`.claude/workspace-index.md` 无需额外更新。
 - 风险：当前是 React/CSS 复刻 CodeIsland Swift Canvas 动画的关键帧和节奏，不是逐像素截图回归；若要继续逼近“完全一样”，下一步应做截图对比和尺寸/间距/曲线微调。

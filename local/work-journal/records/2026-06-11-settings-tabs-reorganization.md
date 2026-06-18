@@ -43,7 +43,7 @@
 ## 检查
 
 - 需求覆盖：已覆盖 5 个顶层 tab 划分，并完成非终端 HUD 配置项合并重组；终端 HUD 内部保持不动。
-- 产物路径：`src/components/settings/SettingsView.tsx`；`src/styles.css`；`tests/ui.spec.ts`；工作记录 `records/2026-06-11-settings-tabs-reorganization.md`；索引 `.claude/skills/work-journal/resources/index.md`。
+- 产物路径：`src/components/settings/SettingsView.tsx`；`src/styles.css`；`tests/ui.spec.ts`；工作记录 `records/2026-06-11-settings-tabs-reorganization.md`；索引 `local/work-journal/index.md`。
 - 验证情况：`npm run build` 通过；`npm run test:ui` 通过（5 passed）；`npm run tauri:build` 通过；NSIS 静默安装退出码 `0`。
 - 风险：用户习惯旧“外观/位置/更新”tab 后需要适应新归类；当前用分组标题在桌面 HUD 与关于页中保留原配置语义。
 - 工作区索引：未新增长期入口，不需要更新 `.claude/workspace-index.md`。

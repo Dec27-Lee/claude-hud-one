@@ -19,7 +19,7 @@
 
 | 索引路径 | 管理范围 | 包含信息 | 下一步入口 |
 | --- | --- | --- | --- |
-| `.claude/skills/work-journal/resources/index.md` | 工作日志历史记录 | 每条记录的日期、标题、状态、关键词/适用场景、记录文件路径、备注 | 命中的 `.claude/skills/work-journal/resources/records/*.md` |
+| `local/work-journal/index.md` | 工作日志历史记录 | 每条记录的日期、标题、状态、关键词/适用场景、记录文件路径、备注 | 命中的 `local/work-journal/records/*.md` |
 
 ## 工作文件索引
 
@@ -45,8 +45,8 @@
 | `.claude/settings.json` | 项目级 hook/statusLine 配置 |
 | `.claude/bridge/claude-status-bridge.mjs` | Claude Code statusLine/hook 脱敏状态桥脚本 |
 | `.claude/skills/work-journal/SKILL.md` | 工作日志技能入口 |
-| `.claude/skills/work-journal/resources/index.md` | 工作日志历史记录二级索引，记录每条历史记录的路径和适用场景 |
+| `local/work-journal/index.md` | 工作日志历史记录二级索引，记录每条历史记录的路径和适用场景 |
 | `.claude/skills/work-journal/resources/hooks/reminder.py` | 工作日志提醒 hook |
-| `.claude/skills/work-journal/resources/records/` | 需求、任务、复盘记录文件存放目录；具体记录路径见 `.claude/skills/work-journal/resources/index.md` |
+| `local/work-journal/records/` | 需求、任务、复盘记录文件存放目录；具体记录路径见 `local/work-journal/index.md` |
 | `.claude/skills/clear-thinking/SKILL.md` | 思考方法论技能入口；复杂判断、规划、复盘前按需使用 |
 | `.claude/skills/clear-thinking/resources/` | clear-thinking 运行资料目录；路由器、微技能索引、分类微技能目录、检查清单 |

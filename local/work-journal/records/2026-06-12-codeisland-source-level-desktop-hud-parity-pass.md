@@ -27,7 +27,7 @@ Dec27-Lee <lipengyue31@163.com>
 ## 进展
 
 - 2026-06-12：已创建本记录；当前 Git 身份为 `Dec27-Lee <lipengyue31@163.com>`。
-- 2026-06-12：已按技能流程先读取 `.claude/workspace-index.md` 和 `.claude/skills/work-journal/resources/index.md`；没有全量读取 records。
+- 2026-06-12：已按技能流程先读取 `.claude/workspace-index.md` 和 `local/work-journal/index.md`；没有全量读取 records。
 - 2026-06-12：用户已明确要求按 work-journal 工作流程执行；此前尝试直接并行分析被中断，因此先补齐记录与索引，再继续实现。
 - 2026-06-12：完成第一轮源码级 parity pass：`DesktopHudRoot.tsx` 从旧 Usage/Cost/Overview dashboard 改为 CodeIsland 式单一 surface 状态机，按 `approvalCard > questionCard > completionCard > sessionList > collapsed` 展示；主面板改为黑色 notch surface、虚线 divider、工具栏和 session surface。
 - 2026-06-12：重写 `PendingQueueSurface.tsx` 为 CodeIsland `ApprovalBar` / `QuestionBar` 结构；显示 `!` / `?`、项目、过期信息、1/N 队列位置、安全 choices 占位、pixel buttons；真实 Deny/Allow/Always/Submit 仍保持 disabled，只允许 HUD-local Dismiss/Skip 与 Terminal。

@@ -41,5 +41,5 @@ Dec27-Lee <lipengyue31@163.com>
 - 需求覆盖：已继续推进 approval/question 队列展示；Desktop HUD 能从 Claude Code hook/status bridge 读取 pendingQueue 并显示脱敏 approval/question 提醒；未实现真实权限回写，符合本阶段安全边界。
 - 产物路径：`.claude/bridge/claude-status-bridge.mjs`；`src-tauri/resources/claude-status-bridge.mjs`；`src/app/types.ts`；`src-tauri/src/window/claude_status.rs`；`src/providers/claudeCodeSummary.ts`；`src/components/desktopHud/PendingQueueSurface.tsx`；`src/components/desktopHud/DesktopHudRoot.tsx`；`src/styles.css`。
 - 验证情况：`npm run build` 通过；`npm run test:ui` 通过（6 passed）；`npm run tauri:build` 通过并生成 `src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`。
-- 索引维护：`.claude/skills/work-journal/resources/index.md` 已登记本记录；本轮未新增长期资料入口，`.claude/workspace-index.md` 无需更新。
+- 索引维护：`local/work-journal/index.md` 已登记本记录；本轮未新增长期资料入口，`.claude/workspace-index.md` 无需更新。
 - 风险：此阶段仍只是 HUD 安全提醒队列，不会真正响应 Claude Code permission/question；后续若做 blocking response，必须单独设计 nonce、session binding、TTL、来源校验、审计日志和 fail-safe。
