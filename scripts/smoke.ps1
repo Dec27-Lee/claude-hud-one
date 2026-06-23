@@ -15,22 +15,23 @@ function Invoke-Step {
 }
 
 Invoke-Step "Version consistency" { npm run check:version }
+Invoke-Step "Protocol contract" { npm run test:protocol }
 Invoke-Step "Frontend build" { npm run build }
 Invoke-Step "Rust check" { cargo check --manifest-path "src-tauri\Cargo.toml" -j 1 }
 Invoke-Step "Rust usage/cost tests" { npm run test:rust }
+Invoke-Step "Bridge tests" { npm run test:bridge }
+Invoke-Step "Mobile security tests" { npm run test:security }
+Invoke-Step "Native bridge build" { npm run build:bridge }
 Invoke-Step "UI screenshots" { npm run test:ui }
 Invoke-Step "Tauri release build" { npm run tauri:build }
 Invoke-Step "Installer artifacts" {
-  $artifacts = @(
-    "src-tauri\target\release\bundle\nsis\Claude HUD One_0.1.0_x64-setup.exe"
-  )
+  $artifacts = @(Get-ChildItem "src-tauri\target\release\bundle\nsis\Claude HUD One_*_x64-setup.exe" -ErrorAction SilentlyContinue)
+  if ($artifacts.Count -lt 1) {
+    throw "Installer artifact not found under src-tauri\target\release\bundle\nsis."
+  }
 
-  foreach ($artifact in $artifacts) {
-    if (-not (Test-Path $artifact)) {
-      throw "Installer artifact not found: $artifact"
-    }
-
-    $item = Get-Item $artifact
+  foreach ($item in $artifacts) {
+    $artifact = $item.FullName
     if ($item.Length -le 0) {
       throw "Installer artifact is empty: $artifact"
     }

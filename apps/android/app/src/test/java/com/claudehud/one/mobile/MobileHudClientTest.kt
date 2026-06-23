@@ -1,5 +1,6 @@
 package com.claudehud.one.mobile
 
+import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -63,6 +64,39 @@ class MobileHudClientTest {
         assertEquals("https://192.168.1.23:27431/snapshot?deviceId=device_fixture", request.url.toString())
         assertFalse(request.url.toString().contains("token="))
         assertFalse(request.url.toString().contains("fp="))
+    }
+
+    @Test
+    fun signedIntentRequestUsesHeadersWithoutQuerySecrets() {
+        val config = MobileHudConnectionConfig(
+            host = "192.168.1.23",
+            port = 27431,
+            deviceId = "device_fixture",
+            spkiFingerprint = "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        )
+        val bodyJson = MobileHudJson.encodeToString(
+            MobileHudPendingIntentResolutionRequest(
+                intentId = "intent_fixture",
+                action = "dismiss",
+            ),
+        )
+        val request = buildSignedMobileHudIntentRequest(
+            config = config,
+            bodyJson = bodyJson,
+            signPayloadBase64 = { payload -> "signature:${payload.size}" },
+            nonce = "nonce_fixture",
+            timestampMs = 1_000,
+            ttlMs = 60_000,
+            idempotencyKey = "idem_fixture",
+        )
+
+        assertEquals("https://192.168.1.23:27431/intent/resolve", request.url.toString())
+        assertEquals("device_fixture", request.header("x-claude-hud-device-id"))
+        assertEquals("nonce_fixture", request.header("x-claude-hud-nonce"))
+        assertEquals("idem_fixture", request.header("x-claude-hud-idempotency-key"))
+        assertTrue(request.header("x-claude-hud-body-sha256")!!.matches(Regex("[0-9a-f]{64}")))
+        assertFalse(request.url.toString().contains("nonce="))
+        assertFalse(request.url.toString().contains("signature="))
     }
 
     @Test

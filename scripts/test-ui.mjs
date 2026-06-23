@@ -132,7 +132,16 @@ try {
   await prewarmVite()
   if (serverExited) throw new Error('Vite dev server exited before Playwright started.')
 
-  const playwrightArgs = ['playwright', 'test', ...process.argv.slice(2)]
+  const userArgs = process.argv.slice(2)
+  const hasWorkersArg = userArgs.some((arg) => arg === '--workers' || arg.startsWith('--workers=') || arg === '-j')
+  const hasTimeoutArg = userArgs.some((arg) => arg === '--timeout' || arg.startsWith('--timeout='))
+  const playwrightArgs = [
+    'playwright',
+    'test',
+    ...(hasWorkersArg ? [] : ['--workers=1']),
+    ...(hasTimeoutArg ? [] : ['--timeout=60000']),
+    ...userArgs,
+  ]
   const exitCode = await runCommand('npx', playwrightArgs, {
     env: { ...process.env, CLAUDE_HUD_ONE_EXTERNAL_SERVER: '1' },
   })

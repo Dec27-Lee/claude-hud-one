@@ -1,0 +1,15 @@
+{
+  "hook_event_name": "PreToolUse",
+  "session_id": "fixture-session-001",
+  "session_name": "Fixture Session",
+  "transcript_path": "C:/Users/Yue/.claude/projects/fixture-session.jsonl",
+  "cwd": "E:/Develop_E/claude-hud-one",
+  "workspace": {
+    "project_dir": "E:/Develop_E/claude-hud-one"
+  },
+  "tool_name": "Bash",
+  "permission_mode": "default",
+  "tool_input": {
+    "command": "SECRET_COMMAND_ARGS_SHOULD_NOT_LEAK"
+  }
+}

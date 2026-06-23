@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "Notification",
+  "session_id": "fixture-session-001",
+  "session_name": "Fixture Session",
+  "transcript_path": "C:/Users/Yue/.claude/projects/fixture-session.jsonl",
+  "cwd": "E:/Develop_E/claude-hud-one",
+  "workspace": {
+    "project_dir": "E:/Develop_E/claude-hud-one"
+  },
+  "message": "SECRET_NOTIFICATION_TEXT_SHOULD_NOT_LEAK"
+}

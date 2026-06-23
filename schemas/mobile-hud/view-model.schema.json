@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://claude-hud-one.local/schemas/mobile-hud/view-model.schema.json",
+  "title": "Mobile HUD View Model",
+  "type": "object",
+  "required": [
+    "protocolVersion",
+    "snapshotVersion",
+    "snapshotId",
+    "generatedAt",
+    "displayMode",
+    "privacyLevel",
+    "summary",
+    "displayPolicy",
+    "capsule",
+    "sessions",
+    "attention",
+    "notificationEvents"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "protocolVersion": { "type": "integer", "const": 1 },
+    "snapshotVersion": { "type": "integer", "minimum": 0 },
+    "snapshotId": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "displayMode": { "type": "string", "minLength": 1 },
+    "privacyLevel": { "type": "string", "minLength": 1 },
+    "summary": {
+      "type": "object",
+      "required": ["status", "statusText", "activeSessionCount", "attentionCount", "notificationCount"],
+      "additionalProperties": true,
+      "properties": {
+        "status": { "type": "string" },
+        "statusText": { "type": "string" },
+        "activeSessionCount": { "type": "integer", "minimum": 0 },
+        "attentionCount": { "type": "integer", "minimum": 0 },
+        "notificationCount": { "type": "integer", "minimum": 0 },
+        "modelLabel": { "type": "string" },
+        "projectLabel": { "type": "string" }
+      }
+    },
+    "displayPolicy": {
+      "type": "object",
+      "required": ["visibleItems", "hiddenByDesktopConfig", "terminalJump", "approvalActions", "questionActions", "notificationsEnabled", "privacyNote"],
+      "additionalProperties": true,
+      "properties": {
+        "visibleItems": { "type": "array", "items": { "type": "string" } },
+        "hiddenByDesktopConfig": { "type": "array", "items": { "type": "string" } },
+        "terminalJump": { "type": "boolean", "const": false },
+        "approvalActions": { "type": "boolean", "const": false },
+        "questionActions": { "type": "boolean", "const": false },
+        "notificationsEnabled": { "type": "boolean" },
+        "privacyNote": { "type": "string", "minLength": 1 }
+      }
+    },
+    "capsule": {
+      "type": "object",
+      "required": ["mascot", "state", "title", "statusText", "ticker"],
+      "additionalProperties": true,
+      "properties": {
+        "mascot": { "type": "string" },
+        "state": { "type": "string" },
+        "title": { "type": "string" },
+        "statusText": { "type": "string" },
+        "ticker": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "value"],
+            "additionalProperties": true,
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "value": { "type": "string" },
+              "emphasis": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sessionRef", "sessionName", "projectLabel", "activity", "statusText", "updatedAt", "privacyNote"],
+        "additionalProperties": true,
+        "properties": {
+          "sessionRef": { "type": "string" },
+          "sessionName": { "type": "string" },
+          "projectLabel": { "type": "string" },
+          "activity": { "type": "string" },
+          "statusText": { "type": "string" },
+          "updatedAt": { "type": "string" },
+          "privacyNote": { "type": "string" }
+        }
+      }
+    },
+    "attention": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["itemRef", "sessionRef", "kind", "status", "title", "createdAt", "actionState", "privacyNote"],
+        "additionalProperties": true,
+        "properties": {
+          "itemRef": { "type": "string" },
+          "sessionRef": { "type": "string" },
+          "kind": { "type": "string" },
+          "status": { "type": "string" },
+          "title": { "type": "string" },
+          "summary": { "type": "string" },
+          "toolName": { "type": "string" },
+          "createdAt": { "type": "string" },
+          "expiresAt": { "type": "string" },
+          "actionState": { "type": "string" },
+          "privacyNote": { "type": "string" }
+        }
+      }
+    },
+    "completion": {
+      "type": "object",
+      "required": ["sessionRef", "title", "body", "completedAt"],
+      "additionalProperties": true
+    },
+    "notificationEvents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["eventId", "dedupeKey", "collapseKey", "kind", "sensitivity", "title", "body", "createdAt", "source"],
+        "additionalProperties": true,
+        "properties": {
+          "eventId": { "type": "string" },
+          "dedupeKey": { "type": "string" },
+          "collapseKey": { "type": "string" },
+          "kind": { "type": "string" },
+          "sensitivity": { "type": "string", "const": "low" },
+          "title": { "type": "string" },
+          "body": { "type": "string" },
+          "createdAt": { "type": "string" },
+          "source": { "type": "string" },
+          "targetSessionRef": { "type": "string" }
+        }
+      }
+    }
+  }
+}

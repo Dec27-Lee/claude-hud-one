@@ -1,17 +1,46 @@
 package com.claudehud.one.mobile
 
 import java.io.File
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MobileHudFixtureTest {
+    private val repoRoot: File
+        get() = File(System.getProperty("repoRoot") ?: error("repoRoot system property is required"))
+
     private val fixtureDir: File
-        get() {
-            val repoRoot = System.getProperty("repoRoot") ?: error("repoRoot system property is required")
-            return File(repoRoot, "schemas/mobile-hud/fixtures")
-        }
+        get() = File(repoRoot, "schemas/mobile-hud/fixtures")
+
+    private val protocolFile: File
+        get() = File(repoRoot, "schemas/mobile-hud/protocol.json")
+
+    @Test
+    fun protocolMetadataKeepsMobileV1ReadOnlyAndLowSensitive() {
+        val protocol = MobileHudJson.parseToJsonElement(protocolFile.readText()).jsonObject
+        val privacy = protocol.getValue("privacy").jsonObject
+        val displayPolicy = protocol.getValue("displayPolicy").jsonObject
+        val security = protocol.getValue("security").jsonObject
+
+        assertEquals(MobileHudProtocol.PROTOCOL_VERSION, protocol.getValue("protocolVersion").jsonPrimitive.int)
+        assertEquals(MobileHudProtocol.TRUSTED_VIEW_PRIVACY_LEVEL, privacy.getValue("trustedViewPrivacyLevel").jsonPrimitive.content)
+        assertEquals(MobileHudProtocol.NOTIFICATION_SENSITIVITY, privacy.getValue("notificationSensitivity").jsonPrimitive.content)
+        assertEquals(MobileHudProtocol.MOBILE_EXECUTION_ROLE, privacy.getValue("mobileExecutionRole").jsonPrimitive.content)
+        assertEquals(MobileHudProtocol.TRANSPORT, security.getValue("transport").jsonPrimitive.content)
+        assertFalse(MobileHudProtocol.TERMINAL_JUMP)
+        assertFalse(MobileHudProtocol.APPROVAL_ACTIONS)
+        assertFalse(MobileHudProtocol.QUESTION_ACTIONS)
+        assertFalse(MobileHudProtocol.DEVICE_ID_IS_CREDENTIAL)
+        assertFalse(displayPolicy.getValue("terminalJump").jsonPrimitive.boolean)
+        assertFalse(displayPolicy.getValue("approvalActions").jsonPrimitive.boolean)
+        assertFalse(displayPolicy.getValue("questionActions").jsonPrimitive.boolean)
+        assertFalse(security.getValue("deviceIdIsCredential").jsonPrimitive.boolean)
+    }
 
     @Test
     fun parsesAllContractFixtures() {
@@ -53,19 +82,7 @@ class MobileHudFixtureTest {
 
     @Test
     fun fixtureJsonDoesNotContainSensitiveKeys() {
-        val sensitiveKeys = listOf(
-            "\"transcriptPath\"",
-            "\"projectDir\"",
-            "\"cwd\"",
-            "\"terminal\"",
-            "\"intentId\"",
-            "\"allowedIntents\"",
-            "\"nonce\"",
-            "\"rawInput\"",
-            "\"rawOutput\"",
-            "\"toolInput\"",
-            "\"toolResult\"",
-        )
+        val sensitiveKeys = MobileHudProtocol.DENIED_JSON_KEYS.map { "\"$it\"" }
         fixtureDir.listFiles { file -> file.extension == "json" }.orEmpty().forEach { file ->
             val content = file.readText()
             sensitiveKeys.forEach { key ->

@@ -1,0 +1,31 @@
+{
+  "name": "mobile-hud",
+  "protocolVersion": 1,
+  "schemaVersion": 1,
+  "canonicalDirectory": "schemas/mobile-hud",
+  "description": "Sanitized read-only Mobile HUD protocol for Claude HUD One companion clients.",
+  "compatibility": {
+    "unknownFieldPolicy": "ignore",
+    "unknownEnumPolicy": "treatAsString",
+    "breakingChangePolicy": "increaseProtocolVersion",
+    "additiveChangePolicy": "optionalFieldsOnly"
+  },
+  "privacy": {
+    "trustedViewPrivacyLevel": "trustedAppView",
+    "notificationSensitivity": "low",
+    "mobileExecutionRole": "controlPlaneOnly",
+    "rawTranscriptPolicy": "pcOnly",
+    "rawToolDataPolicy": "pcOnly"
+  },
+  "displayPolicy": {
+    "terminalJump": false,
+    "approvalActions": false,
+    "questionActions": false
+  },
+  "security": {
+    "transport": "wssSpkiPinning",
+    "deviceIdentity": "pairedDevicePublicKey",
+    "intentAuth": "signedIntentWithNonceTtlBodyHash",
+    "deviceIdIsCredential": false
+  }
+}

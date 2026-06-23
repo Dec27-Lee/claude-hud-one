@@ -1,3 +1,6 @@
+pub mod hud_bridge;
+pub mod hud_core;
+pub mod local_runtime;
 mod window;
 
 use tauri::Manager;
@@ -348,7 +351,9 @@ fn save_app_settings(
 ) -> Result<AppSettings, String> {
     let saved = window::settings::save_app_settings(settings)?;
     if let Some(context_window_size) = terminal_context_window_size_override(&saved) {
-        let _ = window::claude_global::set_context_window_size_env(context_window_size);
+        if window::claude_global::global_bridge_status().status_line_installed {
+            let _ = window::claude_global::set_context_window_size_env(context_window_size);
+        }
     }
     let _ = runtime.reconcile(saved.clone());
     Ok(saved)

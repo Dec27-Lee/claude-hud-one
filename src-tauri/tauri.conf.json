@@ -5,7 +5,7 @@
   "identifier": "com.dec27.claude-hud-one",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && npm run build:bridge",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -55,7 +55,7 @@
     "resources": {
       "resources/cleanup-claude-hud-one.ps1": "resources/cleanup-claude-hud-one.ps1",
       "resources/install-claude-hud-one-bridge.ps1": "resources/install-claude-hud-one-bridge.ps1",
-      "resources/claude-status-bridge.mjs": "resources/claude-status-bridge.mjs"
+      "resources/hud-bridge.exe": "resources/hud-bridge.exe"
     },
     "icon": ["icons/icon.ico"],
     "publisher": "Dec27-Lee",

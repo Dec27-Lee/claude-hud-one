@@ -7,73 +7,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/bridge/claude-status-bridge.mjs --hook",
-            "timeout": 2
-          },
-          {
-            "type": "command",
             "command": "python .claude/skills/work-journal/resources/hooks/reminder.py",
             "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node .claude/bridge/claude-status-bridge.mjs --hook",
-            "timeout": 30
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node .claude/bridge/claude-status-bridge.mjs --hook",
-            "timeout": 2
-          }
-        ]
-      }
-    ],
-    "Notification": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node .claude/bridge/claude-status-bridge.mjs --hook",
-            "timeout": 2
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node .claude/bridge/claude-status-bridge.mjs --hook",
-            "timeout": 2
-          }
-        ]
-      }
-    ],
-    "StopFailure": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node .claude/bridge/claude-status-bridge.mjs --hook",
-            "timeout": 2
           }
         ]
       }
@@ -82,11 +17,6 @@
       {
         "matcher": "",
         "hooks": [
-          {
-            "type": "command",
-            "command": "node .claude/bridge/claude-status-bridge.mjs --hook",
-            "timeout": 2
-          },
           {
             "type": "command",
             "command": "python .claude/skills/work-journal/resources/hooks/reminder.py precompact",

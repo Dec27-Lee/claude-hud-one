@@ -45,6 +45,7 @@ pub struct MobileHudDeviceRecord {
     pub device_id: String,
     pub device_label: String,
     pub public_key_hash: String,
+    pub public_key_der_b64: Option<String>,
     pub approved: bool,
     pub revoked: bool,
     pub registered_at: String,
@@ -193,12 +194,14 @@ pub fn claim_pairing_device(
     }
 
     let device_label = sanitize_device_label(request.device_label.as_deref());
-    let public_key_hash = hash_secret(request.device_public_key.trim());
+    let public_key_der_b64 = request.device_public_key.trim().to_string();
+    let public_key_hash = hash_secret(&public_key_der_b64);
     let requested_approval = !pending.require_pc_confirmation;
     let (device_id, approved) = upsert_device_record(
         &mut registry,
         device_label.clone(),
         public_key_hash,
+        Some(public_key_der_b64),
         requested_approval,
         now.clone(),
     );
@@ -212,7 +215,7 @@ pub fn claim_pairing_device(
         device_id,
         device_label,
         approved,
-        privacy_note: "Pairing claim stores only hashes of one-time token and device public key; raw pairing secrets are not persisted.".to_string(),
+        privacy_note: "Pairing claim stores a one-time token hash and the device public key needed for future signature verification; private keys and raw pairing secrets are not persisted.".to_string(),
     })
 }
 
@@ -220,6 +223,7 @@ fn upsert_device_record(
     registry: &mut MobileHudDeviceRegistry,
     device_label: String,
     public_key_hash: String,
+    public_key_der_b64: Option<String>,
     requested_approval: bool,
     now: String,
 ) -> (String, bool) {
@@ -229,6 +233,9 @@ fn upsert_device_record(
         .find(|device| device.public_key_hash == public_key_hash)
     {
         device.device_label = device_label;
+        if public_key_der_b64.is_some() {
+            device.public_key_der_b64 = public_key_der_b64;
+        }
         device.approved = if device.revoked {
             requested_approval
         } else {
@@ -244,6 +251,7 @@ fn upsert_device_record(
         device_id: device_id.clone(),
         device_label,
         public_key_hash,
+        public_key_der_b64,
         approved: requested_approval,
         revoked: false,
         registered_at: now,
@@ -253,13 +261,17 @@ fn upsert_device_record(
 }
 
 pub fn is_device_authorized(device_id: &str) -> bool {
+    authorized_device_record(device_id).is_some()
+}
+
+pub fn authorized_device_record(device_id: &str) -> Option<MobileHudDeviceRecord> {
     if device_id.trim().is_empty() {
-        return false;
+        return None;
     }
     load_device_registry()
         .devices
-        .iter()
-        .any(|device| device.device_id == device_id && device.approved && !device.revoked)
+        .into_iter()
+        .find(|device| device.device_id == device_id && device.approved && !device.revoked)
 }
 
 pub fn approve_device(device_id: &str) -> Result<MobileHudDeviceRegistry, String> {
@@ -420,6 +432,7 @@ mod tests {
             &mut registry,
             "Yue Phone".to_string(),
             public_key_hash.clone(),
+            Some("phone-public-key".to_string()),
             false,
             "2026-06-18T08:00:00Z".to_string(),
         );
@@ -427,6 +440,7 @@ mod tests {
             &mut registry,
             "Yue Phone Again".to_string(),
             public_key_hash,
+            Some("phone-public-key-rotated-label".to_string()),
             true,
             "2026-06-18T08:01:00Z".to_string(),
         );
@@ -450,6 +464,7 @@ mod tests {
             &mut registry,
             "Yue Phone".to_string(),
             public_key_hash.clone(),
+            Some("phone-public-key".to_string()),
             true,
             "2026-06-18T08:00:00Z".to_string(),
         );
@@ -459,6 +474,7 @@ mod tests {
             &mut registry,
             "Yue Phone".to_string(),
             public_key_hash,
+            Some("phone-public-key".to_string()),
             false,
             "2026-06-18T08:02:00Z".to_string(),
         );

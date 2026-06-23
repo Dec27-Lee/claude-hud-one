@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/skills/work-journal/resources/hooks/reminder.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/skills/work-journal/resources/hooks/reminder.py precompact",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

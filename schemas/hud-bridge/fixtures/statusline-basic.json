@@ -1,0 +1,57 @@
+{
+  "session_id": "fixture-session-001",
+  "session_name": "Fixture Session",
+  "transcript_path": "C:/Users/Yue/.claude/projects/fixture-session.jsonl",
+  "cwd": "E:/Develop_E/claude-hud-one",
+  "workspace": {
+    "current_dir": "E:/Develop_E/claude-hud-one",
+    "project_dir": "E:/Develop_E/claude-hud-one",
+    "added_dirs": [
+      "E:/Develop_E/claude-hud-one/apps/android",
+      "E:/Develop_E/claude-hud-one/src-tauri"
+    ]
+  },
+  "model": {
+    "id": "claude-opus-4-8",
+    "display_name": "Claude Opus 4.8"
+  },
+  "version": "1.0.0-fixture",
+  "output_style": {
+    "name": "default"
+  },
+  "context_window": {
+    "context_window_size": 200000,
+    "used_percentage": 42,
+    "remaining_percentage": 58,
+    "current_usage": {
+      "input_tokens": 12000,
+      "cache_creation_input_tokens": 3000,
+      "cache_read_input_tokens": 5000
+    }
+  },
+  "cost": {
+    "total_cost_usd": 1.25,
+    "total_duration_ms": 120000,
+    "total_api_duration_ms": 90000,
+    "total_lines_added": 10,
+    "total_lines_removed": 2
+  },
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 31,
+      "resets_at": "2026-06-23T12:00:00Z"
+    },
+    "seven_day": {
+      "used_percentage": 12,
+      "resets_at": "2026-06-24T00:00:00Z"
+    }
+  },
+  "permission_mode": "default",
+  "tokens": {
+    "input_tokens": 12000,
+    "output_tokens": 1800,
+    "cache_creation_input_tokens": 3000,
+    "cache_read_input_tokens": 5000
+  },
+  "status_text": "Claude Code active"
+}

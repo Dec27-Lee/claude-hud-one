@@ -35,6 +35,9 @@ jobs:
       - name: Check version consistency
         run: npm run check:version
 
+      - name: Check Mobile HUD protocol
+        run: npm run test:protocol
+
       - name: Build frontend
         run: npm run build
 
@@ -43,6 +46,15 @@ jobs:
 
       - name: Run Rust usage/cost tests
         run: npm run test:rust
+
+      - name: Run bridge tests
+        run: npm run test:bridge
+
+      - name: Run mobile security tests
+        run: npm run test:security
+
+      - name: Build native bridge
+        run: npm run build:bridge
 
       - name: Run UI smoke screenshots
         run: npm run test:ui

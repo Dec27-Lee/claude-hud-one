@@ -1,0 +1,125 @@
+# Claude HUD One 架构改造执行跟踪计划
+
+- 日期：2026-06-22
+- 执行目标：按“Rust HUD Core + Local Runtime + native hud-bridge + Tauri/React Desktop + 原生移动端 + schema-first protocol”的长期路线，自主推进架构改造并自主验收。
+- 跟踪方式：本报告记录阶段路线；会话任务列表跟踪当前执行状态；工作日志记录完成检查。
+
+---
+
+## 当前执行进展
+
+- Phase 1A：已完成，协议锚点、Rust 分层骨架、TS 类型抽离、Android contract 补充和 UI 验收稳定性已落地。
+- Phase 1B：已完成第一轮，`protocol.json` + privacy denylist 已生成 TypeScript / Kotlin / Swift 协议常量，并纳入 `npm run test:protocol` stale check。
+- Phase 2：已推进到纯 Rust bridge 第一轮最终化，安装包随包携带 native `hud-bridge.exe`，installer 和 app-start repair 只生成 native 命令入口；`hud-bridge.exe` 默认不再委托 Node bridge，已由 Rust 直接完成 statusLine/hooks stdin 解析、脱敏状态写入、Terminal HUD 渲染、pending intent request 写入和 PreToolUse allow/deny/defer response；`--emit-json` Rust 脱敏事件 smoke 保留。
+- Phase 3：已完成移动 signed intent runtime 第一轮，pairing registry 持久化设备公钥，`/intent/resolve` 入口强制设备已批准、P-256 ECDSA 签名、TTL、bodyHash、idempotencyKey 和 replay cache 校验，再委托本地 pending intent resolver。
+- Android 自动验收：已恢复，本机 `scripts/android-gradle.ps1` 可写入/复用 `apps/android/local.properties`，`npm run test:android`、`npm run lint:android`、`npm run build:android` 均已通过。
+- 最终打包：`npm run tauri:build` 已通过，安装包为 `src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`；纯 Rust bridge + Terminal HUD 颜色/完整展示 + 颜色配置页布局 + hash-versioned bridge 安装修复后重打包 SHA256 为 `C4B04E0B40BE8EC5F503F0A06B44FFBCA8A0D80B7434E4C6782046CEB391C008`。
+- 2026-06-23 双线收口进展：旧 Node bridge 生产残留已清理，项目级 Claude/Codex hooks 不再调用 `.claude/bridge/claude-status-bridge.mjs`，Tauri resources 不再保留 `claude-status-bridge.mjs`；`src-tauri` 中仅保留带注释的 legacy command 识别，用于安装/修复/卸载时替换旧 settings。
+- Local Runtime audit 基础已落地：新增 `src-tauri/src/local_runtime/audit.rs` 和 SQLite `audit_events` 单表，bridge parse/process、pending intent 创建/决策、Mobile pairing/intent 校验结果均以低敏 best-effort 事件写入，默认路径为 `%APPDATA%/Claude HUD One/audit/audit.sqlite3`。
+- macOS/iOS/Relay 路线已更新为后续阶段：macOS 先补 platform adapter 与 Tauri shell 复用；iOS 只做原生控制面；Relay 只做 rendezvous、低敏中继和 FCM/APNs/APNs 协调，不做云执行层。
+- 2026-06-23 Terminal HUD 会话隔离修复：状态合并不再无条件回退读取全局 `claude-status.json`，只有全局状态属于同一 `sessionKey` 时才允许作为 fallback，避免 Tokens/Todo/Agents/Tools 等会话级指标在不同 Claude Code 会话之间串数据；已补充回归测试。
+
+---
+
+## 阶段路线
+
+### Phase 1A：低风险架构边界固化（当前执行）
+
+目标：不破坏现有功能，先建立协议权威入口和 Rust 分层骨架。
+
+交付：
+
+- `schemas/mobile-hud/protocol.json`
+- `schemas/mobile-hud/envelope.schema.json`
+- `schemas/mobile-hud/view-model.schema.json`
+- `schemas/hud-core/privacy-denylist.json`
+- `schemas/hud-core/normalized-hud-state.schema.json`
+- `scripts/check-mobile-hud-protocol.mjs`
+- `src/protocol/mobileHud.ts`
+- `src-tauri/src/hud_core/`
+- `src-tauri/src/hud_bridge/`
+- `src-tauri/src/local_runtime/`
+
+验收：
+
+- `npm run test:protocol`
+- `npm run build`
+- `npm run test:rust`
+- Android `testDebugUnitTest`
+- 文档/工作日志回写
+- 如果涉及代码修改，最终必须 `npm run tauri:build`
+
+### Phase 1B：协议生成与跨端类型收敛
+
+目标：将 schema-first 从“协议锚点”升级为“代码生成与跨端契约测试”。
+
+交付：
+
+- JSON Schema → TypeScript DTO
+- JSON Schema → Kotlin DTO 或校验器
+- Swift Codable model 草案
+- Rust protocol compatibility tests
+- fixtures 覆盖更多异常/未来字段场景
+
+### Phase 2：native hud-bridge
+
+目标：把 Claude Code hooks/statusLine 生产入口从 Node bridge 逐步迁移到自包含原生 `hud-bridge`。
+
+交付：
+
+- `crates/hud-bridge` 或 `src-tauri/src/hud_bridge` 可执行入口
+- stdin JSON parser
+- 脱敏与 schema event 输出
+- local socket / file queue fallback
+- 安装、升级、卸载、诊断策略
+
+### Phase 3：Local Runtime 与移动安全模型强化
+
+目标：让设备身份、请求签名、intent 幂等、审计日志成为本地 runtime 的稳定能力。
+
+交付：
+
+- 设备公钥请求签名验证
+- intent nonce / TTL / bodyHash / idempotencyKey
+- SQLite event log 和 retention/redaction 策略
+- Android 前台/后台/Relay 策略完善
+
+### Phase 4：macOS / iOS / Relay 扩展准备
+
+目标：在不重写核心的前提下增加 macOS adapter、iOS control client 和可选 Relay 协调层。
+
+交付：
+
+- `hud-platform-mac` adapter：封装 Terminal/iTerm/Ghostty 窗口枚举、聚焦、打开路径、菜单栏/通知/启动项等平台能力。
+- macOS Tauri shell：复用 React Desktop UI 与 Rust Local Runtime，平台差异只放进 adapter，不复制业务状态机。
+- iOS SwiftUI / Swift Package protocol model：复用 schema-first DTO、SPKI pinning、设备私钥签名、低敏 snapshot 和 intent contract。
+- Relay + FCM/APNs/APNs 设计：只做 rendezvous、低敏消息中继、推送唤醒和跨网络连接协调；不运行 Claude Code、不保存完整 transcript、不绕过 PC Local Runtime 权限判断。
+- macOS Terminal/iTerm/Ghostty 适配验证和 iOS 前台/短后台/推送路径验收。
+
+分阶段验收：
+
+1. macOS adapter trait 与 Windows adapter 调用点分离，当前 Windows 功能不退化。
+2. iOS protocol fixtures 可由 Swift model 解析，且不包含 cwd/projectDir/transcriptPath/tool input/raw prompt 等高敏字段。
+3. Relay API 只接受低敏 envelope 和 signed intent envelope；最终 allow/deny/answer 仍由 PC Local Runtime 校验并落审计事件。
+4. Android/iOS 后台通知只携带低敏摘要，打开 App 后再通过本地/Relay 通道拉取 snapshot。
+
+---
+
+## 当前自主验收清单
+
+- [x] 协议文件存在且 fixtures 通过协议校验。
+- [x] Android contract 读取 `protocol.json` 并验证只读/低敏策略。
+- [x] TS Mobile HUD 类型从 Tauri invoke wrapper 中抽离。
+- [x] Rust `hud_core` / `hud_bridge` / `local_runtime` 骨架被纳入模块树。
+- [x] 现有 Tauri command 名称不变。
+- [x] `npm run build` 通过。
+- [x] `npm run test:rust` 通过。
+- [x] `npm run test:ui` 通过。
+- [x] Android unit test 已恢复并通过：`npm run test:android`。
+- [x] Android lint/build 已通过：`npm run lint:android`、`npm run build:android`。
+- [x] native `hud-bridge.exe` 已构建并复制进 Tauri resources，installer / app-start repair 已收敛为 native-only 命令入口，生产路径不再委托 Node bridge。
+- [x] 移动 signed intent runtime 已接入 `/intent/resolve`，并有 Rust/Android 测试覆盖签名 payload、metadata 和 replay 基础。
+- [x] `npm run tauri:build` 通过，安装包已生成。
+- [x] 旧 Node bridge 生产残留已清理，`.claude/settings.json` / `.codex/hooks.json` 不再调用 `.claude/bridge/claude-status-bridge.mjs`。
+- [x] Local Runtime audit SQLite 基础已落地，并通过 `cargo check`、`cargo test ... audit`、`npm run test:bridge`、`cargo test ... mobile_hud`、`npm run test:security`、`npm run test:protocol` 的阶段验证。
+- [x] macOS / iOS / Relay 下一阶段边界已明确：平台 adapter、原生控制端、Relay 低敏协调层三条线分开推进。

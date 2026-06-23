@@ -54,18 +54,52 @@ function Ensure-ObjectProperty($object, $name) {
 function Command-IsClaudeHudOne($command) {
   if (-not $command) { return $false }
   $text = [string]$command
-  return $text -like '*claude-status-bridge.mjs*' -or $text -like '*Claude HUD One*bridge*'
+  # The old Node bridge pattern is recognized only for replacing legacy Claude settings.
+  return $text -like '*claude-status-bridge.mjs*' -or $text -like '*hud-bridge*.exe*' -or $text -like '*Claude HUD One*bridge*'
 }
 
-function Copy-BridgeScript($appDataDir) {
-  $source = Join-Path $PSScriptRoot 'claude-status-bridge.mjs'
+function Copy-NativeBridgeFile($appDataDir) {
+  $nativeSource = Join-Path $PSScriptRoot 'hud-bridge.exe'
   $bridgeDir = Join-Path $appDataDir 'bridge'
-  $bridgePath = Join-Path $bridgeDir 'claude-status-bridge.mjs'
+  $fallbackNativePath = Join-Path $bridgeDir 'hud-bridge.exe'
+  if (-not (Test-Path $nativeSource)) {
+    return [pscustomobject]@{ NativePath = $fallbackNativePath; HasNative = $false }
+  }
   try {
-    if (-not (Test-Path $bridgeDir)) { New-Item -ItemType Directory -Path $bridgeDir -Force | Out-Null }
-    if (Test-Path $source) { Copy-Item -Path $source -Destination $bridgePath -Force }
+    if (-not (Test-Path $bridgeDir)) { New-Item -ItemType Directory -Path $bridgeDir -Force -ErrorAction Stop | Out-Null }
   } catch {}
-  return $bridgePath
+
+  $sourceHash = $null
+  try { $sourceHash = (Get-FileHash $nativeSource -Algorithm SHA256 -ErrorAction Stop).Hash } catch {}
+  $nativePath = $fallbackNativePath
+  if ($sourceHash -and $sourceHash.Length -ge 12) {
+    $nativePath = Join-Path $bridgeDir ("hud-bridge-{0}.exe" -f $sourceHash.Substring(0, 12).ToLowerInvariant())
+  }
+
+  for ($attempt = 0; $attempt -lt 3; $attempt++) {
+    try {
+      Copy-Item -Path $nativeSource -Destination $nativePath -Force -ErrorAction Stop
+      $targetHash = $null
+      try { $targetHash = (Get-FileHash $nativePath -Algorithm SHA256 -ErrorAction Stop).Hash } catch {}
+      if (-not $sourceHash -or $sourceHash -eq $targetHash) { break }
+    } catch {
+      try { Remove-Item -Path $nativePath -Force -ErrorAction SilentlyContinue } catch {}
+      Start-Sleep -Milliseconds 200
+    }
+  }
+
+  try {
+    Copy-Item -Path $nativeSource -Destination $fallbackNativePath -Force -ErrorAction SilentlyContinue
+  } catch {}
+
+  $hasNative = Test-Path $nativePath
+  if ($hasNative -and $sourceHash) {
+    try { $hasNative = ((Get-FileHash $nativePath -Algorithm SHA256 -ErrorAction Stop).Hash -eq $sourceHash) } catch { $hasNative = $false }
+  }
+  return [pscustomobject]@{
+    NativePath = $nativePath
+    HasNative = $hasNative
+  }
 }
 
 function Save-UpstreamStatusLine($appDataDir, $command, $bridgeCommand) {
@@ -85,7 +119,7 @@ function Save-UpstreamStatusLine($appDataDir, $command, $bridgeCommand) {
 
 function Hook-EntryContainsCommand($entry, $command) {
   foreach ($hook in @($entry.hooks)) {
-    if ($hook.command -eq $command) { return $true }
+    if ($hook.command -eq $command -or (Command-IsClaudeHudOne $hook.command)) { return $true }
   }
   return $false
 }
@@ -96,8 +130,15 @@ function Ensure-HookEvent($hooksObject, $eventName, $hookCommand) {
   }
 
   $entries = @($hooksObject.$eventName)
+  $timeout = if ($eventName -eq 'PreToolUse') { 30 } else { 2 }
   foreach ($entry in $entries) {
-    if (Hook-EntryContainsCommand $entry $hookCommand) { return }
+    foreach ($hook in @($entry.hooks)) {
+      if ($hook.command -eq $hookCommand -or (Command-IsClaudeHudOne $hook.command)) {
+        $hook.command = $hookCommand
+        $hook.timeout = $timeout
+        return
+      }
+    }
   }
 
   $newEntry = [pscustomobject]@{
@@ -105,7 +146,7 @@ function Ensure-HookEvent($hooksObject, $eventName, $hookCommand) {
     hooks = @([pscustomobject]@{
       type = 'command'
       command = $hookCommand
-      timeout = 2
+      timeout = $timeout
     })
   }
   $hooksObject.$eventName = @($entries + $newEntry)
@@ -127,8 +168,9 @@ function Install-ClaudeHudOneBridge {
     }
   } catch {}
 
-  $bridgePath = Copy-BridgeScript $appDataDir
-  $bridgeCommand = "node `"$bridgePath`""
+  $bridgeFiles = Copy-NativeBridgeFile $appDataDir
+  if (-not $bridgeFiles.HasNative) { return }
+  $bridgeCommand = "`"$($bridgeFiles.NativePath)`""
   $hookCommand = "$bridgeCommand --hook"
   $previousStatusLine = $settings.statusLine.command
   $contextWindowSize = $null

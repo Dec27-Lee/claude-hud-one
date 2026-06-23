@@ -35,20 +35,20 @@ npm run tauri:dev
 
 ## Claude Code 实时状态桥
 
-本工作区已在 `.claude/settings.json` 接入 Claude Code `statusLine` 与轻量 hooks，命令为 `node .claude/bridge/claude-status-bridge.mjs`。桥接脚本只写入脱敏状态摘要：活动状态、事件名、工具名、模型名、上下文 token/百分比、成本/耗时、5h/7d rate limit 百分比与 reset 时间等聚合字段；不会保存 prompt、transcript 正文、tool-result 正文或凭据。
+本工作区已在 `.claude/settings.json` 接入 Claude Code `statusLine` 与轻量 hooks。安装包会安装 native `hud-bridge.exe` 作为 Claude Code 命令入口，由 Rust bridge 直接处理 statusLine、hooks、状态文件写入和 pending intent，不再把生产路径委托给 `node claude-status-bridge.mjs`。桥接链路只写入脱敏状态摘要：活动状态、事件名、工具名、模型名、上下文 token/百分比、成本/耗时、5h/7d rate limit 百分比与 reset 时间等聚合字段；不会保存 prompt、transcript 正文、tool-result 正文或凭据。
 
-Claude HUD One 现在直接接管并重新实现 Terminal HUD 渲染：statusLine 模式会读取 `%APPDATA%\Claude HUD One\settings.json` 里的 `terminalHud` 配置，在自身 bridge 内渲染 HUD Plus 风格 rows/activity/git/usage 等信息，不再运行、调用或委托原来的 Claude HUD Plus statusLine 脚本。旧 Claude HUD Plus 源码仅作为 parity 参考。
+Claude HUD One 现在直接接管并重新实现 Terminal HUD 渲染：statusLine 模式会读取 Claude Code 输入和本地状态，在 native bridge 内渲染模型、项目、上下文、token/cost、工具和 pending attention 等信息，不再运行、调用或委托原来的 Claude HUD Plus statusLine 脚本。旧 Node bridge / Claude HUD Plus 源码仅作为 parity 参考，不再作为安装包生产依赖。
 
 HUD 读取 `%APPDATA%\Claude HUD One\claude-status.json` 与 `.claude/bridge/state/claude-status.json`，正常模式约 1 秒刷新一次状态桥，低功耗模式约 5 秒刷新一次。
 
 ## 安装、卸载、更新与发布验证
 
-- 本地完整验证：`npm run smoke`。脚本会构建前端、检查 Rust、运行 Rust/UI 测试、打包 Tauri release，并启动 release exe 做存活冒烟。
-- 安装：使用 `src-tauri\target\release\bundle\nsis\Claude HUD One_0.1.0_x64-setup.exe`。当前安装/卸载清理链路以 NSIS 为准。
-- 卸载：NSIS/MSI 安装后可从 Windows “设置 → 应用 → 已安装的应用”卸载；也可通过安装目录中的卸载入口卸载。
+- 本地完整验证：`npm run smoke`。脚本会检查版本和 Mobile HUD 协议、构建前端、检查 Rust、运行 Rust/bridge/security/UI 测试、打包 Tauri release，并启动 release exe 做存活冒烟。
+- 安装：使用 `src-tauri\target\release\bundle\nsis\Claude HUD One_*_x64-setup.exe`。当前安装/卸载清理链路以 NSIS 为准。
+- 卸载：NSIS 安装后可从 Windows “设置 → 应用 → 已安装的应用”卸载；也可通过安装目录中的卸载入口卸载。
 - 开机启动：Settings → General → Launch at Login 会写入/移除 HKCU Run 项，随用户开关即时持久化。
 - 更新：当前不上架应用商店，也未启用自动 updater feed；Settings → Updates 提供 GitHub Releases 手动更新入口。下载新版 NSIS 后覆盖安装即可完成更新。
-- Windows CI 发布草案：`.github/workflows/release.yml`，支持 `workflow_dispatch` 与 `v*` tag，构建 NSIS/MSI、生成 SHA256SUMS，并在 tag 发布时上传 GitHub Release 资源。
+- Windows CI 发布草案：`.github/workflows/release.yml`，支持 `workflow_dispatch` 与 `v*` tag，构建 NSIS、生成 SHA256SUMS，并在 tag 发布时上传 GitHub Release 资源。
 - 当前尚未配置代码签名证书或 SmartScreen reputation；可发布使用但首次安装可能出现 Windows 安全提示。
 
 ## 关键文档

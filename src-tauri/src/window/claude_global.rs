@@ -2,8 +2,8 @@ use std::{env, fs, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 
-const BRIDGE_SCRIPT: &str = include_str!("../../../.claude/bridge/claude-status-bridge.mjs");
 const HOOK_EVENTS: [&str; 7] = [
     "UserPromptSubmit",
     "PreToolUse",
@@ -37,8 +37,7 @@ pub struct ClaudeGlobalBridgeStatus {
 }
 
 pub fn ensure_global_bridge() -> Result<ClaudeGlobalBridgeStatus, String> {
-    let bridge_path = bridge_script_path().ok_or_else(|| "APPDATA is not available".to_string())?;
-    write_bridge_script(&bridge_path)?;
+    let bridge_path = ensure_native_bridge()?;
 
     let settings_path = claude_settings_path().ok_or_else(|| "USERPROFILE/HOME is not available".to_string())?;
     let mut settings = read_settings_json(&settings_path)?;
@@ -76,8 +75,7 @@ pub fn ensure_global_bridge() -> Result<ClaudeGlobalBridgeStatus, String> {
 }
 
 pub fn enable_status_line_bridge() -> Result<ClaudeGlobalBridgeStatus, String> {
-    let bridge_path = bridge_script_path().ok_or_else(|| "APPDATA is not available".to_string())?;
-    write_bridge_script(&bridge_path)?;
+    let bridge_path = ensure_native_bridge()?;
 
     let settings_path = claude_settings_path().ok_or_else(|| "USERPROFILE/HOME is not available".to_string())?;
     let mut settings = read_settings_json(&settings_path)?;
@@ -115,8 +113,7 @@ pub fn enable_status_line_bridge() -> Result<ClaudeGlobalBridgeStatus, String> {
 }
 
 pub fn restore_status_line() -> Result<ClaudeGlobalBridgeStatus, String> {
-    let bridge_path = bridge_script_path().ok_or_else(|| "APPDATA is not available".to_string())?;
-    write_bridge_script(&bridge_path)?;
+    let bridge_path = ensure_native_bridge()?;
 
     let settings_path = claude_settings_path().ok_or_else(|| "USERPROFILE/HOME is not available".to_string())?;
     let mut settings = read_settings_json(&settings_path)?;
@@ -152,8 +149,7 @@ pub fn restore_status_line() -> Result<ClaudeGlobalBridgeStatus, String> {
 }
 
 pub fn remove_global_bridge_hooks() -> Result<ClaudeGlobalBridgeStatus, String> {
-    let bridge_path = bridge_script_path().ok_or_else(|| "APPDATA is not available".to_string())?;
-    write_bridge_script(&bridge_path)?;
+    let bridge_path = ensure_native_bridge()?;
 
     let settings_path = claude_settings_path().ok_or_else(|| "USERPROFILE/HOME is not available".to_string())?;
     let mut settings = read_settings_json(&settings_path)?;
@@ -186,8 +182,7 @@ pub fn remove_global_bridge_hooks() -> Result<ClaudeGlobalBridgeStatus, String> 
 
 pub fn set_context_window_size_env(value: Option<String>) -> Result<ClaudeGlobalBridgeStatus, String> {
     let normalized = normalize_context_window_size(value)?;
-    let bridge_path = bridge_script_path().ok_or_else(|| "APPDATA is not available".to_string())?;
-    write_bridge_script(&bridge_path)?;
+    let bridge_path = ensure_native_bridge()?;
 
     let settings_path = claude_settings_path().ok_or_else(|| "USERPROFILE/HOME is not available".to_string())?;
     let mut settings = read_settings_json(&settings_path)?;
@@ -237,7 +232,7 @@ pub fn set_context_window_size_env(value: Option<String>) -> Result<ClaudeGlobal
 }
 
 pub fn global_bridge_status() -> ClaudeGlobalBridgeStatus {
-    let bridge_path = bridge_script_path();
+    let bridge_path = native_bridge_path();
     let settings_path = claude_settings_path();
     let settings = settings_path.as_ref().and_then(|path| read_settings_json(path).ok());
 
@@ -314,8 +309,100 @@ fn app_data_dir() -> Option<PathBuf> {
         .map(|appdata| appdata.join("Claude HUD One"))
 }
 
-fn bridge_script_path() -> Option<PathBuf> {
-    app_data_dir().map(|dir| dir.join("bridge").join("claude-status-bridge.mjs"))
+fn native_bridge_path() -> Option<PathBuf> {
+    let bridge_dir = app_data_dir()?.join("bridge");
+    latest_installed_native_bridge(&bridge_dir).or_else(|| Some(bridge_dir.join("hud-bridge.exe")))
+}
+
+fn ensure_native_bridge() -> Result<PathBuf, String> {
+    let bridge_dir = app_data_dir()
+        .ok_or_else(|| "APPDATA is not available".to_string())?
+        .join("bridge");
+    fs::create_dir_all(&bridge_dir).map_err(|error| error.to_string())?;
+
+    let source = native_bridge_resource_candidates()
+        .into_iter()
+        .find(|candidate| candidate.is_file());
+    if let Some(source) = source {
+        let hash = file_sha256_hex(&source)?;
+        let target = bridge_dir.join(format!("hud-bridge-{}.exe", &hash[..12]));
+        if native_bridge_needs_update(&source, &target) {
+            fs::copy(&source, &target).map_err(|error| {
+                format!(
+                    "Failed to copy native hud-bridge from {}: {error}",
+                    source.to_string_lossy()
+                )
+            })?;
+        }
+        best_effort_copy_legacy_native_bridge(&source, &bridge_dir.join("hud-bridge.exe"));
+        return Ok(target);
+    }
+
+    latest_installed_native_bridge(&bridge_dir)
+        .ok_or_else(|| "Native hud-bridge.exe resource was not found; Claude settings were left unchanged.".to_string())
+}
+
+fn latest_installed_native_bridge(bridge_dir: &PathBuf) -> Option<PathBuf> {
+    let mut candidates = fs::read_dir(bridge_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.eq_ignore_ascii_case("hud-bridge.exe") || (name.starts_with("hud-bridge-") && name.ends_with(".exe")))
+                .unwrap_or(false)
+        })
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|path| fs::metadata(path).and_then(|metadata| metadata.modified()).ok());
+    candidates.pop()
+}
+
+fn native_bridge_needs_update(source: &PathBuf, target: &PathBuf) -> bool {
+    if !target.is_file() {
+        return true;
+    }
+    let source_len = fs::metadata(source).ok().map(|metadata| metadata.len());
+    let target_len = fs::metadata(target).ok().map(|metadata| metadata.len());
+    if source_len != target_len {
+        return true;
+    }
+    fs::read(source).ok() != fs::read(target).ok()
+}
+
+fn best_effort_copy_legacy_native_bridge(source: &PathBuf, target: &PathBuf) {
+    if native_bridge_needs_update(source, target) {
+        let _ = fs::copy(source, target);
+    }
+}
+
+fn file_sha256_hex(path: &PathBuf) -> Result<String, String> {
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let digest = Sha256::digest(bytes);
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn native_bridge_resource_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(exe) = env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("resources").join("hud-bridge.exe"));
+            candidates.push(dir.join("hud-bridge.exe"));
+        }
+    }
+    if let Ok(current_dir) = env::current_dir() {
+        candidates.push(current_dir.join("src-tauri").join("resources").join("hud-bridge.exe"));
+        candidates.push(
+            current_dir
+                .join("src-tauri")
+                .join("target")
+                .join("release")
+                .join("examples")
+                .join("hud-bridge.exe"),
+        );
+    }
+    candidates
 }
 
 fn upstream_statusline_path() -> Option<PathBuf> {
@@ -327,18 +414,6 @@ fn claude_settings_path() -> Option<PathBuf> {
         .or_else(|| env::var_os("HOME"))
         .map(PathBuf::from)
         .map(|home| home.join(".claude").join("settings.json"))
-}
-
-fn write_bridge_script(path: &PathBuf) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-
-    if fs::read_to_string(path).ok().as_deref() != Some(BRIDGE_SCRIPT) {
-        fs::write(path, BRIDGE_SCRIPT).map_err(|error| error.to_string())?;
-    }
-
-    Ok(())
 }
 
 fn read_settings_json(path: &PathBuf) -> Result<Value, String> {
@@ -374,7 +449,7 @@ fn backup_settings(path: &PathBuf) -> Result<Option<PathBuf>, String> {
 }
 
 fn command_for_bridge(path: &PathBuf, hook: bool) -> String {
-    let mut command = format!("node \"{}\"", path.to_string_lossy());
+    let mut command = format!("\"{}\"", path.to_string_lossy());
     if hook {
         command.push_str(" --hook");
     }
@@ -382,7 +457,9 @@ fn command_for_bridge(path: &PathBuf, hook: bool) -> String {
 }
 
 fn command_is_bridge(command: &str) -> bool {
-    command.to_ascii_lowercase().contains("claude-status-bridge.mjs")
+    let lower = command.to_ascii_lowercase();
+    // Legacy Node bridge commands are recognized only so installer/repair can replace old settings.
+    lower.contains("claude-status-bridge.mjs") || (lower.contains("hud-bridge") && lower.contains(".exe"))
 }
 
 fn status_line_owner(command: &str) -> &'static str {
@@ -666,6 +743,14 @@ fn ensure_object(value: &mut Value) -> &mut Map<String, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_detection_accepts_native_bridge() {
+        assert!(command_is_bridge("\"C:\\Users\\Yue\\AppData\\Roaming\\Claude HUD One\\bridge\\hud-bridge.exe\" --hook"));
+        assert!(command_is_bridge("\"C:\\Users\\Yue\\AppData\\Roaming\\Claude HUD One\\bridge\\hud-bridge-6765fbccc6db.exe\" --hook"));
+        assert_eq!(status_line_owner("\"C:\\HUD\\hud-bridge.exe\""), "claude-hud-one");
+        assert_eq!(status_line_owner("\"C:\\HUD\\hud-bridge-6765fbccc6db.exe\""), "claude-hud-one");
+    }
 
     #[test]
     fn context_window_env_uses_top_level_claude_env() {

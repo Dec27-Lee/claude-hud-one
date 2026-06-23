@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "description": "Fields and raw text markers that must not appear in Mobile HUD payloads, fixtures, notifications, or low-sensitive relay DTOs.",
+  "deniedJsonKeys": [
+    "transcriptPath",
+    "projectDir",
+    "cwd",
+    "terminal",
+    "intentId",
+    "allowedIntents",
+    "nonce",
+    "rawInput",
+    "rawOutput",
+    "toolInput",
+    "toolResult",
+    "wtSession",
+    "windowTitleHint",
+    "bridgeProcessId"
+  ],
+  "deniedTextMarkers": [
+    "transcript_path",
+    "project_dir",
+    "tool input",
+    "tool result",
+    "raw prompt",
+    "raw output"
+  ],
+  "pcOnlyFields": [
+    "transcriptPath",
+    "projectDir",
+    "cwd",
+    "terminal",
+    "pendingQueue.intentId",
+    "pendingQueue.allowedIntents",
+    "pendingQueue.nonce",
+    "hook.rawInput",
+    "hook.toolInput",
+    "hook.toolResult"
+  ],
+  "mobileAllowedSensitivity": ["low", "trustedAppView"]
+}

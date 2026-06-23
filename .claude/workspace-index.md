@@ -27,9 +27,11 @@
 | --- | --- | --- |
 | `local/参考项目/codex-island/` | macOS Claude/Codex 用量动态岛参考项目，用于补充分析 usage/cost/dashboard、三态窗口和性能策略；不是用户截图中的多会话 mascot 项目 | `local/参考项目/codex-island/README.zh-CN.md` |
 | `local/参考项目/CodeIsland/` | macOS Claude Code / 多 agent notch 参考项目，包含像素 mascot、多会话卡片、approval/question、终端跳转、HookServer/bridge 等截图对应能力 | `local/参考项目/CodeIsland/README.zh-CN.md` |
-| `local/需求讨论/` | Win11 Claude HUD One 需求讨论、技术分析、正式一期完整复刻方案、阶段进展复盘、HUD Plus 终端内置集成分析、桌面 HUD 展示交互复刻分析、全面对标 CodeIsland 桌面 HUD 改造方案、Android 手机 HUD 研究报告、技术补漏、一期开发执行计划和移动端 UI/后台连接优化方案 | `local/需求讨论/2026-06-08-win11-codex-island-full-replica-一期正式产品方案.md`；`local/需求讨论/2026-06-09-claude-hud-one-对标codex-island-当前进展与正式使用缺口.md`；`local/需求讨论/2026-06-10-claude-hud-one-内置claude-hud-plus终端hud集成分析.md`；`local/需求讨论/2026-06-12-codex-island-desktop-hud-展示交互复刻分析.md`；`local/需求讨论/2026-06-12-claude-hud-one-全面对标-codeisland-桌面hud改造方案.md`；`local/需求讨论/2026-06-16-claude-hud-one-android-mobile-hud-研究报告.md`；`local/需求讨论/2026-06-17-claude-hud-one-android-mobile-hud-一期开发执行计划.md`；`local/需求讨论/2026-06-18-claude-hud-one-android-mobile-hud-界面与后台连接优化方案.md` |
+| `local/需求讨论/` | Win11 Claude HUD One 需求讨论、技术分析、正式一期完整复刻方案、阶段进展复盘、HUD Plus 终端内置集成分析、桌面 HUD 展示交互复刻分析、全面对标 CodeIsland 桌面 HUD 改造方案、Android 手机 HUD 研究报告、技术补漏、一期开发执行计划、移动端 UI/后台连接优化方案、Claude Code 终端/桌面端/移动端产品技术架构分析、Claude HUD One 可持续技术栈与架构改造建议、架构改造执行跟踪计划、纯 Rust Bridge 最终化开发计划 | `local/需求讨论/2026-06-08-win11-codex-island-full-replica-一期正式产品方案.md`；`local/需求讨论/2026-06-09-claude-hud-one-对标codex-island-当前进展与正式使用缺口.md`；`local/需求讨论/2026-06-10-claude-hud-one-内置claude-hud-plus终端hud集成分析.md`；`local/需求讨论/2026-06-12-codex-island-desktop-hud-展示交互复刻分析.md`；`local/需求讨论/2026-06-12-claude-hud-one-全面对标-codeisland-桌面hud改造方案.md`；`local/需求讨论/2026-06-16-claude-hud-one-android-mobile-hud-研究报告.md`；`local/需求讨论/2026-06-17-claude-hud-one-android-mobile-hud-一期开发执行计划.md`；`local/需求讨论/2026-06-18-claude-hud-one-android-mobile-hud-界面与后台连接优化方案.md`；`local/需求讨论/2026-06-22-claude-code-terminal-desktop-mobile-architecture-analysis.md`；`local/需求讨论/2026-06-22-claude-hud-one-可持续技术栈与架构改造建议.md`；`local/需求讨论/2026-06-22-claude-hud-one-架构改造执行跟踪计划.md`；`local/需求讨论/2026-06-23-claude-hud-one-pure-rust-bridge-finalization-plan.md` |
 | `apps/android/` | Android 手机 HUD App 子工程，包含 Kotlin/Compose 空壳、Deep Link、fixture 解析测试和 APK 构建入口 | `apps/android/settings.gradle.kts` |
-| `schemas/mobile-hud/` | Mobile HUD 跨端协议 fixtures 和契约样例，供 Rust/Android/联调测试共用 | `schemas/mobile-hud/README.md` |
+| `schemas/mobile-hud/` | Mobile HUD 跨端协议 schema、fixtures 和契约样例，供 Rust/TypeScript/Android/未来 iOS/联调测试共用 | `schemas/mobile-hud/README.md` |
+| `schemas/hud-core/` | HUD Core 归一化状态与隐私红线 schema，供跨端低敏 DTO、安全审查和协议验证共用 | `schemas/hud-core/privacy-denylist.json` |
+| `schemas/hud-bridge/` | Claude Code statusLine/hooks native bridge 契约 fixtures，供纯 Rust bridge parity 和回归测试使用 | `schemas/hud-bridge/fixtures/statusline-basic.json` |
 | `package.json` | 前端/Tauri npm 脚本与依赖入口 | `package.json` |
 | `src/` | React/TypeScript 前端 UI、状态模型、mock 数据与动态岛组件 | `src/app/App.tsx` |
 | `src-tauri/` | Tauri 2 桌面壳、Rust 原生窗口能力与打包配置 | `src-tauri/tauri.conf.json` |
@@ -43,7 +45,6 @@
 | 路径 | 用途 |
 | --- | --- |
 | `.claude/settings.json` | 项目级 hook/statusLine 配置 |
-| `.claude/bridge/claude-status-bridge.mjs` | Claude Code statusLine/hook 脱敏状态桥脚本 |
 | `.claude/skills/work-journal/SKILL.md` | 工作日志技能入口 |
 | `local/work-journal/index.md` | 工作日志历史记录二级索引，记录每条历史记录的路径和适用场景 |
 | `.claude/skills/work-journal/resources/hooks/reminder.py` | 工作日志提醒 hook |

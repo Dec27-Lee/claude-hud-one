@@ -5,6 +5,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
+// Canonical protocol source: schemas/mobile-hud/protocol.json + schemas/mobile-hud/*.schema.json.
+// Keep unknown fields/enums tolerant so newer desktop snapshots do not crash older mobile clients.
 val MobileHudJson: Json = Json {
     ignoreUnknownKeys = true
 }

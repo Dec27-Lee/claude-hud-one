@@ -28,7 +28,8 @@ function Write-JsonFile($path, $value) {
 function Command-IsClaudeHudOne($command) {
   if (-not $command) { return $false }
   $text = [string]$command
-  return $text -like '*claude-status-bridge.mjs*' -or $text -like '*Claude HUD One*bridge*'
+  # The old Node bridge pattern is recognized only for removing legacy Claude settings.
+  return $text -like '*claude-status-bridge.mjs*' -or $text -like '*hud-bridge*.exe*' -or $text -like '*Claude HUD One*bridge*'
 }
 
 function Remove-ClaudeHudOneSettings {

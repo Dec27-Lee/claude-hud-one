@@ -1553,25 +1553,46 @@ button { color: inherit; }
 .terminal-color-toolbar {
   display: flex;
   flex-wrap: wrap;
+  min-width: 0;
   gap: 10px;
   align-items: center;
 }
-.terminal-color-panel { width: 100%; max-width: 1120px; min-width: 0; overflow-y: auto; overflow-x: hidden; align-content: start; }
+.terminal-color-toolbar > input {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.terminal-color-toolbar > .setting-check {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+.terminal-color-panel {
+  grid-template-rows: none;
+  grid-auto-rows: max-content;
+  align-content: start;
+  width: 100%;
+  max-width: 1120px;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
 .terminal-color-group { display: grid; gap: 10px; min-width: 0; }
 .terminal-color-group h4 { margin: 4px 0 0; color: #f8fafc; font-size: 14px; }
 .terminal-color-grid--workbench {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   width: 100%;
+  min-width: 0;
 }
 .terminal-color-field--workbench {
   display: grid;
-  grid-template-columns: minmax(0, .9fr) 38px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 38px minmax(0, 1fr);
   align-items: center;
+  min-width: 0;
 }
 .terminal-color-field--workbench input:not([type="color"]),
 .terminal-color-field--band input:not([type="color"]) { min-width: 0; }
-.terminal-color-field__label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.terminal-color-field__label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; overflow: hidden; overflow-wrap: anywhere; }
 .terminal-color-swatch {
+  flex: 0 0 18px;
   width: 18px;
   height: 18px;
   border-radius: 999px;

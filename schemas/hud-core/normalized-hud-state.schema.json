@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://claude-hud-one.local/schemas/hud-core/normalized-hud-state.schema.json",
+  "title": "Normalized HUD State",
+  "description": "Architecture anchor for the future Rust hud-core reducer. This schema describes low-risk normalized state, not raw Claude Code hook input.",
+  "type": "object",
+  "required": ["schemaVersion", "sessions", "generatedAt"],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sessionRef", "activity", "statusText", "updatedAt"],
+        "additionalProperties": true,
+        "properties": {
+          "sessionRef": { "type": "string" },
+          "activity": { "type": "string" },
+          "statusText": { "type": "string" },
+          "updatedAt": { "type": "string" },
+          "privacyLevel": { "type": "string" }
+        }
+      }
+    }
+  }
+}
