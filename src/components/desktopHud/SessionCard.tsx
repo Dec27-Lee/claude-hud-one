@@ -34,6 +34,11 @@ const pendingItemIsActive = (item: PendingQueueItem): boolean => {
   return !Number.isFinite(expiresAt) || expiresAt > Date.now()
 }
 
+const sessionActivityTimestamp = (session: CurrentSessionState): string | null | undefined => {
+  if (session.activity === 'running' || session.activity === 'waiting' || session.activity === 'error') return session.updatedAt
+  return session.lastAssistantResponseAt ?? session.activityStartedAt ?? session.sessionStartedAt ?? session.updatedAt
+}
+
 const pendingSummaryLabel = (summary: string | null | undefined, language: DesktopHudLanguage): string => {
   if (!summary) return language === 'zh-CN' ? 'Claude Code 需要处理。' : 'Claude Code needs attention.'
   if (language !== 'zh-CN') return summary
@@ -88,7 +93,7 @@ export function SessionCard({ session, active = false, visibleItems, terminalJum
         ) : null}
       </div>
       <div className="desktop-session-card__side">
-        <span>{ageLabel(session.updatedAt)}</span>
+        <span>{ageLabel(sessionActivityTimestamp(session))}</span>
         <button className="desktop-session-card__jump" type="button" disabled={jumpDisabled} onClick={(event) => { event.stopPropagation(); onJumpToTerminal?.(session) }}>{terminalJumpEnabled ? (language === 'zh-CN' ? '终端' : 'Terminal') : (language === 'zh-CN' ? '已禁用' : 'Disabled')}</button>
         {terminalBindSuggested ? (
           <button className="desktop-session-card__jump desktop-session-card__jump--bind" type="button" disabled={!onBindTerminal} onClick={(event) => { event.stopPropagation(); onBindTerminal?.(session) }}>{language === 'zh-CN' ? '绑定' : 'Bind'}</button>

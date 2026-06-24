@@ -115,17 +115,34 @@ const bridgeHasRunningWork = (bridge: ClaudeStatusBridgeState): boolean => (
   || /^Tool running(?::|$)|^Generating response$|^Compacting context$/i.test(bridge.statusText ?? '')
 )
 
+const bridgeIsEnded = (bridge: ClaudeStatusBridgeState): boolean => bridge.hookEventName === 'SessionEnd'
+
+const bridgeIsVisibleLiveSession = (bridge: ClaudeStatusBridgeState): boolean => (
+  bridgeIsLiveSession(bridge) && !bridgeIsEnded(bridge)
+)
+
+const bridgeStatusTextFromBridge = (bridge: ClaudeStatusBridgeState): string => {
+  const statusText = bridge.statusText?.trim()
+  if (bridge.source === 'statusLine' && !bridgeHasRunningWork(bridge)) {
+    if (!statusText || /^active$|^Claude Code active$/i.test(statusText)) return 'Session idle'
+  }
+  return statusText || 'Session idle'
+}
+
 const activityFromBridge = (bridge: ClaudeStatusBridgeState): SessionActivityState => {
   if (!bridgeIsLiveSession(bridge)) return 'idle'
-  if (bridge.activity === 'active' && bridgeHasRunningWork(bridge)) return 'running'
-  return bridge.activity
+  if (bridgeIsEnded(bridge) || bridge.hookEventName === 'Stop' || bridge.hookEventName === 'PostToolUse') return 'idle'
+  if (bridge.activity === 'waiting' || bridge.activity === 'error') return bridge.activity
+  if (bridgeHasRunningWork(bridge)) return 'running'
+  if (bridge.source === 'statusLine') return 'idle'
+  return bridge.activity === 'active' ? 'active' : bridge.activity
 }
 
 const sourceLabelFromBridge = (bridge: ClaudeStatusBridgeState): string => {
   const source = bridge.source === 'hook' ? 'Claude Code hook bridge' : 'Claude Code statusLine bridge'
   const model = bridge.modelName ?? bridge.modelId
   const context = contextTokenLabelFromBridge(bridge)
-  return [source, model, context, bridge.statusText].filter(Boolean).join(' · ')
+  return [source, model, context, bridgeStatusTextFromBridge(bridge)].filter(Boolean).join(' · ')
 }
 
 export const mapClaudeStatusBridgeToCurrentSessionPatch = (bridge: ClaudeStatusBridgeState): Partial<CurrentSessionState> => ({
@@ -135,14 +152,15 @@ export const mapClaudeStatusBridgeToCurrentSessionPatch = (bridge: ClaudeStatusB
   transcriptPath: bridge.transcriptPath,
   projectDir: bridge.projectDir ?? bridge.cwd,
   updatedAt: bridge.updatedAt,
+  activityStartedAt: bridge.activityStartedAt,
   mode: 'live',
   activity: activityFromBridge(bridge),
   sourceLabel: sourceLabelFromBridge(bridge),
   projectSlug: projectSlugFromBridge(bridge),
-  lastEventLabel: relativeTimeLabel(bridge.updatedAt),
+  lastEventLabel: relativeTimeLabel(bridge.lastAssistantResponseAt ?? bridge.activityStartedAt ?? bridge.updatedAt),
   scannedAtLabel: relativeTimeLabel(bridge.updatedAt),
   privacyNote: bridge.privacyNote,
-  bridgeStatusText: bridge.statusText,
+  bridgeStatusText: bridgeStatusTextFromBridge(bridge),
   bridgeSource: bridge.source,
   bridgeHookEventName: bridge.hookEventName,
   activeToolName: bridge.toolName,
@@ -187,7 +205,7 @@ export const mapClaudeStatusBridgeToCurrentSession = (bridge: ClaudeStatusBridge
   activity: activityFromBridge(bridge),
   sourceLabel: sourceLabelFromBridge(bridge),
   projectSlug: projectSlugFromBridge(bridge),
-  lastEventLabel: relativeTimeLabel(bridge.updatedAt),
+  lastEventLabel: relativeTimeLabel(bridge.lastAssistantResponseAt ?? bridge.activityStartedAt ?? bridge.updatedAt),
   scannedAtLabel: relativeTimeLabel(bridge.updatedAt),
   transcriptCount: 0,
   totalEventCount: 0,
@@ -197,7 +215,7 @@ export const mapClaudeStatusBridgeToCurrentSession = (bridge: ClaudeStatusBridge
   toolResultFileCount: 0,
   privacyNote: bridge.privacyNote,
   counts: emptyCounts(),
-  bridgeStatusText: bridge.statusText,
+  bridgeStatusText: bridgeStatusTextFromBridge(bridge),
   bridgeSource: bridge.source,
   bridgeHookEventName: bridge.hookEventName,
   activeToolName: bridge.toolName,
@@ -241,6 +259,7 @@ export const mapClaudeStatusBridgeToCurrentSession = (bridge: ClaudeStatusBridge
   transcriptPath: bridge.transcriptPath,
   projectDir: bridge.projectDir ?? bridge.cwd,
   updatedAt: bridge.updatedAt,
+  activityStartedAt: bridge.activityStartedAt,
 })
 
 export const mapClaudeStatusBridgeToProviderPatch = (bridge: ClaudeStatusBridgeState): ProviderLiveState | null => {
@@ -317,7 +336,7 @@ export const loadClaudeStatusBridgeSessions = async (): Promise<ClaudeStatusBrid
 
 export const loadClaudeStatusBridgePatch = async (): Promise<Partial<CurrentSessionState> | null> => {
   const bridge = await loadClaudeStatusBridgeState()
-  return bridge && bridgeIsLiveSession(bridge) ? mapClaudeStatusBridgeToCurrentSessionPatch(bridge) : null
+  return bridge && bridgeIsVisibleLiveSession(bridge) ? mapClaudeStatusBridgeToCurrentSessionPatch(bridge) : null
 }
 
 export const loadLiveSessions = async (): Promise<CurrentSessionState[]> => {
@@ -329,7 +348,7 @@ export const loadLiveSessions = async (): Promise<CurrentSessionState[]> => {
       loadClaudeStatusBridgeSessions(),
     ])
     const bridgeSessions = bridges
-      .filter(bridgeIsLiveSession)
+      .filter(bridgeIsVisibleLiveSession)
       .map(mapClaudeStatusBridgeToCurrentSession)
 
     if (bridgeSessions.length > 0) return bridgeSessions

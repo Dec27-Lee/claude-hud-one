@@ -175,8 +175,8 @@ fn summarize_status_line(input: &Value) -> Value {
     state.insert("updatedAt".to_string(), json!(now));
     state.insert("activityStartedAt".to_string(), json!(iso_now()));
     state.insert("event".to_string(), json!("statusLine"));
-    state.insert("activity".to_string(), json!("active"));
-    insert_string(&mut state, "statusText", string_path(input, &["status_text"]).or_else(|| string_path(input, &["statusText"])).or_else(|| Some("Claude Code active".to_string())));
+    state.insert("activity".to_string(), json!("idle"));
+    insert_string(&mut state, "statusText", status_text_from_status_line(input));
     insert_string(&mut state, "sessionId", string_path(input, &["session_id"]).or_else(|| string_path(input, &["sessionId"])));
     insert_string(&mut state, "sessionName", string_path(input, &["session_name"]).or_else(|| string_path(input, &["sessionName"])));
     insert_string(&mut state, "cwd", string_path(input, &["cwd"]));
@@ -275,7 +275,7 @@ fn summarize_status_line(input: &Value) -> Value {
         if state
             .get("statusText")
             .and_then(Value::as_str)
-            .map(|value| value == "Claude Code active" || value.trim().is_empty())
+            .map(|value| matches!(value.trim(), "Claude Code active" | "Session idle" | ""))
             .unwrap_or(true)
         {
             state.insert("statusText".to_string(), json!("Tool running"));
@@ -421,6 +421,9 @@ fn pending_item_from_hook(
 
     if hook_event == "PreToolUse" {
         let tool_name = tool_name?;
+        if should_skip_hud_tool_approval(input, &tool_name) {
+            return None;
+        }
         let expires_at = iso_from_ms(now_ms.saturating_add(PENDING_APPROVAL_TTL_MS));
         let id = safe_path_segment(&format!("approval-{hook_event}-{}-{tool_name}-{now_ms}", session_id.clone().unwrap_or_default()))
             .unwrap_or_else(|| format!("approval-{now_ms}"));
@@ -2308,6 +2311,17 @@ fn activity_from_hook(hook_event: &str) -> &'static str {
     }
 }
 
+fn status_text_from_status_line(input: &Value) -> Option<String> {
+    let status_text = string_path(input, &["status_text"])
+        .or_else(|| string_path(input, &["statusText"]))
+        .unwrap_or_else(|| "Session idle".to_string());
+    Some(if matches!(status_text.trim(), "Claude Code active" | "active" | "") {
+        "Session idle".to_string()
+    } else {
+        status_text
+    })
+}
+
 fn status_text_from_hook(hook_event: &str, tool_name: Option<&str>) -> String {
     match hook_event {
         "UserPromptSubmit" => "Generating response".to_string(),
@@ -2342,6 +2356,186 @@ fn sanitize_tool_name(input: &Value) -> Option<String> {
 
 fn regular_tool_name(value: Option<String>) -> Option<String> {
     value.filter(|name| !matches!(name.as_str(), "Task" | "Agent" | "TodoWrite" | "TodoRead" | "TaskCreate" | "TaskUpdate"))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClaudePermissionDecision {
+    Deny,
+    Ask,
+    Allow,
+}
+
+impl ClaudePermissionDecision {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Deny => "deny",
+            Self::Ask => "ask",
+            Self::Allow => "allow",
+        }
+    }
+}
+
+fn should_skip_hud_tool_approval(input: &Value, tool_name: &str) -> bool {
+    if extract_permission_mode(input).as_deref() == Some("bypassPermissions") {
+        return true;
+    }
+    matches!(
+        claude_code_permission_decision(input, tool_name),
+        Some(ClaudePermissionDecision::Allow | ClaudePermissionDecision::Deny)
+    )
+}
+
+fn claude_code_permission_decision(input: &Value, tool_name: &str) -> Option<ClaudePermissionDecision> {
+    let settings = claude_code_settings_candidates()
+        .into_iter()
+        .filter_map(read_json_file)
+        .collect::<Vec<_>>();
+    if settings.is_empty() {
+        return None;
+    }
+
+    for decision in [ClaudePermissionDecision::Deny, ClaudePermissionDecision::Ask, ClaudePermissionDecision::Allow] {
+        if settings
+            .iter()
+            .flat_map(|settings| permission_rules(settings, decision))
+            .any(|rule| permission_rule_matches(&rule, input, tool_name))
+        {
+            return Some(decision);
+        }
+    }
+    None
+}
+
+fn claude_code_settings_candidates() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(config_dir) = env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from) {
+        push_unique_path(&mut paths, config_dir.join("settings.json"));
+        push_unique_path(&mut paths, config_dir.join("settings.local.json"));
+    }
+    for env_key in ["USERPROFILE", "HOME"] {
+        if let Some(home) = env::var_os(env_key).map(PathBuf::from) {
+            push_unique_path(&mut paths, home.join(".claude").join("settings.json"));
+            push_unique_path(&mut paths, home.join(".claude").join("settings.local.json"));
+        }
+    }
+    let mut dir = env::current_dir().ok();
+    while let Some(current) = dir {
+        push_unique_path(&mut paths, current.join(".claude").join("settings.json"));
+        push_unique_path(&mut paths, current.join(".claude").join("settings.local.json"));
+        dir = current.parent().map(Path::to_path_buf);
+    }
+    paths
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if !paths.iter().any(|existing| existing == &path) {
+        paths.push(path);
+    }
+}
+
+fn permission_rules(settings: &Value, decision: ClaudePermissionDecision) -> Vec<String> {
+    let mut rules = settings
+        .get("permissions")
+        .and_then(|permissions| permissions.get(decision.key()))
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_str).map(ToString::to_string).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let legacy_key = match decision {
+        ClaudePermissionDecision::Allow => Some("allowedTools"),
+        ClaudePermissionDecision::Deny => Some("deniedTools"),
+        ClaudePermissionDecision::Ask => None,
+    };
+    if let Some(legacy_key) = legacy_key {
+        if let Some(items) = settings.get(legacy_key).and_then(Value::as_array) {
+            rules.extend(items.iter().filter_map(Value::as_str).map(ToString::to_string));
+        }
+    }
+    rules
+}
+
+fn permission_rule_matches(rule: &str, input: &Value, tool_name: &str) -> bool {
+    let rule = rule.trim();
+    if rule.is_empty() {
+        return false;
+    }
+    let Some(open_paren) = rule.find('(') else {
+        return glob_match(rule, tool_name);
+    };
+    if !rule.ends_with(')') || open_paren == 0 {
+        return glob_match(rule, tool_name);
+    }
+    let rule_tool = rule[..open_paren].trim();
+    if !glob_match(rule_tool, tool_name) {
+        return false;
+    }
+    let pattern = rule[open_paren + 1..rule.len() - 1].trim();
+    if pattern.is_empty() {
+        return true;
+    }
+    permission_rule_input_values(input, tool_name)
+        .iter()
+        .any(|value| glob_match_normalized(pattern, value))
+}
+
+fn permission_rule_input_values(input: &Value, tool_name: &str) -> Vec<String> {
+    let mut values = Vec::new();
+    match tool_name {
+        "Bash" => push_optional_string(&mut values, string_path(input, &["tool_input", "command"])),
+        "Read" | "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => {
+            push_optional_string(&mut values, string_path(input, &["tool_input", "file_path"]));
+            push_optional_string(&mut values, string_path(input, &["tool_input", "path"]));
+        }
+        "Glob" | "Grep" => {
+            push_optional_string(&mut values, string_path(input, &["tool_input", "path"]));
+            push_optional_string(&mut values, string_path(input, &["tool_input", "pattern"]));
+        }
+        _ => {}
+    }
+    values
+}
+
+fn push_optional_string(values: &mut Vec<String>, value: Option<String>) {
+    if let Some(value) = value {
+        values.push(value);
+    }
+}
+
+fn glob_match_normalized(pattern: &str, value: &str) -> bool {
+    glob_match(pattern, value) || glob_match(&pattern.replace('\\', "/"), &value.replace('\\', "/"))
+}
+
+fn glob_match(pattern: &str, value: &str) -> bool {
+    if pattern == "*" || pattern == "**" || pattern == value {
+        return true;
+    }
+    if !pattern.contains('*') {
+        return pattern == value;
+    }
+
+    let starts_with_wildcard = pattern.starts_with('*');
+    let ends_with_wildcard = pattern.ends_with('*');
+    let parts = pattern.split('*').filter(|part| !part.is_empty()).collect::<Vec<_>>();
+    if parts.is_empty() {
+        return true;
+    }
+
+    let mut offset = 0usize;
+    for (index, part) in parts.iter().enumerate() {
+        let Some(found) = value[offset..].find(part) else {
+            return false;
+        };
+        if index == 0 && !starts_with_wildcard && found != 0 {
+            return false;
+        }
+        offset += found + part.len();
+    }
+
+    if !ends_with_wildcard {
+        if let Some(last) = parts.last() {
+            return value.ends_with(last);
+        }
+    }
+    true
 }
 
 fn extract_permission_mode(input: &Value) -> Option<String> {
@@ -2602,6 +2796,9 @@ mod tests {
         original_appdata: Option<String>,
         original_wait: Option<String>,
         original_context_window: Option<String>,
+        original_userprofile: Option<String>,
+        original_home: Option<String>,
+        original_claude_config_dir: Option<String>,
         original_dir: PathBuf,
         root: PathBuf,
     }
@@ -2611,11 +2808,17 @@ mod tests {
             let original_appdata = env::var("APPDATA").ok();
             let original_wait = env::var("CLAUDE_HUD_ONE_PENDING_RESPONSE_WAIT_MS").ok();
             let original_context_window = env::var("CLAUDE_HUD_CONTEXT_WINDOW_SIZE").ok();
+            let original_userprofile = env::var("USERPROFILE").ok();
+            let original_home = env::var("HOME").ok();
+            let original_claude_config_dir = env::var("CLAUDE_CONFIG_DIR").ok();
             let original_dir = env::current_dir().unwrap();
             let root = env::temp_dir().join(format!("claude-hud-one-bridge-test-{}-{}", std::process::id(), unix_millis()));
             let project = root.join("project");
             fs::create_dir_all(&project).unwrap();
             env::set_var("APPDATA", root.join("appdata"));
+            env::set_var("USERPROFILE", root.join("home"));
+            env::set_var("HOME", root.join("home"));
+            env::set_var("CLAUDE_CONFIG_DIR", root.join("claude-config"));
             env::set_var("CLAUDE_HUD_ONE_PENDING_RESPONSE_WAIT_MS", "0");
             env::remove_var("CLAUDE_HUD_CONTEXT_WINDOW_SIZE");
             env::set_current_dir(&project).unwrap();
@@ -2623,6 +2826,9 @@ mod tests {
                 original_appdata,
                 original_wait,
                 original_context_window,
+                original_userprofile,
+                original_home,
+                original_claude_config_dir,
                 original_dir,
                 root,
             }
@@ -2643,6 +2849,18 @@ mod tests {
             match &self.original_context_window {
                 Some(value) => env::set_var("CLAUDE_HUD_CONTEXT_WINDOW_SIZE", value),
                 None => env::remove_var("CLAUDE_HUD_CONTEXT_WINDOW_SIZE"),
+            }
+            match &self.original_userprofile {
+                Some(value) => env::set_var("USERPROFILE", value),
+                None => env::remove_var("USERPROFILE"),
+            }
+            match &self.original_home {
+                Some(value) => env::set_var("HOME", value),
+                None => env::remove_var("HOME"),
+            }
+            match &self.original_claude_config_dir {
+                Some(value) => env::set_var("CLAUDE_CONFIG_DIR", value),
+                None => env::remove_var("CLAUDE_CONFIG_DIR"),
             }
             let _ = fs::remove_dir_all(&self.root);
         }
@@ -2698,6 +2916,38 @@ mod tests {
     }
 
     #[test]
+    fn hud_bridge_statusline_without_running_work_is_idle() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+
+        let output = run_bridge_once(STATUSLINE_BASIC, BridgeMode::StatusLine);
+
+        assert!(output.stdout.contains("Session idle"));
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        assert_eq!(state.get("activity").and_then(Value::as_str), Some("idle"));
+        assert_eq!(state.get("statusText").and_then(Value::as_str), Some("Session idle"));
+    }
+
+    #[test]
+    fn hud_bridge_statusline_with_running_work_is_running() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let mut statusline = serde_json::from_str::<Value>(STATUSLINE_BASIC).unwrap();
+        if let Some(object) = statusline.as_object_mut() {
+            object.insert("tools".to_string(), json!({ "running": 1, "total": 1 }));
+        }
+
+        let output = run_bridge_once(&serde_json::to_string(&statusline).unwrap(), BridgeMode::StatusLine);
+
+        assert_ne!(output.stdout, FALLBACK_STATUS);
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        assert_eq!(state.get("activity").and_then(Value::as_str), Some("running"));
+        assert_eq!(state.get("statusText").and_then(Value::as_str), Some("Tool running"));
+    }
+
+    #[test]
     fn hud_bridge_pretooluse_writes_pending_request_and_defers() {
         let _lock = TEST_LOCK.lock().unwrap();
         let guard = EnvGuard::new();
@@ -2718,6 +2968,52 @@ mod tests {
         assert!(request.contains("allowOnce"));
         assert!(request.contains("nonce"));
         assert!(!request.contains("SECRET_COMMAND_ARGS_SHOULD_NOT_LEAK"));
+    }
+
+    #[test]
+    fn hud_bridge_bypass_permissions_skips_hud_approval() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let mut pretool = serde_json::from_str::<Value>(PRETOOLUSE_APPROVAL).unwrap();
+        if let Some(object) = pretool.as_object_mut() {
+            object.insert("permission_mode".to_string(), json!("bypassPermissions"));
+        }
+
+        let output = run_bridge_once(&serde_json::to_string(&pretool).unwrap(), BridgeMode::Hook);
+
+        assert!(output.stdout.is_empty());
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        assert!(state.get("pendingQueue").map(Value::is_null).unwrap_or(true));
+        let requests_dir = guard.root.join("appdata").join(APP_NAME).join("pending-intents").join("requests");
+        assert!(!requests_dir.exists());
+    }
+
+    #[test]
+    fn hud_bridge_claude_allow_rule_skips_hud_approval() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let claude_dir = env::current_dir().unwrap().join(".claude");
+        fs::create_dir_all(&claude_dir).unwrap();
+        fs::write(
+            claude_dir.join("settings.json"),
+            serde_json::to_string_pretty(&json!({
+                "permissions": {
+                    "allow": ["Bash(*)"]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let output = run_bridge_once(PRETOOLUSE_APPROVAL, BridgeMode::Hook);
+
+        assert!(output.stdout.is_empty());
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        assert!(state.get("pendingQueue").map(Value::is_null).unwrap_or(true));
+        let requests_dir = guard.root.join("appdata").join(APP_NAME).join("pending-intents").join("requests");
+        assert!(!requests_dir.exists());
     }
 
     #[test]

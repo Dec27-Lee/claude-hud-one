@@ -136,6 +136,7 @@ export type CurrentSessionState = {
   transcriptPath?: string | null
   projectDir?: string | null
   updatedAt?: string | null
+  activityStartedAt?: string | null
   mode: SessionMode
   activity: SessionActivityState
   sourceLabel: string
