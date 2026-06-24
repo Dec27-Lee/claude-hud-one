@@ -1,6 +1,8 @@
 use std::{
     collections::BTreeMap,
     env, fs,
+    fs::File,
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::Command,
     thread,
@@ -119,17 +121,44 @@ fn summarize_status_line(input: &Value) -> Value {
         .and_then(base_name)
         .or_else(|| string_path(input, &["session_name"]))
         .unwrap_or_else(|| "Claude Code".to_string());
+    let transcript_path = string_path(input, &["transcript_path"]).or_else(|| string_path(input, &["transcriptPath"]));
+    let transcript_summary = read_transcript_summary(transcript_path.as_deref());
+    let explicit_session_tokens = SessionTokenUsage {
+        input_tokens: first_number(&[
+            number_path(input, &["sessionTokens", "inputTokens"]),
+            number_path(input, &["session_tokens", "input_tokens"]),
+            number_path(input, &["usage", "sessionTokens", "inputTokens"]),
+            number_path(input, &["tokens", "input_tokens"]),
+            number_path(input, &["tokens", "input"]),
+        ]),
+        output_tokens: first_number(&[
+            number_path(input, &["sessionTokens", "outputTokens"]),
+            number_path(input, &["session_tokens", "output_tokens"]),
+            number_path(input, &["usage", "sessionTokens", "outputTokens"]),
+            number_path(input, &["tokens", "output_tokens"]),
+            number_path(input, &["tokens", "output"]),
+        ]),
+        cache_creation_input_tokens: first_number(&[
+            number_path(input, &["sessionTokens", "cacheCreationInputTokens"]),
+            number_path(input, &["session_tokens", "cache_creation_input_tokens"]),
+            number_path(input, &["tokens", "cache_creation_input_tokens"]),
+        ]),
+        cache_read_input_tokens: first_number(&[
+            number_path(input, &["sessionTokens", "cacheReadInputTokens"]),
+            number_path(input, &["session_tokens", "cache_read_input_tokens"]),
+            number_path(input, &["tokens", "cache_read_input_tokens"]),
+        ]),
+    };
+    let session_tokens = if transcript_summary.session_tokens.total() > 0.0 {
+        transcript_summary.session_tokens
+    } else {
+        explicit_session_tokens
+    };
     let model_id = string_path(input, &["model", "id"]);
     let model_name = string_path(input, &["model", "display_name"])
         .or_else(|| string_path(input, &["model", "displayName"]))
         .or_else(|| model_id.clone());
-    let output_tokens = first_number(&[
-        number_path(input, &["sessionTokens", "outputTokens"]),
-        number_path(input, &["session_tokens", "output_tokens"]),
-        number_path(input, &["usage", "sessionTokens", "outputTokens"]),
-        number_path(input, &["tokens", "output_tokens"]),
-        number_path(input, &["tokens", "output"]),
-    ]);
+    let output_tokens = session_tokens.output_tokens;
     let total_duration_ms = number_path(input, &["cost", "total_duration_ms"]);
     let output_speed = positive_number(first_number(&[
         number_path(input, &["speed", "output_tokens_per_second"]),
@@ -153,7 +182,7 @@ fn summarize_status_line(input: &Value) -> Value {
     insert_string(&mut state, "cwd", string_path(input, &["cwd"]));
     insert_string(&mut state, "projectDir", project_dir.clone());
     insert_string(&mut state, "projectSlug", Some(project_slug));
-    insert_string(&mut state, "transcriptPath", string_path(input, &["transcript_path"]).or_else(|| string_path(input, &["transcriptPath"])));
+    insert_string(&mut state, "transcriptPath", transcript_path.clone());
     insert_string(&mut state, "modelId", model_id);
     insert_string(&mut state, "modelName", model_name);
     insert_string(&mut state, "version", string_path(input, &["version"]));
@@ -163,24 +192,10 @@ fn summarize_status_line(input: &Value) -> Value {
     insert_number(&mut state, "contextWindowSize", context_window_size);
     insert_number(&mut state, "contextUsedTokens", context_usage_tokens);
     insert_string(&mut state, "permissionMode", extract_permission_mode(input));
-    insert_number(&mut state, "inputTokens", first_number(&[
-        number_path(input, &["sessionTokens", "inputTokens"]),
-        number_path(input, &["session_tokens", "input_tokens"]),
-        number_path(input, &["usage", "sessionTokens", "inputTokens"]),
-        number_path(input, &["tokens", "input_tokens"]),
-        number_path(input, &["tokens", "input"]),
-    ]));
+    insert_number(&mut state, "inputTokens", session_tokens.input_tokens);
     insert_number(&mut state, "outputTokens", output_tokens);
-    insert_number(&mut state, "cacheCreationInputTokens", first_number(&[
-        number_path(input, &["sessionTokens", "cacheCreationInputTokens"]),
-        number_path(input, &["session_tokens", "cache_creation_input_tokens"]),
-        number_path(input, &["tokens", "cache_creation_input_tokens"]),
-    ]));
-    insert_number(&mut state, "cacheReadInputTokens", first_number(&[
-        number_path(input, &["sessionTokens", "cacheReadInputTokens"]),
-        number_path(input, &["session_tokens", "cache_read_input_tokens"]),
-        number_path(input, &["tokens", "cache_read_input_tokens"]),
-    ]));
+    insert_number(&mut state, "cacheCreationInputTokens", session_tokens.cache_creation_input_tokens);
+    insert_number(&mut state, "cacheReadInputTokens", session_tokens.cache_read_input_tokens);
     insert_number(&mut state, "totalCostUsd", number_path(input, &["cost", "total_cost_usd"]));
     insert_number(&mut state, "totalDurationMs", total_duration_ms);
     insert_number(&mut state, "totalApiDurationMs", number_path(input, &["cost", "total_api_duration_ms"]));
@@ -201,9 +216,22 @@ fn summarize_status_line(input: &Value) -> Value {
     if state.get("totalLinesRemoved").and_then(value_number).is_none() {
         insert_number(&mut state, "totalLinesRemoved", git.lines_removed);
     }
-    insert_string(&mut state, "sessionStartedAt", iso_string_from_input(input, &["session_started_at"]).or_else(|| iso_string_from_input(input, &["session", "started_at"])));
-    insert_string(&mut state, "lastAssistantResponseAt", iso_string_from_input(input, &["last_assistant_response_at"]).or_else(|| iso_string_from_input(input, &["last_response_at"])));
+    insert_string(
+        &mut state,
+        "sessionStartedAt",
+        iso_string_from_input(input, &["session_started_at"])
+            .or_else(|| iso_string_from_input(input, &["session", "started_at"]))
+            .or(transcript_summary.first_timestamp),
+    );
+    insert_string(
+        &mut state,
+        "lastAssistantResponseAt",
+        iso_string_from_input(input, &["last_assistant_response_at"])
+            .or_else(|| iso_string_from_input(input, &["last_response_at"]))
+            .or(transcript_summary.last_assistant_response_at),
+    );
     insert_number(&mut state, "toolsCount", first_number(&[
+        transcript_summary.tools_count,
         number_path(input, &["tools", "total"]),
         number_path(input, &["tools", "count"]),
         number_path(input, &["tool_calls", "total"]),
@@ -212,8 +240,10 @@ fn summarize_status_line(input: &Value) -> Value {
     insert_number(&mut state, "toolsRunningCount", first_number(&[
         number_path(input, &["tools", "running"]),
         number_path(input, &["tool", "running"]),
+        transcript_summary.tools_running_count,
     ]));
     insert_number(&mut state, "agentsCount", first_number(&[
+        transcript_summary.agents_count,
         number_path(input, &["agents", "total"]),
         number_path(input, &["agent", "total"]),
         number_path(input, &["agent", "count"]),
@@ -221,14 +251,36 @@ fn summarize_status_line(input: &Value) -> Value {
     insert_number(&mut state, "agentsRunningCount", first_number(&[
         number_path(input, &["agents", "running"]),
         number_path(input, &["agent", "running"]),
+        transcript_summary.agents_running_count,
     ]));
     insert_number(&mut state, "todosActiveCount", first_number(&[
         number_path(input, &["todos", "active"]),
         number_path(input, &["todos", "in_progress"]),
         number_path(input, &["todos", "pending"]),
+        transcript_summary.todos_active_count,
     ]));
-    insert_number(&mut state, "todosCompletedCount", number_path(input, &["todos", "completed"]));
-    insert_number(&mut state, "todosTotalCount", number_path(input, &["todos", "total"]));
+    insert_number(&mut state, "todosCompletedCount", first_number(&[
+        number_path(input, &["todos", "completed"]),
+        transcript_summary.todos_completed_count,
+    ]));
+    insert_number(&mut state, "todosTotalCount", first_number(&[
+        number_path(input, &["todos", "total"]),
+        transcript_summary.todos_total_count,
+        transcript_summary.todo_operation_count,
+    ]));
+    if positive_count(state.get("toolsRunningCount").and_then(value_number)) > 0
+        || positive_count(state.get("agentsRunningCount").and_then(value_number)) > 0
+    {
+        state.insert("activity".to_string(), json!("running"));
+        if state
+            .get("statusText")
+            .and_then(Value::as_str)
+            .map(|value| value == "Claude Code active" || value.trim().is_empty())
+            .unwrap_or(true)
+        {
+            state.insert("statusText".to_string(), json!("Tool running"));
+        }
+    }
     insert_number(&mut state, "fiveHourUsedPercent", compact_percent(number_path(input, &["rate_limits", "five_hour", "used_percentage"])));
     insert_string(&mut state, "fiveHourResetAt", string_path(input, &["rate_limits", "five_hour", "resets_at"]));
     insert_number(&mut state, "sevenDayUsedPercent", compact_percent(number_path(input, &["rate_limits", "seven_day", "used_percentage"])));
@@ -265,6 +317,9 @@ fn summarize_hook(input: &Value) -> Value {
         .as_deref()
         .map(|name| matches!(name, "TodoWrite" | "TodoRead" | "TaskCreate" | "TaskUpdate"))
         .unwrap_or(false);
+    let is_tool_running = hook_event == "PreToolUse" && tool_name.is_some();
+    let is_agent_running = hook_event == "PreToolUse" && is_agent_tool;
+    let is_todo_active = hook_event == "PreToolUse" && is_todo_tool;
     let terminal = terminal_metadata(project_dir.as_deref(), Some(&project_slug), string_path(input, &["session_name"]).as_deref(), string_path(input, &["session_id"]).as_deref());
 
     let mut state = Map::new();
@@ -320,10 +375,10 @@ fn summarize_hook(input: &Value) -> Value {
     insert_string(&mut state, "sessionStartedAt", iso_string_from_input(input, &["session_started_at"]).or_else(|| iso_string_from_input(input, &["session", "started_at"])));
     insert_null(&mut state, "lastAssistantResponseAt");
     insert_number(&mut state, "toolsCount", tool_name.as_ref().map(|_| 1.0));
-    insert_number(&mut state, "toolsRunningCount", if hook_event == "PreToolUse" && tool_name.is_some() { Some(1.0) } else { None });
+    insert_number(&mut state, "toolsRunningCount", Some(if is_tool_running { 1.0 } else { 0.0 }));
     insert_number(&mut state, "agentsCount", if is_agent_tool { Some(1.0) } else { None });
-    insert_number(&mut state, "agentsRunningCount", if is_agent_tool { Some(1.0) } else { None });
-    insert_number(&mut state, "todosActiveCount", if is_todo_tool { Some(1.0) } else { None });
+    insert_number(&mut state, "agentsRunningCount", Some(if is_agent_running { 1.0 } else { 0.0 }));
+    insert_number(&mut state, "todosActiveCount", Some(if is_todo_active { 1.0 } else { 0.0 }));
     insert_null(&mut state, "todosCompletedCount");
     insert_number(&mut state, "todosTotalCount", if is_todo_tool { Some(1.0) } else { None });
     state.insert("hookEventName".to_string(), json!(hook_event));
@@ -400,7 +455,7 @@ fn pending_item_from_hook(
         }));
     }
 
-    if hook_event == "Notification" || hook_event == "Stop" {
+    if hook_event == "Notification" {
         let expires_at = iso_from_ms(now_ms.saturating_add(PENDING_QUESTION_TTL_MS));
         let id = safe_path_segment(&format!("question-{hook_event}-{}-{now_ms}", session_id.clone().unwrap_or_default()))
             .unwrap_or_else(|| format!("question-{now_ms}"));
@@ -936,19 +991,20 @@ fn render_session_tokens(state: &Value, config: &Value) -> Option<String> {
     let cache = positive_count(state_number(state, "cacheCreationInputTokens"))
         + positive_count(state_number(state, "cacheReadInputTokens"));
     let total = input + output + cache;
-    if total == 0 {
-        return None;
-    }
-    let mut value = format_token_k(total as f64, false)?;
+    let mut value = format_token_k(total as f64, true)?;
     if config_bool(config, &["display", "showTokenBreakdown"], true) {
-        let details = [
-            (input > 0).then(|| format!("in: {}", format_token_k(input as f64, false).unwrap_or_default())),
-            (output > 0).then(|| format!("out: {}", format_token_k(output as f64, false).unwrap_or_default())),
-            (cache > 0).then(|| format!("cache: {}", format_token_k(cache as f64, false).unwrap_or_default())),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
+        let details = if total == 0 {
+            vec!["in: 0".to_string(), "out: 0".to_string(), "cache: 0".to_string()]
+        } else {
+            [
+                (input > 0).then(|| format!("in: {}", format_token_k(input as f64, false).unwrap_or_default())),
+                (output > 0).then(|| format!("out: {}", format_token_k(output as f64, false).unwrap_or_default())),
+                (cache > 0).then(|| format!("cache: {}", format_token_k(cache as f64, false).unwrap_or_default())),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+        };
         if !details.is_empty() {
             value.push_str(&format!(" ({})", details.join(", ")));
         }
@@ -1678,6 +1734,9 @@ fn merge_with_previous(next_state: Value, previous_state: Option<&Value>, mode: 
         "agentName",
         "terminal",
     ] {
+        if mode == BridgeMode::StatusLine && is_statusline_live_metric_key(key) {
+            continue;
+        }
         if is_null_or_missing(merged.get(key)) {
             if let Some(previous_value) = previous.get(key) {
                 merged.insert(key.to_string(), previous_value.clone());
@@ -1702,6 +1761,37 @@ fn merge_with_previous(next_state: Value, previous_state: Option<&Value>, mode: 
     let merged_queue = merge_pending_queue(&Value::Object(merged.clone()), previous, mode);
     merged.insert("pendingQueue".to_string(), merged_queue);
     Value::Object(merged)
+}
+
+fn is_statusline_live_metric_key(key: &str) -> bool {
+    matches!(
+        key,
+        "contextUsedPercent"
+            | "contextRemainingPercent"
+            | "contextWindowSize"
+            | "contextUsedTokens"
+            | "inputTokens"
+            | "outputTokens"
+            | "cacheCreationInputTokens"
+            | "cacheReadInputTokens"
+            | "totalCostUsd"
+            | "totalDurationMs"
+            | "totalApiDurationMs"
+            | "outputSpeed"
+            | "sessionStartedAt"
+            | "lastAssistantResponseAt"
+            | "toolsCount"
+            | "toolsRunningCount"
+            | "agentsCount"
+            | "agentsRunningCount"
+            | "todosActiveCount"
+            | "todosCompletedCount"
+            | "todosTotalCount"
+            | "fiveHourUsedPercent"
+            | "fiveHourResetAt"
+            | "sevenDayUsedPercent"
+            | "sevenDayResetAt"
+    )
 }
 
 fn merge_pending_queue(next_state: &Value, previous_state: &Value, mode: BridgeMode) -> Value {
@@ -1902,6 +1992,188 @@ fn session_key_from_state(state: &Value) -> String {
         .unwrap_or_else(|| format!("pid-{}", std::process::id()))
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct SessionTokenUsage {
+    input_tokens: Option<f64>,
+    output_tokens: Option<f64>,
+    cache_creation_input_tokens: Option<f64>,
+    cache_read_input_tokens: Option<f64>,
+}
+
+impl SessionTokenUsage {
+    fn total(self) -> f64 {
+        self.input_tokens.unwrap_or(0.0)
+            + self.output_tokens.unwrap_or(0.0)
+            + self.cache_creation_input_tokens.unwrap_or(0.0)
+            + self.cache_read_input_tokens.unwrap_or(0.0)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct TranscriptSummary {
+    session_tokens: SessionTokenUsage,
+    tools_count: Option<f64>,
+    tools_running_count: Option<f64>,
+    agents_count: Option<f64>,
+    agents_running_count: Option<f64>,
+    todo_operation_count: Option<f64>,
+    todos_active_count: Option<f64>,
+    todos_completed_count: Option<f64>,
+    todos_total_count: Option<f64>,
+    first_timestamp: Option<String>,
+    last_assistant_response_at: Option<String>,
+}
+
+fn read_transcript_summary(transcript_path: Option<&str>) -> TranscriptSummary {
+    let Some(path) = transcript_path.map(PathBuf::from).filter(|path| path.is_file()) else {
+        return TranscriptSummary::default();
+    };
+    let Ok(file) = File::open(path) else {
+        return TranscriptSummary::default();
+    };
+
+    let mut summary = TranscriptSummary::default();
+    let mut saw_usage = false;
+    let mut tools_count = 0.0;
+    let mut agents_count = 0.0;
+    let mut todo_operation_count = 0.0;
+    let mut latest_todo_counts: Option<(f64, f64, f64)> = None;
+    let mut running_tools = BTreeMap::<String, &'static str>::new();
+    let mut task_statuses = Vec::<String>::new();
+
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        let clean = line.trim_start_matches('\u{feff}').trim();
+        if clean.is_empty() {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<Value>(clean) else {
+            continue;
+        };
+
+        if let Some(timestamp) = string_path(&entry, &["timestamp"]).filter(|value| ms_from_iso(value).is_some()) {
+            if summary.first_timestamp.is_none() {
+                summary.first_timestamp = Some(timestamp.clone());
+            }
+            if entry.get("type").and_then(Value::as_str) == Some("assistant")
+                || entry.get("message").and_then(|message| message.get("role")).and_then(Value::as_str) == Some("assistant")
+            {
+                summary.last_assistant_response_at = Some(timestamp);
+            }
+        }
+
+        let usage = entry
+            .get("message")
+            .and_then(|message| message.get("usage"))
+            .or_else(|| entry.get("usage"));
+        if let Some(usage) = usage.filter(|value| value.is_object()) {
+            saw_usage = true;
+            summary.session_tokens.input_tokens = Some(summary.session_tokens.input_tokens.unwrap_or(0.0) + safe_usage_count(usage.get("input_tokens")));
+            summary.session_tokens.output_tokens = Some(summary.session_tokens.output_tokens.unwrap_or(0.0) + safe_usage_count(usage.get("output_tokens")));
+            summary.session_tokens.cache_creation_input_tokens = Some(summary.session_tokens.cache_creation_input_tokens.unwrap_or(0.0) + safe_usage_count(usage.get("cache_creation_input_tokens")));
+            summary.session_tokens.cache_read_input_tokens = Some(summary.session_tokens.cache_read_input_tokens.unwrap_or(0.0) + safe_usage_count(usage.get("cache_read_input_tokens")));
+        }
+
+        for item in transcript_content_items(&entry) {
+            if item.get("type").and_then(Value::as_str) == Some("tool_result") {
+                if let Some(tool_id) = item.get("tool_use_id").and_then(Value::as_str) {
+                    running_tools.remove(tool_id);
+                }
+                continue;
+            }
+            let Some(name) = item.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            let id = item.get("id").and_then(Value::as_str).map(ToString::to_string);
+            if matches!(name, "Task" | "Agent") {
+                agents_count += 1.0;
+                if let Some(id) = id {
+                    running_tools.insert(id, "agent");
+                }
+                continue;
+            }
+            if matches!(name, "TodoWrite" | "TodoRead" | "TaskCreate" | "TaskUpdate") {
+                todo_operation_count += 1.0;
+                if let Some(counts) = todo_counts_from_tool_input(item.get("input")) {
+                    latest_todo_counts = Some(counts);
+                }
+                if let Some(status) = item
+                    .get("input")
+                    .and_then(|input| input.get("status"))
+                    .and_then(Value::as_str)
+                {
+                    task_statuses.push(status.to_string());
+                }
+                if let Some(id) = id {
+                    running_tools.insert(id, "todo");
+                }
+                continue;
+            }
+            if regular_tool_name(Some(name.to_string())).is_some() {
+                tools_count += 1.0;
+                if let Some(id) = id {
+                    running_tools.insert(id, "tool");
+                }
+            }
+        }
+    }
+
+    if !saw_usage {
+        summary.session_tokens = SessionTokenUsage::default();
+    }
+    summary.todo_operation_count = (todo_operation_count > 0.0).then_some(todo_operation_count);
+    let tools_running = running_tools.values().filter(|kind| **kind == "tool").count() as f64;
+    let agents_running = running_tools.values().filter(|kind| **kind == "agent").count() as f64;
+    summary.tools_count = (tools_count > 0.0).then_some(tools_count);
+    summary.tools_running_count = (tools_running > 0.0).then_some(tools_running);
+    summary.agents_count = (agents_count > 0.0).then_some(agents_count);
+    summary.agents_running_count = (agents_running > 0.0).then_some(agents_running);
+    let todo_counts = latest_todo_counts.or_else(|| todo_counts_from_statuses(task_statuses.iter().map(String::as_str)));
+    if let Some((active, completed, total)) = todo_counts {
+        summary.todos_active_count = Some(active);
+        summary.todos_completed_count = Some(completed);
+        summary.todos_total_count = Some(total);
+    }
+    summary
+}
+
+fn transcript_content_items(entry: &Value) -> Vec<&Value> {
+    entry
+        .get("message")
+        .and_then(|message| message.get("content"))
+        .or_else(|| entry.get("content"))
+        .and_then(Value::as_array)
+        .map(|items| items.iter().collect())
+        .unwrap_or_default()
+}
+
+fn todo_counts_from_tool_input(input: Option<&Value>) -> Option<(f64, f64, f64)> {
+    let input = input.filter(|value| value.is_object())?;
+    let todos = input
+        .get("todos")
+        .or_else(|| input.get("items"))
+        .and_then(Value::as_array)?;
+    todo_counts_from_statuses(todos.iter().filter_map(|todo| todo.get("status").and_then(Value::as_str)))
+}
+
+fn todo_counts_from_statuses<'a>(statuses: impl Iterator<Item = &'a str>) -> Option<(f64, f64, f64)> {
+    let mut active = 0.0;
+    let mut completed = 0.0;
+    let mut total = 0.0;
+    for status in statuses {
+        total += 1.0;
+        match status {
+            "completed" | "done" => completed += 1.0,
+            "in_progress" | "active" | "pending" => active += 1.0,
+            _ => {}
+        }
+    }
+    (total > 0.0).then_some((active, completed, total))
+}
+
+fn safe_usage_count(value: Option<&Value>) -> f64 {
+    value.and_then(value_number).filter(|value| *value >= 0.0).unwrap_or(0.0)
+}
+
 #[derive(Default)]
 struct GitStatus {
     branch: Option<String>,
@@ -2028,10 +2300,10 @@ fn terminal_title_hint(cwd: Option<&str>, project_slug: Option<&str>, session_na
 
 fn activity_from_hook(hook_event: &str) -> &'static str {
     match hook_event {
-        "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PreCompact" => "running",
-        "Notification" | "Stop" => "waiting",
+        "UserPromptSubmit" | "PreToolUse" | "PreCompact" => "running",
+        "Notification" => "waiting",
         "StopFailure" => "error",
-        "SessionEnd" => "idle",
+        "PostToolUse" | "Stop" | "SessionEnd" => "idle",
         _ => "active",
     }
 }
@@ -2042,7 +2314,7 @@ fn status_text_from_hook(hook_event: &str, tool_name: Option<&str>) -> String {
         "PreToolUse" => tool_name.map(|name| format!("Tool running: {name}")).unwrap_or_else(|| "Tool running".to_string()),
         "PostToolUse" => tool_name.map(|name| format!("Tool finished: {name}")).unwrap_or_else(|| "Tool finished".to_string()),
         "Notification" => "Needs attention".to_string(),
-        "Stop" => "Waiting for user".to_string(),
+        "Stop" => "Session idle".to_string(),
         "StopFailure" => "Run failed".to_string(),
         "SessionStart" => "Session started".to_string(),
         "SessionEnd" => "Session ended".to_string(),
@@ -2449,6 +2721,63 @@ mod tests {
     }
 
     #[test]
+    fn hud_bridge_posttooluse_clears_running_counts() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let pretool = serde_json::from_str::<Value>(PRETOOLUSE_APPROVAL).unwrap();
+        let mut posttool = pretool.clone();
+        if let Some(object) = posttool.as_object_mut() {
+            object.insert("hook_event_name".to_string(), json!("PostToolUse"));
+        }
+
+        let pre_output = run_bridge_once(&serde_json::to_string(&pretool).unwrap(), BridgeMode::Hook);
+        assert!(pre_output.stdout.contains("defer"));
+        let post_output = run_bridge_once(&serde_json::to_string(&posttool).unwrap(), BridgeMode::Hook);
+        assert!(post_output.stdout.is_empty());
+
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        assert_eq!(state.get("activity").and_then(Value::as_str), Some("idle"));
+        assert_eq!(state.get("toolsRunningCount").and_then(Value::as_f64), Some(0.0));
+        assert_eq!(state.get("agentsRunningCount").and_then(Value::as_f64), Some(0.0));
+        assert_eq!(state.get("todosActiveCount").and_then(Value::as_f64), Some(0.0));
+        let items = state
+            .get("pendingQueue")
+            .and_then(|queue| queue.get("items"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn hud_bridge_stop_does_not_create_attention_question() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let stop = json!({
+            "hook_event_name": "Stop",
+            "session_id": "stop-session",
+            "session_name": "Stop Session",
+            "cwd": "E:/Develop_E/stop-session"
+        });
+
+        let output = run_bridge_once(&serde_json::to_string(&stop).unwrap(), BridgeMode::Hook);
+        assert!(output.stdout.is_empty());
+
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        assert_eq!(state.get("activity").and_then(Value::as_str), Some("idle"));
+        assert_eq!(state.get("statusText").and_then(Value::as_str), Some("Session idle"));
+        let items = state
+            .get("pendingQueue")
+            .and_then(|queue| queue.get("items"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        assert!(items.is_empty());
+    }
+
+    #[test]
     fn hud_bridge_non_blocking_hooks_do_not_echo_sensitive_text() {
         let _lock = TEST_LOCK.lock().unwrap();
         let guard = EnvGuard::new();
@@ -2510,7 +2839,8 @@ mod tests {
 
         let second = run_bridge_once(&serde_json::to_string(&session_b).unwrap(), BridgeMode::StatusLine);
 
-        assert!(!second.stdout.contains("Tokens"));
+        assert!(second.stdout.contains("Tokens"));
+        assert!(second.stdout.contains("0 (in: 0, out: 0, cache: 0)"));
         assert!(!second.stdout.contains("Todo"));
         assert!(!second.stdout.contains("Agents"));
         assert!(!second.stdout.contains("Tools"));
@@ -2524,6 +2854,172 @@ mod tests {
         assert!(serialized.contains("session-b"));
         assert!(!serialized.contains("inputTokens\":1000"));
         assert!(!serialized.contains("todosActiveCount\":1"));
+    }
+
+    #[test]
+    fn hud_bridge_statusline_drops_stale_live_metrics_from_same_session_when_absent() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let settings_dir = guard.root.join("appdata").join(APP_NAME);
+        fs::create_dir_all(&settings_dir).unwrap();
+        fs::write(
+            settings_dir.join("settings.json"),
+            serde_json::to_string_pretty(&json!({
+                "terminalHud": {
+                    "rows": [["sessionTokens"], ["sessionTime"], ["activity"]],
+                    "display": { "showSessionTokens": true, "showTodos": true, "showAgents": true, "showTools": true }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let contaminated_session = json!({
+            "session_id": "session-c",
+            "session_name": "C",
+            "cwd": "E:/Develop_E/project-c",
+            "model": { "display_name": "Claude Opus 4.8" },
+            "sessionTokens": {
+                "inputTokens": 1000,
+                "outputTokens": 2000,
+                "cacheReadInputTokens": 3000
+            },
+            "sessionStartedAt": "2026-06-22T00:25:12.065Z",
+            "todos": { "active": 1, "completed": 22, "total": 23 },
+            "agents": { "count": 1, "running": 1 },
+            "tools": { "count": 1, "running": 1 }
+        });
+        let clean_statusline = json!({
+            "session_id": "session-c",
+            "session_name": "C",
+            "cwd": "E:/Develop_E/project-c",
+            "model": { "display_name": "Claude Sonnet 4.6" }
+        });
+
+        let first = run_bridge_once(&serde_json::to_string(&contaminated_session).unwrap(), BridgeMode::StatusLine);
+        assert!(first.stdout.contains("Tokens"));
+        assert!(first.stdout.contains("Todo"));
+
+        let second = run_bridge_once(&serde_json::to_string(&clean_statusline).unwrap(), BridgeMode::StatusLine);
+
+        assert!(second.stdout.contains("Tokens"));
+        assert!(second.stdout.contains("0 (in: 0, out: 0, cache: 0)"));
+        assert!(!second.stdout.contains("Started"));
+        assert!(!second.stdout.contains("Todo"));
+        assert!(!second.stdout.contains("Agents"));
+        assert!(!second.stdout.contains("Tools"));
+        let session_state = guard
+            .root
+            .join("appdata")
+            .join(APP_NAME)
+            .join("sessions")
+            .join("session-c.json");
+        let serialized = fs::read_to_string(session_state).unwrap();
+        assert!(serialized.contains("session-c"));
+        assert!(!serialized.contains("inputTokens\":1000"));
+        assert!(!serialized.contains("todosCompletedCount\":22"));
+    }
+
+    #[test]
+    fn hud_bridge_session_tokens_show_zero_for_new_session() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let settings_dir = guard.root.join("appdata").join(APP_NAME);
+        fs::create_dir_all(&settings_dir).unwrap();
+        fs::write(
+            settings_dir.join("settings.json"),
+            serde_json::to_string_pretty(&json!({
+                "terminalHud": {
+                    "rows": [["sessionTokens"]],
+                    "display": { "showSessionTokens": true, "showTokenBreakdown": true }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let statusline = json!({
+            "session_id": "new-zero-session",
+            "session_name": "New Zero",
+            "cwd": "E:/Develop_E/new-zero",
+            "model": { "display_name": "Claude Sonnet 4.6" }
+        });
+
+        let output = run_bridge_once(&serde_json::to_string(&statusline).unwrap(), BridgeMode::StatusLine);
+
+        assert!(output.stdout.contains("Tokens"));
+        assert!(output.stdout.contains("0 (in: 0, out: 0, cache: 0)"));
+    }
+
+    #[test]
+    fn hud_bridge_statusline_restores_completed_activity_from_transcript() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let settings_dir = guard.root.join("appdata").join(APP_NAME);
+        fs::create_dir_all(&settings_dir).unwrap();
+        fs::write(
+            settings_dir.join("settings.json"),
+            serde_json::to_string_pretty(&json!({
+                "terminalHud": {
+                    "rows": [["activity"]],
+                    "display": { "showTodos": true, "showAgents": true, "showTools": true }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let transcript_path = guard.root.join("session-transcript.jsonl");
+        fs::write(
+            &transcript_path,
+            [
+                serde_json::to_string(&json!({
+                    "type": "assistant",
+                    "timestamp": "2026-06-22T00:25:12.065Z",
+                    "message": {
+                        "role": "assistant",
+                        "usage": {
+                            "input_tokens": 100,
+                            "output_tokens": 20,
+                            "cache_read_input_tokens": 300
+                        },
+                        "content": [
+                            { "type": "tool_use", "id": "tool-1", "name": "Read", "input": {} },
+                            { "type": "tool_use", "id": "agent-1", "name": "Task", "input": {} },
+                            { "type": "tool_use", "id": "todo-1", "name": "TodoWrite", "input": { "todos": [
+                                { "status": "completed" },
+                                { "status": "in_progress" }
+                            ] } }
+                        ]
+                    }
+                })).unwrap(),
+                serde_json::to_string(&json!({
+                    "type": "user",
+                    "timestamp": "2026-06-22T00:26:12.065Z",
+                    "message": {
+                        "role": "user",
+                        "content": [
+                            { "type": "tool_result", "tool_use_id": "tool-1" },
+                            { "type": "tool_result", "tool_use_id": "agent-1" }
+                        ]
+                    }
+                })).unwrap(),
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+        let statusline = json!({
+            "session_id": "session-transcript",
+            "session_name": "Transcript",
+            "cwd": "E:/Develop_E/project-transcript",
+            "transcript_path": transcript_path.to_string_lossy(),
+            "model": { "display_name": "Claude Sonnet 4.6" }
+        });
+
+        let output = run_bridge_once(&serde_json::to_string(&statusline).unwrap(), BridgeMode::StatusLine);
+
+        assert!(output.stdout.contains("Todo"));
+        assert!(output.stdout.contains("Agents"));
+        assert!(output.stdout.contains("Tools"));
+        assert!(output.stdout.contains("1"));
     }
 
     #[test]

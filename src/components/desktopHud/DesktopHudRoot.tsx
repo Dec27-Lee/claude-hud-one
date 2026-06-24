@@ -137,9 +137,19 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
   const [completionCardsByKey, setCompletionCardsByKey] = useState<Record<string, string>>({})
   const [dismissedCompletionKeys, setDismissedCompletionKeys] = useState<Record<string, boolean>>({})
   const [completionNow, setCompletionNow] = useState(() => Date.now())
-  const sessions = useMemo(() => sortedSessions(state.sessions.length > 0 ? state.sessions : [state.currentSession]), [state.currentSession, state.sessions])
-  const tickerSession = sessions[tickerIndex % sessions.length] ?? state.currentSession
-  const tickerKey = sessionKey(tickerSession, tickerIndex % Math.max(sessions.length, 1))
+  const sessions = useMemo(() => sortedSessions(state.sessions), [state.sessions])
+  const hasLiveSessions = sessions.length > 0
+  const emptySession = useMemo<CurrentSessionState>(() => ({
+    ...state.currentSession,
+    activity: 'idle',
+    activeToolName: null,
+    bridgeStatusText: undefined,
+    modelLabel: null,
+    sourceLabel: 'Claude HUD One',
+    lastEventLabel: desktopLanguage === 'zh-CN' ? '暂无正在打开的 Claude Code 会话' : 'No open Claude Code sessions',
+  }), [desktopLanguage, state.currentSession])
+  const tickerSession = hasLiveSessions ? sessions[tickerIndex % sessions.length] : emptySession
+  const tickerKey = hasLiveSessions ? sessionKey(tickerSession, tickerIndex % sessions.length) : 'no-open-session'
   const completionCards = useMemo(() => sessions
     .map((session, index) => {
       const key = sessionKey(session, index)
@@ -191,7 +201,7 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
   const focusSessions = desktopHud.smartSuppress && effectiveViewState !== 'expanded'
     ? sessions.filter((session, index) => isBusyActivity(session.activity) || session.activity === 'error' || completionSessionKeys.has(sessionKey(session, index)))
     : sessions
-  const visibleSessions = focusSessions.length > 0 ? focusSessions : [tickerSession]
+  const visibleSessions = focusSessions.length > 0 ? focusSessions : (sessions.length > 0 ? [tickerSession] : [])
   const visibleSessionEntries = visibleSessions.map((session, index) => {
     const sourceIndex = sessions.indexOf(session)
     return { session, index: sourceIndex >= 0 ? sourceIndex : index }
@@ -200,6 +210,7 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
     ? visibleSessionEntries
     : visibleSessionEntries.slice(0, Math.min(3, maxVisibleSessions))
   const sessionGroups = (() => {
+    if (panelSessionEntries.length === 0) return []
     if (sessionGroupingMode === 'all') return [{ key: 'all', label: null as string | null, entries: panelSessionEntries }]
 
     const groups = new Map<string, { key: string; label: string; entries: SessionPanelEntry[] }>()
@@ -579,7 +590,7 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
           buttonRef={capsuleRef}
           session={tickerSession}
           sessionsCount={sessions.length}
-          tickerText={sessionTickerText(tickerSession, isDesktopItemVisible, tickerItems, desktopLanguage)}
+          tickerText={hasLiveSessions ? sessionTickerText(tickerSession, isDesktopItemVisible, tickerItems, desktopLanguage) : (desktopLanguage === 'zh-CN' ? '暂无正在打开的 Claude Code 会话' : 'No open Claude Code sessions')}
           tickerCountText={sessions.length > 1 ? `${(tickerIndex % sessions.length) + 1}/${sessions.length}` : null}
           mood={mood}
           viewState={effectiveViewState}
@@ -645,7 +656,7 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
             {activeSurface === 'sessionList' ? (
               <>
                 <div className="desktop-hud-panel__toolbar">
-                  <span>{desktopLanguage === 'zh-CN' ? `${sessions.length} 个会话` : (sessions.length > 1 ? `${sessions.length} sessions` : '1 session')}</span>
+                  <span>{desktopLanguage === 'zh-CN' ? `${sessions.length} 个会话` : (sessions.length === 1 ? '1 session' : `${sessions.length} sessions`)}</span>
                   <div className="desktop-hud-panel__grouping" aria-label={desktopLanguage === 'zh-CN' ? '会话分组模式' : 'Session grouping mode'}>
                     {SESSION_GROUPING_OPTIONS.map((option) => (
                       <button
@@ -668,7 +679,11 @@ export function DesktopHudRoot({ state, onOpenSettings, onRefreshNow, isRefreshi
                   style={sessionListStyle}
                   aria-label={desktopLanguage === 'zh-CN' ? '所有已监控的 Claude Code 会话' : 'All monitored Claude Code sessions'}
                 >
-                  {sessionGroups.map((group) => (
+                  {sessionGroups.length === 0 ? (
+                    <div className="desktop-session-group desktop-session-group--empty">
+                      <p>{desktopLanguage === 'zh-CN' ? '暂无正在打开的 Claude Code 会话。' : 'No open Claude Code sessions.'}</p>
+                    </div>
+                  ) : sessionGroups.map((group) => (
                     <div className="desktop-session-group" key={group.key}>
                       {group.label ? <div className="desktop-session-group__label">{group.label}</div> : null}
                       {group.entries.map(({ session, index }) => (

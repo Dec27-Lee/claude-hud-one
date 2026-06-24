@@ -83,13 +83,41 @@ const projectSlugFromBridge = (bridge: ClaudeStatusBridgeState): string => {
   return source.replaceAll('\\', '/').split('/').filter(Boolean).at(-1) ?? 'Claude Code'
 }
 
-const bridgeIsFresh = (bridge: ClaudeStatusBridgeState): boolean => {
+const BRIDGE_PROVIDER_FRESH_MS = 10 * 60_000
+const DESKTOP_SESSION_LIVE_MS = 45_000
+
+const bridgeAgeMs = (bridge: ClaudeStatusBridgeState): number | null => {
   const timestamp = Date.parse(bridge.updatedAt)
-  return Number.isFinite(timestamp) && Date.now() - timestamp < 10 * 60_000
+  if (!Number.isFinite(timestamp)) return null
+  return Date.now() - timestamp
 }
 
+const bridgeIsProviderFresh = (bridge: ClaudeStatusBridgeState): boolean => {
+  const ageMs = bridgeAgeMs(bridge)
+  return ageMs !== null && ageMs < BRIDGE_PROVIDER_FRESH_MS
+}
+
+const bridgeIsLiveSession = (bridge: ClaudeStatusBridgeState): boolean => {
+  const ageMs = bridgeAgeMs(bridge)
+  return ageMs !== null && ageMs < DESKTOP_SESSION_LIVE_MS
+}
+
+const positiveCount = (value: number | null | undefined): number => (
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
+)
+
+const bridgeHasRunningWork = (bridge: ClaudeStatusBridgeState): boolean => (
+  positiveCount(bridge.toolsRunningCount) > 0
+  || positiveCount(bridge.agentsRunningCount) > 0
+  || bridge.hookEventName === 'UserPromptSubmit'
+  || bridge.hookEventName === 'PreToolUse'
+  || bridge.hookEventName === 'PreCompact'
+  || /^Tool running(?::|$)|^Generating response$|^Compacting context$/i.test(bridge.statusText ?? '')
+)
+
 const activityFromBridge = (bridge: ClaudeStatusBridgeState): SessionActivityState => {
-  if (!bridgeIsFresh(bridge)) return 'idle'
+  if (!bridgeIsLiveSession(bridge)) return 'idle'
+  if (bridge.activity === 'active' && bridgeHasRunningWork(bridge)) return 'running'
   return bridge.activity
 }
 
@@ -227,7 +255,7 @@ export const mapClaudeStatusBridgeToProviderPatch = (bridge: ClaudeStatusBridgeS
       usedPercent: usagePercent(bridge.sevenDayUsedPercent),
       resetAtLabel: resetLabel(bridge.sevenDayResetAt),
     },
-    stale: !bridgeIsFresh(bridge),
+    stale: !bridgeIsProviderFresh(bridge),
     lastUpdatedLabel: relativeTimeLabel(bridge.updatedAt),
     source: 'claudeCode',
     authStatus: 'ok',
@@ -289,7 +317,7 @@ export const loadClaudeStatusBridgeSessions = async (): Promise<ClaudeStatusBrid
 
 export const loadClaudeStatusBridgePatch = async (): Promise<Partial<CurrentSessionState> | null> => {
   const bridge = await loadClaudeStatusBridgeState()
-  return bridge && bridgeIsFresh(bridge) ? mapClaudeStatusBridgeToCurrentSessionPatch(bridge) : null
+  return bridge && bridgeIsLiveSession(bridge) ? mapClaudeStatusBridgeToCurrentSessionPatch(bridge) : null
 }
 
 export const loadLiveSessions = async (): Promise<CurrentSessionState[]> => {
@@ -301,10 +329,11 @@ export const loadLiveSessions = async (): Promise<CurrentSessionState[]> => {
       loadClaudeStatusBridgeSessions(),
     ])
     const bridgeSessions = bridges
-      .filter(bridgeIsFresh)
+      .filter(bridgeIsLiveSession)
       .map(mapClaudeStatusBridgeToCurrentSession)
 
     if (bridgeSessions.length > 0) return bridgeSessions
+    if (bridges.length > 0) return []
     return summary ? [mapClaudeCodeSummaryToCurrentSession(summary)] : []
   } catch (error) {
     console.warn('Failed to load Claude Code sessions', error)

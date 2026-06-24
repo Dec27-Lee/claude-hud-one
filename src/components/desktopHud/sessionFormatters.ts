@@ -107,6 +107,7 @@ const translateStatusText = (value: string | null | undefined, language: Desktop
     'Run failed': '运行失败',
     'Session started': '会话已开始',
     'Session ended': '会话已结束',
+    'Session idle': '会话空闲',
     'Compacting context': '正在压缩上下文',
     'Working directory changed': '工作目录已变更',
   }

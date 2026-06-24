@@ -710,6 +710,7 @@ fn localized_status_text(value: &str) -> String {
         "Tool finished" => "工具已完成".to_string(),
         "Needs attention" => "需要处理".to_string(),
         "Waiting for user" => "等待用户".to_string(),
+        "Session idle" => "会话空闲".to_string(),
         other => other.to_string(),
     }
 }

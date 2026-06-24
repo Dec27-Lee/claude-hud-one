@@ -16,10 +16,11 @@
 - 已继续修复用户反馈的 Terminal HUD 颜色和展示不完整问题：Rust renderer 不再因 `preset: hud-plus-default` 丢弃用户颜色/rows patch，补齐 context/usage band 与阈值配色、labelTitle/labelValue 分色、activityLine items/warnings/maxWidthRatio、git branchOverflow，并让 ANSI 截断/换行尽量保留颜色；Settings 颜色配置页修复继承两行 grid 后多子元素叠加的问题。
 - 已继续修复 git 组件不显示与活动行标题/值未拆色的问题：Rust statusLine 现在会在 Claude Code 输入没有 git 字段时，从当前 project dir 采集 git branch/dirty/ahead/behind 和 diff 行数；activity 的 Todo/Agents/Tools 标题走 `labelTitle`，数值走 `labelValue`。
 - 已继续修复 git 组件细节颜色与上下文百分比：git 括号内新增行数使用绿色、删除行数使用红色；context percent 优先按实际 `contextUsedTokens / contextWindowSize` 重新计算，避免在配置 270K 窗口时仍沿用 Claude Code 原始 1M used_percentage。
-- 已重新打 NSIS 安装包：`src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`，SHA256：`C4B04E0B40BE8EC5F503F0A06B44FFBCA8A0D80B7434E4C6782046CEB391C008`。
+- 已重新打 NSIS 安装包：`src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`，SHA256：`B829DF81A1BCCC0BD971CB998F83B723F6C6595A8A67F0BC91B7D6A348292BFA`。
 - 已继续完成双线收口第一轮：删除旧 Node bridge 源文件/资源文件，清理项目级 Claude/Codex hook 中的 `node .claude/bridge/claude-status-bridge.mjs` 调用，保留的 `claude-status-bridge.mjs` 字符串仅用于识别并替换/清理历史 settings。
 - 已接入 Local Runtime audit SQLite 基础：bridge parse/process、pending intent created/decision、Mobile pairing/intent 校验结果均写入低敏审计事件；审计写入 best-effort，不影响 statusLine/hooks/mobile 主流程，且禁止 prompt/tool input/tool result/transcript/cwd/projectDir/token/cost/nonce/signature/body/answerText 等字段进入 attributes。
-- 已修复 Terminal HUD 跨会话串数据：Rust runtime 过去在当前 session 文件不存在时会回退读取全局 `claude-status.json`，导致 Tokens/Todo/Agents/Tools 等会话级指标被其他会话继承；现在只允许读取同一 `sessionKey` 的历史状态，并新增回归测试覆盖。
+- 已修复 Terminal HUD 跨会话串数据：Rust runtime 过去在当前 session 文件不存在时会回退读取全局 `claude-status.json`，导致 Tokens/Todo/Agents/Tools 等会话级指标被其他会话继承；进一步检查发现已污染的同一 session 文件还会继续保留旧 live metrics，因此 statusLine 的缺失指标不再从历史 session 文件继承。随后用户反馈两行完全消失，定位为 Rust 版少了旧 Node bridge 的 transcript 低敏汇总能力；现已补回 transcript usage / start time / latest todo / running tool 汇总，只读取 usage、timestamp、tool_use metadata 和 todo status，不落 prompt/tool result/transcript 正文。用户继续反馈 activity 行只显示 Todo，定位为已完成 Agent/Tool 没计入总数；现已改为总数显示 completed+running，running 单独标注。用户要求新会话 Tokens 组件零值也展示，已改为 `Tokens 0 (in: 0, out: 0, cache: 0)`；已新增回归测试覆盖，并安装当前 bridge `hud-bridge-6be127da3c57.exe`。
+- 已修复 Desktop HUD 会话列表误保留关闭会话和运行态误判：前端会话列表改为只展示 45 秒内 live bridge session，过期时清空 store/localStorage 会话列表并显示空态，不再用旧 currentSession 填充列表；运行态结合 running tool/agent 计数、hook 事件和 statusText 派生；Rust hook 侧 Stop 不再生成 attention question，PostToolUse/Stop 会写入 0 running 计数避免继承旧 running。已新增回归测试，当前 bridge 为 `hud-bridge-045a99385f73.exe`，NSIS SHA256 为 `1ECAAF9C02670F021C619C33A48A726F286B40FA1F97ED966ACBE69EEB78B5CE`。
 
 ---
 

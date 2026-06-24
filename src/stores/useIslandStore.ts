@@ -68,8 +68,16 @@ export const mergeSettings = (base: SettingsState, patch?: Partial<SettingsState
   mobileHud: mergeMobileHudConfig(base.mobileHud, patch?.mobileHud),
 })
 
+const PERSISTED_SESSION_LIVE_MS = 45_000
+
+const sessionIsRecentlyUpdated = (session: CurrentSessionState): boolean => {
+  const timestamp = Date.parse(session.updatedAt ?? '')
+  return Number.isFinite(timestamp) && Date.now() - timestamp < PERSISTED_SESSION_LIVE_MS
+}
+
 const mergeState = (stored: Partial<IslandAppState>): IslandAppState => {
   const base = createMockIslandState()
+  const sessions = stored.sessions?.filter(sessionIsRecentlyUpdated) ?? []
   return withDerivedAlerts({
     ...base,
     ...stored,
@@ -77,7 +85,7 @@ const mergeState = (stored: Partial<IslandAppState>): IslandAppState => {
     cost: { ...base.cost, ...stored.cost },
     settings: mergeSettings(base.settings, stored.settings),
     currentSession: { ...base.currentSession, ...stored.currentSession },
-    sessions: stored.sessions?.length ? stored.sessions : base.sessions,
+    sessions,
     alerts: { ...base.alerts, ...stored.alerts },
   })
 }
@@ -188,10 +196,11 @@ export const useIslandStore = (): IslandStore => {
       updateState((current) => ({ ...current, currentSession, sessions: current.sessions.length > 0 ? current.sessions : [currentSession] }))
     },
     setSessions: (sessions) => {
-      updateState((current) => {
-        const nextSessions = sessions.length > 0 ? sessions : [current.currentSession]
-        return { ...current, sessions: nextSessions, currentSession: nextSessions[0] ?? current.currentSession }
-      })
+      updateState((current) => ({
+        ...current,
+        sessions,
+        currentSession: sessions[0] ?? current.currentSession,
+      }))
     },
     patchCurrentSession: (currentSessionPatch) => {
       updateState((current) => {

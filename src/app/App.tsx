@@ -100,7 +100,7 @@ export function App() {
     let cancelled = false
     const refreshSession = async (): Promise<void> => {
       const sessions = await loadLiveSessions()
-      if (!cancelled && sessions.length > 0) {
+      if (!cancelled) {
         store.setSessions(sessions)
       }
     }
@@ -123,7 +123,7 @@ export function App() {
       if (cancelled || bridges.length === 0) return
 
       const sessions = await loadLiveSessions()
-      if (!cancelled && sessions.length > 0) {
+      if (!cancelled) {
         store.setSessions(sessions)
       }
 
@@ -177,9 +177,7 @@ export function App() {
         listDisplays(),
       ])
 
-      if (sessions.length > 0) {
-        store.setSessions(sessions)
-      }
+      store.setSessions(sessions)
 
       if (bridge) {
         const claudeProviderPatch = mapClaudeStatusBridgeToProviderPatch(bridge)

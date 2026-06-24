@@ -13,11 +13,12 @@
 - Phase 2：已推进到纯 Rust bridge 第一轮最终化，安装包随包携带 native `hud-bridge.exe`，installer 和 app-start repair 只生成 native 命令入口；`hud-bridge.exe` 默认不再委托 Node bridge，已由 Rust 直接完成 statusLine/hooks stdin 解析、脱敏状态写入、Terminal HUD 渲染、pending intent request 写入和 PreToolUse allow/deny/defer response；`--emit-json` Rust 脱敏事件 smoke 保留。
 - Phase 3：已完成移动 signed intent runtime 第一轮，pairing registry 持久化设备公钥，`/intent/resolve` 入口强制设备已批准、P-256 ECDSA 签名、TTL、bodyHash、idempotencyKey 和 replay cache 校验，再委托本地 pending intent resolver。
 - Android 自动验收：已恢复，本机 `scripts/android-gradle.ps1` 可写入/复用 `apps/android/local.properties`，`npm run test:android`、`npm run lint:android`、`npm run build:android` 均已通过。
-- 最终打包：`npm run tauri:build` 已通过，安装包为 `src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`；纯 Rust bridge + Terminal HUD 颜色/完整展示 + 颜色配置页布局 + hash-versioned bridge 安装修复后重打包 SHA256 为 `C4B04E0B40BE8EC5F503F0A06B44FFBCA8A0D80B7434E4C6782046CEB391C008`。
+- 最终打包：`npm run tauri:build` 已通过，安装包为 `src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`；纯 Rust bridge + Terminal HUD 颜色/完整展示 + 颜色配置页布局 + hash-versioned bridge 安装修复后重打包 SHA256 为 `B829DF81A1BCCC0BD971CB998F83B723F6C6595A8A67F0BC91B7D6A348292BFA`。
 - 2026-06-23 双线收口进展：旧 Node bridge 生产残留已清理，项目级 Claude/Codex hooks 不再调用 `.claude/bridge/claude-status-bridge.mjs`，Tauri resources 不再保留 `claude-status-bridge.mjs`；`src-tauri` 中仅保留带注释的 legacy command 识别，用于安装/修复/卸载时替换旧 settings。
 - Local Runtime audit 基础已落地：新增 `src-tauri/src/local_runtime/audit.rs` 和 SQLite `audit_events` 单表，bridge parse/process、pending intent 创建/决策、Mobile pairing/intent 校验结果均以低敏 best-effort 事件写入，默认路径为 `%APPDATA%/Claude HUD One/audit/audit.sqlite3`。
 - macOS/iOS/Relay 路线已更新为后续阶段：macOS 先补 platform adapter 与 Tauri shell 复用；iOS 只做原生控制面；Relay 只做 rendezvous、低敏中继和 FCM/APNs/APNs 协调，不做云执行层。
-- 2026-06-23 Terminal HUD 会话隔离修复：状态合并不再无条件回退读取全局 `claude-status.json`，只有全局状态属于同一 `sessionKey` 时才允许作为 fallback，避免 Tokens/Todo/Agents/Tools 等会话级指标在不同 Claude Code 会话之间串数据；已补充回归测试。
+- 2026-06-23 Terminal HUD 会话隔离修复：状态合并不再无条件回退读取全局 `claude-status.json`，只有全局状态属于同一 `sessionKey` 时才允许作为 fallback；并且 statusLine 缺失指标不再从历史 session 文件继承，避免旧污染数据在同一 session 文件里继续保留；随后补回 transcript usage / start time / latest todo / tool/agent 低敏汇总，恢复 Tokens/Started/Activity 两行显示，并修复 activity 行只显示 Todo、不显示已完成 Agent/Tool 总数的问题；Tokens 组件在新会话零输入时也显示 `0`；已补充回归测试并安装当前 bridge `hud-bridge-6be127da3c57.exe`。
+- 2026-06-24 Desktop HUD 会话列表修复：桌面 HUD 不再把 10 分钟内的历史 bridge session 都当作“已打开会话”，live 会话 TTL 收紧为 45 秒，过期时允许清空 store/localStorage 会话列表并显示空态；运行中状态会结合 running tool/agent 计数、hook 事件和 statusText 派生；Stop 不再创建 attention question，PostToolUse/Stop 会清空 running 计数。已通过 bridge/mobile/frontend/build 验证并安装当前 bridge `hud-bridge-045a99385f73.exe`，新 NSIS SHA256 为 `1ECAAF9C02670F021C619C33A48A726F286B40FA1F97ED966ACBE69EEB78B5CE`。
 
 ---
 
