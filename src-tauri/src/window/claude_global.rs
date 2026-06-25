@@ -4,14 +4,23 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
-const HOOK_EVENTS: [&str; 7] = [
+const HOOK_EVENTS: [&str; 16] = [
+    "SessionStart",
     "UserPromptSubmit",
+    "MessageDisplay",
     "PreToolUse",
     "PostToolUse",
+    "PostToolUseFailure",
+    "PostToolBatch",
     "Notification",
     "Stop",
     "StopFailure",
+    "SubagentStart",
+    "SubagentStop",
     "PreCompact",
+    "PostCompact",
+    "SessionEnd",
+    "CwdChanged",
 ];
 const CONTEXT_WINDOW_SIZE_ENV_KEY: &str = "CLAUDE_HUD_CONTEXT_WINDOW_SIZE";
 

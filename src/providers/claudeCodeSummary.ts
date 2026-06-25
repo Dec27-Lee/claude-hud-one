@@ -109,10 +109,11 @@ const positiveCount = (value: number | null | undefined): number => (
 const bridgeHasRunningWork = (bridge: ClaudeStatusBridgeState): boolean => (
   positiveCount(bridge.toolsRunningCount) > 0
   || positiveCount(bridge.agentsRunningCount) > 0
-  || bridge.hookEventName === 'UserPromptSubmit'
+  || bridge.hookEventName === 'MessageDisplay'
   || bridge.hookEventName === 'PreToolUse'
+  || bridge.hookEventName === 'SubagentStart'
   || bridge.hookEventName === 'PreCompact'
-  || /^Tool running(?::|$)|^Generating response$|^Compacting context$/i.test(bridge.statusText ?? '')
+  || /^Tool running(?::|$)|^Agent running$|^Compacting context$/i.test(bridge.statusText ?? '')
 )
 
 const bridgeIsEnded = (bridge: ClaudeStatusBridgeState): boolean => bridge.hookEventName === 'SessionEnd'

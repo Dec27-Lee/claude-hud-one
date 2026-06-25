@@ -7,6 +7,10 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+
+use crate::local_runtime::audit;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -199,10 +203,13 @@ pub fn resolve_pending_intent(
         .ok_or_else(|| "Invalid pending intent id.".to_string())?;
     let pending_request = read_pending_intent_request(&intent_id)
         .ok_or_else(|| "Pending intent request was not found or has expired.".to_string())?;
+    if pending_request_is_expired(&pending_request) {
+        return Err("Pending intent request has expired.".to_string());
+    }
 
     let kind = pending_request
         .get("kind")
-        .and_then(serde_json::Value::as_str)
+        .and_then(Value::as_str)
         .unwrap_or("");
     let allowed = pending_request
         .get("allowedIntents")
@@ -238,7 +245,7 @@ pub fn resolve_pending_intent(
         "nonce": nonce,
         "action": action,
         "choiceId": request.choice_id,
-        "answerText": request.answer_text,
+        "hasAnswer": request.answer_text.as_deref().map(|value| !value.trim().is_empty()).unwrap_or(false),
         "resolvedAtMs": now_ms(),
     });
     write_pending_intent_response(&intent_id, &response)?;
@@ -411,6 +418,22 @@ fn read_pending_intent_request(intent_id: &str) -> Option<serde_json::Value> {
         })
 }
 
+fn pending_request_is_expired(request: &Value) -> bool {
+    request
+        .get("expiresAt")
+        .and_then(Value::as_str)
+        .and_then(ms_from_iso)
+        .map(|expires_at| expires_at <= now_ms())
+        .unwrap_or(true)
+}
+
+fn ms_from_iso(value: &str) -> Option<u128> {
+    OffsetDateTime::parse(value, &Rfc3339)
+        .ok()
+        .and_then(|timestamp| timestamp.unix_timestamp_nanos().try_into().ok())
+        .map(|nanos: u128| nanos / 1_000_000)
+}
+
 fn write_pending_intent_response(
     intent_id: &str,
     response: &serde_json::Value,
@@ -449,7 +472,7 @@ fn append_pending_intent_audit(intent_id: &str, action: &str, kind: &str) -> Res
         let audit_path = dir.join("audit.jsonl");
         let event = serde_json::json!({
             "schemaVersion": 1,
-            "intentId": intent_id,
+            "intentRef": audit::stable_ref("intent", intent_id),
             "action": action,
             "kind": kind,
             "recordedAtMs": now_ms(),
@@ -469,4 +492,115 @@ fn now_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    use time::Duration;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvGuard {
+        root: PathBuf,
+        original_appdata: Option<String>,
+        original_dir: PathBuf,
+    }
+
+    impl EnvGuard {
+        fn new(name: &str) -> Self {
+            let root = env::temp_dir().join(format!("claude-hud-one-pending-intent-test-{}-{name}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir_all(&root).unwrap();
+            let original_appdata = env::var("APPDATA").ok();
+            let original_dir = env::current_dir().unwrap();
+            env::set_var("APPDATA", root.join("appdata"));
+            env::set_current_dir(&root).unwrap();
+            Self { root, original_appdata, original_dir }
+        }
+
+        fn write_request(&self, intent_id: &str, expires_at: OffsetDateTime, allowed: &[&str], kind: &str) {
+            let request_dir = self.root.join("appdata").join("Claude HUD One").join("pending-intents").join("requests");
+            fs::create_dir_all(&request_dir).unwrap();
+            fs::write(
+                request_dir.join(format!("{intent_id}.json")),
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "schemaVersion": 1,
+                    "intentId": intent_id,
+                    "nonce": "private-test-nonce",
+                    "kind": kind,
+                    "sessionId": "test-session",
+                    "allowedIntents": allowed,
+                    "expiresAt": expires_at.format(&Rfc3339).unwrap(),
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original_appdata {
+                env::set_var("APPDATA", value);
+            } else {
+                env::remove_var("APPDATA");
+            }
+            let _ = env::set_current_dir(&self.original_dir);
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn resolve_pending_intent_does_not_persist_answer_text() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new("answer-text");
+        let intent_id = "question-test-intent";
+        guard.write_request(intent_id, OffsetDateTime::now_utc() + Duration::minutes(5), &["answerIntent", "dismiss"], "question");
+
+        let result = resolve_pending_intent(PendingIntentResolutionRequest {
+            intent_id: intent_id.to_string(),
+            item_id: Some("item-1".to_string()),
+            display_key: Some("display-1".to_string()),
+            session_id: Some("test-session".to_string()),
+            action: "answerIntent".to_string(),
+            choice_id: Some("freeform-answer".to_string()),
+            answer_text: Some("SECRET_ANSWER_TEXT_SHOULD_NOT_LEAK".to_string()),
+        })
+        .unwrap();
+
+        assert_eq!(result.status, "accepted");
+        let response = fs::read_to_string(
+            guard.root.join("appdata").join("Claude HUD One").join("pending-intents").join("responses").join(format!("{intent_id}.json")),
+        )
+        .unwrap();
+        assert!(response.contains("hasAnswer"));
+        assert!(!response.contains("answerText"));
+        assert!(!response.contains("SECRET_ANSWER_TEXT_SHOULD_NOT_LEAK"));
+        let audit = fs::read_to_string(guard.root.join("appdata").join("Claude HUD One").join("pending-intents").join("audit.jsonl")).unwrap();
+        assert!(audit.contains("intentRef"));
+        assert!(!audit.contains(intent_id));
+    }
+
+    #[test]
+    fn resolve_pending_intent_rejects_expired_request() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new("expired");
+        let intent_id = "expired-test-intent";
+        guard.write_request(intent_id, OffsetDateTime::now_utc() - Duration::minutes(5), &["allowOnce", "deny", "dismiss"], "approval");
+
+        let result = resolve_pending_intent(PendingIntentResolutionRequest {
+            intent_id: intent_id.to_string(),
+            item_id: Some("item-1".to_string()),
+            display_key: Some("display-1".to_string()),
+            session_id: Some("test-session".to_string()),
+            action: "allowOnce".to_string(),
+            choice_id: Some("allow-once".to_string()),
+            answer_text: None,
+        });
+
+        assert!(result.unwrap_err().contains("expired"));
+        assert!(!guard.root.join("appdata").join("Claude HUD One").join("pending-intents").join("responses").join(format!("{intent_id}.json")).exists());
+    }
 }

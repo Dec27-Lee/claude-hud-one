@@ -130,7 +130,7 @@ const canSubmitChoice = (item: PendingQueueSurfaceItem, choice: PendingQueueChoi
   const intent = choiceIntent(choice)
   return Boolean(item.intentId && intent && item.allowedIntents?.includes(intent))
 }
-const questionCanAnswer = (item: PendingQueueSurfaceItem): boolean => Boolean(item.intentId && item.allowedIntents?.includes('answerIntent'))
+const questionCanAnswer = (item: PendingQueueSurfaceItem): boolean => Boolean(item.questionMode !== 'attentionOnly' && item.intentId && item.allowedIntents?.includes('answerIntent'))
 
 const toolDetail = (item: PendingQueueSurfaceItem, language: DesktopHudLanguage): SafeToolDetail => {
   const zh = language === 'zh-CN'
@@ -328,12 +328,11 @@ function QuestionBar({ item, statusText, queueLabel, language, onOpenTerminal, o
         {localizedSummary(item, language) ?? copy.questionFallback}
       </div>
       <QuestionOptions item={item} language={language} onChoice={onChoice} />
-      {!hasAnswerOptions ? (
+      {canAnswer && !hasAnswerOptions ? (
         <label className="codeisland-action-bar__input">
           <span>&gt;</span>
           <input
             value={answerText}
-            disabled={!canAnswer}
             placeholder={item.answerPlaceholder ?? copy.typeAnswer}
             onChange={(event) => setAnswerText(event.target.value)}
           />
@@ -343,7 +342,9 @@ function QuestionBar({ item, statusText, queueLabel, language, onOpenTerminal, o
       {localizedStatus(statusText, language) ? <span className="codeisland-action-bar__status">{localizedStatus(statusText, language)}</span> : null}
       <div className="codeisland-action-bar__buttons">
         <button className="pixel-button pixel-button--muted" type="button" onClick={() => onDismiss?.(item)}>{copy.skip}</button>
-        <button className="pixel-button pixel-button--success" type="button" disabled={submitDisabled} title={submitDisabled ? copy.unsafeAction : copy.sourceOfTruth} onClick={() => onChoice?.(item, submitChoice, answerText)}>{copy.submit}</button>
+        {canAnswer ? (
+          <button className="pixel-button pixel-button--success" type="button" disabled={submitDisabled} title={submitDisabled ? copy.unsafeAction : copy.sourceOfTruth} onClick={() => onChoice?.(item, submitChoice, answerText)}>{copy.submit}</button>
+        ) : null}
         <button className="pixel-button pixel-button--muted" type="button" disabled={!terminalAvailable || !onOpenTerminal} onClick={() => onOpenTerminal?.(item)}>{copy.terminal}</button>
       </div>
     </article>

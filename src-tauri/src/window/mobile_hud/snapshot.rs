@@ -168,7 +168,7 @@ fn session_card(state: &ClaudeStatusBridgeState) -> MobileHudSessionCard {
             .unwrap_or("Claude Code")
             .to_string(),
         project_label: project_label(state),
-        activity: state.activity.clone(),
+        activity: session_activity(state),
         status_text: fallback_string(&state.status_text, "Waiting for Claude Code"),
         model_label: first_non_empty([state.model_name.as_deref(), state.model_id.as_deref()]).map(ToString::to_string),
         active_tool_name: state.tool_name.clone(),
@@ -204,6 +204,32 @@ fn session_card(state: &ClaudeStatusBridgeState) -> MobileHudSessionCard {
         last_assistant_response_at: state.last_assistant_response_at.clone(),
         updated_at: state.updated_at.clone(),
         privacy_note: "Sanitized mobile session card. Full path, transcript and terminal metadata are held on the PC only.".to_string(),
+    }
+}
+
+fn session_activity(state: &ClaudeStatusBridgeState) -> String {
+    if state.hook_event_name.as_deref() == Some("SessionEnd") {
+        return "idle".to_string();
+    }
+    if matches!(state.hook_event_name.as_deref(), Some("Stop") | Some("PostToolUse") | Some("PostToolUseFailure") | Some("PostToolBatch") | Some("SubagentStop") | Some("PostCompact")) {
+        return "idle".to_string();
+    }
+    if matches!(state.activity.as_str(), "waiting" | "error") {
+        return state.activity.clone();
+    }
+    if positive_count(state.tools_running_count).is_some()
+        || positive_count(state.agents_running_count).is_some()
+        || matches!(state.hook_event_name.as_deref(), Some("MessageDisplay") | Some("PreToolUse") | Some("SubagentStart") | Some("PreCompact"))
+    {
+        return "running".to_string();
+    }
+    if state.source == "statusLine" {
+        return "idle".to_string();
+    }
+    if state.activity == "active" {
+        "active".to_string()
+    } else {
+        state.activity.clone()
     }
 }
 
@@ -730,8 +756,10 @@ fn capsule_state(status: &str, has_attention: bool) -> String {
         "waiting".to_string()
     } else if status.eq_ignore_ascii_case("error") || status.eq_ignore_ascii_case("failed") {
         "error".to_string()
-    } else if status.eq_ignore_ascii_case("running") || status.eq_ignore_ascii_case("active") {
+    } else if status.eq_ignore_ascii_case("running") {
         "running".to_string()
+    } else if status.eq_ignore_ascii_case("active") {
+        "active".to_string()
     } else {
         "idle".to_string()
     }
@@ -832,6 +860,40 @@ mod tests {
         assert_eq!(snapshot.summary.active_session_count, 1);
         assert_eq!(snapshot.sessions.len(), 1);
         assert_eq!(snapshot.sessions[0].session_name, "Android HUD");
+    }
+
+    #[test]
+    fn mobile_snapshot_derives_running_from_message_display() {
+        let mut session = sample_session();
+        session.activity = "active".to_string();
+        session.status_text = "Generating response".to_string();
+        session.hook_event_name = Some("MessageDisplay".to_string());
+        session.tools_running_count = None;
+        session.agents_running_count = None;
+        session.pending_queue = None;
+
+        let snapshot = build_mobile_hud_view_model(vec![session], sample_usage(), AppSettings::default());
+
+        assert_eq!(snapshot.sessions[0].activity, "running");
+        assert_eq!(snapshot.summary.status, "running");
+        assert_eq!(snapshot.capsule.state, "running");
+    }
+
+    #[test]
+    fn mobile_snapshot_keeps_user_prompt_submit_active() {
+        let mut session = sample_session();
+        session.activity = "active".to_string();
+        session.status_text = "Prompt submitted".to_string();
+        session.hook_event_name = Some("UserPromptSubmit".to_string());
+        session.tools_running_count = None;
+        session.agents_running_count = None;
+        session.pending_queue = None;
+
+        let snapshot = build_mobile_hud_view_model(vec![session], sample_usage(), AppSettings::default());
+
+        assert_eq!(snapshot.sessions[0].activity, "active");
+        assert_eq!(snapshot.summary.status, "active");
+        assert_eq!(snapshot.capsule.state, "active");
     }
 
     #[test]

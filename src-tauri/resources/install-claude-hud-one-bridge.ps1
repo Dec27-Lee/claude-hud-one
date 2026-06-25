@@ -1,13 +1,22 @@
 $ErrorActionPreference = 'SilentlyContinue'
 
 $HookEvents = @(
+  'SessionStart',
   'UserPromptSubmit',
+  'MessageDisplay',
   'PreToolUse',
   'PostToolUse',
+  'PostToolUseFailure',
+  'PostToolBatch',
   'Notification',
   'Stop',
   'StopFailure',
-  'PreCompact'
+  'SubagentStart',
+  'SubagentStop',
+  'PreCompact',
+  'PostCompact',
+  'SessionEnd',
+  'CwdChanged'
 )
 
 function Get-ClaudeHome {

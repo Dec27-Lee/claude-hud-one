@@ -77,7 +77,7 @@ const sessionIsRecentlyUpdated = (session: CurrentSessionState): boolean => {
 
 const mergeState = (stored: Partial<IslandAppState>): IslandAppState => {
   const base = createMockIslandState()
-  const sessions = stored.sessions?.filter(sessionIsRecentlyUpdated) ?? []
+  const sessions = stored.sessions === undefined ? base.sessions : stored.sessions.filter(sessionIsRecentlyUpdated)
   const currentSession = stored.currentSession && sessionIsRecentlyUpdated(stored.currentSession)
     ? { ...base.currentSession, ...stored.currentSession }
     : base.currentSession

@@ -318,7 +318,7 @@ fn summarize_hook(input: &Value) -> Value {
         .map(|name| matches!(name, "TodoWrite" | "TodoRead" | "TaskCreate" | "TaskUpdate"))
         .unwrap_or(false);
     let is_tool_running = hook_event == "PreToolUse" && tool_name.is_some();
-    let is_agent_running = hook_event == "PreToolUse" && is_agent_tool;
+    let is_agent_running = (hook_event == "PreToolUse" && is_agent_tool) || hook_event == "SubagentStart";
     let is_todo_active = hook_event == "PreToolUse" && is_todo_tool;
     let terminal = terminal_metadata(project_dir.as_deref(), Some(&project_slug), string_path(input, &["session_name"]).as_deref(), string_path(input, &["session_id"]).as_deref());
 
@@ -465,11 +465,11 @@ fn pending_item_from_hook(
         return Some(json!({
             "id": id,
             "intentId": id,
-            "allowedIntents": ["answerIntent", "dismiss"],
+            "allowedIntents": ["dismiss"],
             "intentExpiresAt": expires_at,
             "decisionState": "waiting",
             "questionMode": "attentionOnly",
-            "answerPlaceholder": "Type the answer here to record a safe local intent; send it in Claude Code if the terminal still asks.",
+            "answerPlaceholder": "Review the request in Claude Code; HUD does not store or inject answer text.",
             "kind": "question",
             "status": "pending",
             "sessionId": session_id,
@@ -2303,10 +2303,10 @@ fn terminal_title_hint(cwd: Option<&str>, project_slug: Option<&str>, session_na
 
 fn activity_from_hook(hook_event: &str) -> &'static str {
     match hook_event {
-        "UserPromptSubmit" | "PreToolUse" | "PreCompact" => "running",
+        "MessageDisplay" | "PreToolUse" | "SubagentStart" | "PreCompact" => "running",
         "Notification" => "waiting",
         "StopFailure" => "error",
-        "PostToolUse" | "Stop" | "SessionEnd" => "idle",
+        "PostToolUse" | "PostToolUseFailure" | "PostToolBatch" | "SubagentStop" | "Stop" | "PostCompact" | "SessionEnd" => "idle",
         _ => "active",
     }
 }
@@ -2324,15 +2324,21 @@ fn status_text_from_status_line(input: &Value) -> Option<String> {
 
 fn status_text_from_hook(hook_event: &str, tool_name: Option<&str>) -> String {
     match hook_event {
-        "UserPromptSubmit" => "Generating response".to_string(),
+        "UserPromptSubmit" => "Prompt submitted".to_string(),
+        "MessageDisplay" => "Generating response".to_string(),
         "PreToolUse" => tool_name.map(|name| format!("Tool running: {name}")).unwrap_or_else(|| "Tool running".to_string()),
         "PostToolUse" => tool_name.map(|name| format!("Tool finished: {name}")).unwrap_or_else(|| "Tool finished".to_string()),
+        "PostToolUseFailure" => tool_name.map(|name| format!("Tool failed: {name}")).unwrap_or_else(|| "Tool failed".to_string()),
+        "PostToolBatch" => "Tool batch finished".to_string(),
         "Notification" => "Needs attention".to_string(),
         "Stop" => "Session idle".to_string(),
         "StopFailure" => "Run failed".to_string(),
+        "SubagentStart" => "Agent running".to_string(),
+        "SubagentStop" => "Agent finished".to_string(),
         "SessionStart" => "Session started".to_string(),
         "SessionEnd" => "Session ended".to_string(),
         "PreCompact" => "Compacting context".to_string(),
+        "PostCompact" => "Compaction finished".to_string(),
         "CwdChanged" => "Working directory changed".to_string(),
         value => value.to_string(),
     }
@@ -3074,6 +3080,58 @@ mod tests {
     }
 
     #[test]
+    fn hud_bridge_user_prompt_submit_is_active_not_running() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+
+        let output = run_bridge_once(USER_PROMPT, BridgeMode::Hook);
+
+        assert!(output.stdout.is_empty());
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        assert_eq!(state.get("hookEventName").and_then(Value::as_str), Some("UserPromptSubmit"));
+        assert_eq!(state.get("activity").and_then(Value::as_str), Some("active"));
+        assert_eq!(state.get("statusText").and_then(Value::as_str), Some("Prompt submitted"));
+    }
+
+    #[test]
+    fn hud_bridge_message_display_marks_response_running() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let mut message = serde_json::from_str::<Value>(USER_PROMPT).unwrap();
+        if let Some(object) = message.as_object_mut() {
+            object.insert("hook_event_name".to_string(), json!("MessageDisplay"));
+        }
+
+        let output = run_bridge_once(&serde_json::to_string(&message).unwrap(), BridgeMode::Hook);
+
+        assert!(output.stdout.is_empty());
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        assert_eq!(state.get("hookEventName").and_then(Value::as_str), Some("MessageDisplay"));
+        assert_eq!(state.get("activity").and_then(Value::as_str), Some("running"));
+        assert_eq!(state.get("statusText").and_then(Value::as_str), Some("Generating response"));
+    }
+
+    #[test]
+    fn hud_bridge_subagent_start_marks_agent_running() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let mut subagent = serde_json::from_str::<Value>(USER_PROMPT).unwrap();
+        if let Some(object) = subagent.as_object_mut() {
+            object.insert("hook_event_name".to_string(), json!("SubagentStart"));
+        }
+
+        let output = run_bridge_once(&serde_json::to_string(&subagent).unwrap(), BridgeMode::Hook);
+
+        assert!(output.stdout.is_empty());
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        assert_eq!(state.get("activity").and_then(Value::as_str), Some("running"));
+        assert_eq!(state.get("agentsRunningCount").and_then(Value::as_f64), Some(1.0));
+    }
+
+    #[test]
     fn hud_bridge_non_blocking_hooks_do_not_echo_sensitive_text() {
         let _lock = TEST_LOCK.lock().unwrap();
         let guard = EnvGuard::new();
@@ -3086,6 +3144,7 @@ mod tests {
         let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
         let serialized = fs::read_to_string(state_path).unwrap();
         assert!(serialized.contains("question"));
+        assert!(!serialized.contains("answerIntent"));
         assert!(!serialized.contains("SECRET_PROMPT_SHOULD_NOT_LEAK"));
         assert!(!serialized.contains("SECRET_NOTIFICATION_TEXT_SHOULD_NOT_LEAK"));
     }
