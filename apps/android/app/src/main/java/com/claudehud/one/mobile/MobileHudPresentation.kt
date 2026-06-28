@@ -74,8 +74,9 @@ fun sortedMobileSessions(sessions: List<MobileHudSessionCard>): List<MobileHudSe
 fun mobileActiveSurface(snapshot: MobileHudViewModel): MobileHudSurface {
     if (snapshot.attention.any { isApprovalKind(it.kind) }) return MobileHudSurface.ApprovalCard
     if (snapshot.attention.any { isQuestionKind(it.kind) }) return MobileHudSurface.QuestionCard
+    if (snapshot.sessions.isNotEmpty()) return MobileHudSurface.SessionList
     if (snapshot.completion != null) return MobileHudSurface.CompletionCard
-    return if (snapshot.sessions.isNotEmpty()) MobileHudSurface.SessionList else MobileHudSurface.CapsuleOnly
+    return MobileHudSurface.CapsuleOnly
 }
 
 fun mobileAttentionGroups(attention: List<MobileHudAttentionItem>, limit: Int = 2): List<MobileAttentionGroup> {
@@ -183,16 +184,14 @@ fun mobileSessionTickerLine(session: MobileHudSessionCard): String {
 fun mobileSessionMetaChips(session: MobileHudSessionCard): List<String> {
     val chips = mutableListOf<String>()
     session.activeToolName?.let { chips += "工具 ${shortMobileToolName(it)}" }
-    session.modelLabel?.let { chips += "模型 ${compactMobileText(it, 8)}" }
     session.contextUsedTokens?.let { chips += "ctx ${compactMobileTokens(it)}" }
         ?: session.contextUsedPercent?.let { chips += "ctx ${it.toInt()}%" }
-    session.toolsCount?.takeIf { it > 0.0 }?.let { chips += "tools ${it.toInt()}" }
-    session.agentsCount?.takeIf { it > 0.0 }?.let { chips += "agents ${it.toInt()}" }
     session.todosTotalCount?.takeIf { it > 0.0 }?.let { chips += "todo ${session.todosCompletedCount?.toInt() ?: 0}/${it.toInt()}" }
+    session.agentsCount?.takeIf { it > 0.0 }?.let { chips += "agents ${it.toInt()}" }
     session.gitBranch?.let { chips += "git ${compactMobileText(it + if (session.gitDirty == true) "*" else "", 10)}" }
+    session.modelLabel?.let { chips += "模型 ${compactMobileText(it, 8)}" }
     session.effortLevel?.let { chips += "effort $it" }
-    chips += mobileUpdatedLabel(session.updatedAt)
-    return chips.take(5)
+    return chips.take(3)
 }
 
 private fun mobileDisplayItemText(item: MobileHudDisplayItem): String? {

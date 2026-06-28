@@ -2,7 +2,8 @@
 
 > 日期：2026-06-17  
 > 用途：给后续执行开发时使用，记录做到哪一步、每一步的产物、验收和阻塞条件。  
-> 依据：`local/需求讨论/2026-06-16-claude-hud-one-android-mobile-hud-研究报告.md` 技术方案补漏版。
+> 依据：`local/需求讨论/2026-06-16-claude-hud-one-android-mobile-hud-研究报告.md` 技术方案补漏版。  
+> **架构状态更新（2026-06-28）：本文是 Android Mobile HUD 一期执行计划的历史材料。Phase 0 / Phase 1A / Phase 1B / 可自动验证的 Phase 1C 已完成，当前实现以 `apps/android/`、`schemas/mobile-hud/README.md`、工作日志 `local/work-journal/records/2026-06-17-android-mobile-hud-phase1-implementation.md` 和 2026-06-22/23 架构改造文档为准；文中的未勾选 checklist 不再表示当前待办。手机端安全边界仍为只读低敏展示，不开放 allow / deny / answer / terminal jump。**
 
 ---
 
@@ -115,9 +116,9 @@
 
 ---
 
-### 1.4 Android 空壳工程
+### 1.4 Android Kotlin/Compose 初始工程（历史 Phase 0，已完成）
 
-目标：先能构建 APK，并解析 fixtures。
+目标：先能构建 APK，并解析 fixtures。当前已继续演进为可配对、可连接、可展示低敏 Mobile snapshot、带前台服务/通知的 Android Mobile HUD 客户端；本节未勾选项是历史计划，不代表当前待办。
 
 - [ ] 创建 `apps/android/`。
 - [ ] 配置 Gradle Wrapper。
@@ -453,7 +454,7 @@ Claude 只能在满足以下条件后停止开发任务并让用户安装测试�
 
 ## 5. 当前执行状态
 
-- [x] Phase 0 已完成：2026-06-17 已完成协议/DTO/settings/fixtures/Android 空壳工程，并完成 PC、Android、emulator 自验收。
+- [x] Phase 0 已完成：2026-06-17 已完成协议/DTO/settings/fixtures/Android Kotlin/Compose 初始工程，并完成 PC、Android、emulator 自验收；后续已演进为可配对、可连接、可展示低敏 snapshot 的 Mobile HUD 客户端。
 - [x] Phase 1A 已完成主要实现：PC MobileHudRuntime、WSS listener、health/snapshot/ws、pairing claim、device registry、Settings 服务控制已落地；未认证 snapshot/ws 已拒绝。
 - [x] Phase 1B 已完成可自动验证实现：Android deeplink parser、P-256 Keystore 设备密钥、OkHttp WSS client skeleton、自签证书 SPKI pinned trust manager、Live/Sessions/Attention/Diagnostics 只读 UI、低敏通知文案与 channel 已落地。
 - [x] Phase 1C 自动化验证已完成：PC/Android build、Rust/Android/unit/lint/Playwright、Tauri 打包、release exe autoStart health smoke、emulator UI/deeplink 截图均通过；真实手机 Wi-Fi/系统通知仍属于最终人工体验范围。
@@ -467,7 +468,7 @@ Claude 只能在满足以下条件后停止开发任务并让用户安装测试�
 - [x] 新增 `schemas/mobile-hud/fixtures/`，覆盖 running、multi-session、waiting-approval、waiting-question、completion、error、connection-lost、revoked、unknown-enum。
 - [x] `AppSettings` / `SettingsState` / store merge / mock data 增加 `mobileHud`。
 - [x] 新增 Settings → 移动 HUD tab 和 `MobileHudPanel`，可保存一期配置地基。
-- [x] 新增 `apps/android/` Kotlin/Compose 空壳工程、Deep Link manifest、Mobile HUD Kotlin DTO、fixture 解析单测、OkHttp SPKI pinning 单测。
+- [x] 新增 `apps/android/` Kotlin/Compose 初始工程、Deep Link manifest、Mobile HUD Kotlin DTO、fixture 解析单测、OkHttp SPKI pinning 单测；后续已补齐配对、WSS 连接、缓存恢复、前台服务/通知和 connected UI。
 - [x] 新增 `scripts/android-gradle.ps1`、`npm run ui` 与 `npm run test:rust:mobile`，便于按计划运行验收命令。
 - [x] 在项目内 `.tools/` 准备 JDK 17、Gradle 8.7、Android SDK API 34、build-tools、platform-tools、emulator 和 default x86_64 system image；`.tools/` 不入库。
 - [x] 更新 `.gitignore`、`.claude/workspace-index.md`、工作日志索引。

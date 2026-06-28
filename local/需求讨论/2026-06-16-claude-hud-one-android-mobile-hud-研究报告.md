@@ -2,7 +2,8 @@
 
 > 日期：2026-06-17  
 > 本版用途：复盘上一版“一期目标澄清版”在技术方案上的遗漏，并把遗漏补成可执行的工程方案。  
-> 一期目标保持不变：**第一阶段必须交付 Android 手机 HUD 真机可用版**，包含 Desktop HUD 现有信息等价展示、手机通知、Wi-Fi / 局域网配对连接、APK 安装包与更新后的 Windows 端安装包。
+> 一期目标保持不变：**第一阶段必须交付 Android 手机 HUD 真机可用版**，包含 Desktop HUD 现有信息等价展示、手机通知、Wi-Fi / 局域网配对连接、APK 安装包与更新后的 Windows 端安装包。  
+> **架构状态更新（2026-06-28）：本文为 Android Mobile HUD 一期研究与补漏历史材料。当前 Android 已落地 Kotlin/Compose 客户端、Deep Link 配对、WSS + SPKI pinning、前台服务/通知和 Mobile-safe snapshot 展示；手机端仍是低敏只读控制面，不开放 allow / deny / answer / terminal jump，不展示 raw transcript、prompt、tool input/result、完整路径或凭据。若未来恢复移动 intent，必须走 PC Local Runtime signed intent 校验、TTL、bodyHash、idempotency、设备公钥签名和低敏 audit。**
 
 ---
 
@@ -737,13 +738,13 @@ schemas/mobile-hud/fixtures/
 
 ## 9. 分阶段路线
 
-### Phase 0：一期前置工程
+### Phase 0：一期前置工程（已完成）
 
 - 冻结加密方案。
 - 建 Rust DTO / ViewModel。
 - 建 contract fixtures。
 - 建 settings 和 service skeleton。
-- 建 Android 空壳工程。
+- 建 Android Kotlin/Compose 初始工程，并继续演进为可配对、可连接、可展示低敏 snapshot 的客户端。
 - 跑通 debug APK。
 - 跑通 localhost debug snapshot。
 
@@ -776,12 +777,12 @@ schemas/mobile-hud/fixtures/
 - Quick Settings Tile。
 - 完成历史。
 
-### Phase 4：受控交互（单独立项）
+### Phase 4：受控交互（单独立项，需按最新安全模型重新评估）
 
 - 本地 dismiss。
-- 低风险 question answer。
-- Deny。
-- Allow once。
+- Question 当前保持 attention-only，不开放 answer 输入或回写假闭环。
+- Deny / Allow once 如未来恢复，必须走 PC Local Runtime signed intent 校验、TTL、bodyHash、idempotency、设备公钥签名、过期拒绝和低敏 audit。
+- Mobile 仍不直接执行终端命令，不展示 raw prompt / tool input / tool result / transcript / 完整路径。
 
 移动端仍不建议 Always Allow。
 

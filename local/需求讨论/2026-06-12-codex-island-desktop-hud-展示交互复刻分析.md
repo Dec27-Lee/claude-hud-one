@@ -4,7 +4,8 @@
 > 目标：研究 `local/参考项目/codex-island` 与用户补充远程仓库 `git@github.com:wxtsky/CodeIsland.git` 的桌面悬浮窗/HUD 展示效果，并分析 Claude HUD One 的 Desktop HUD 如何直接参考、选择性照抄和分阶段落地。  
 > 重点关注：执行态动效、Claude 小人/品牌动画、多会话展示、悬浮窗点击交互、选择/确认类交互。
 
-> 2026-06-12 纠偏补充：用户补充截图显示，左侧确实存在橙色像素小人/mascot。已确认原本地 `local/参考项目/codex-island` 指向 `ericjypark/codex-island`，是 Claude/Codex usage dashboard；用户给出的远程 `wxtsky/CodeIsland` 才是截图对应的 Claude Code notch / multi-session / mascot 项目。本文后续以 `local/参考项目/CodeIsland` 为直接复刻参考，`codex-island` 仅作为 usage/dashboard 和部分动态岛窗口资料补充。
+> 2026-06-12 纠偏补充：用户补充截图显示，左侧确实存在橙色像素小人/mascot。已确认原本地 `local/参考项目/codex-island` 指向 `ericjypark/codex-island`，是 Claude/Codex usage dashboard；用户给出的远程 `wxtsky/CodeIsland` 才是截图对应的 Claude Code notch / multi-session / mascot 项目。本文后续以 `local/参考项目/CodeIsland` 为直接复刻参考，`codex-island` 仅作为 usage/dashboard 和部分动态岛窗口资料补充。  
+> **架构状态更新（2026-06-28）：本文是 Desktop HUD 视觉/交互参考分析。CodeIsland 的 HookServer/bridge、Unix socket、AppleScript/TerminalActivator 等实现只能作为体验参考，不能作为 Claude HUD One 当前实现路线。当前生产链路以 Rust native `hud-bridge-<sha>.exe`、pending intent、signed intent / Local Runtime 安全校验、Tauri command 和低敏 Mobile DTO 为准；旧 `.claude/bridge/claude-status-bridge.mjs` / `src-tauri/resources/claude-status-bridge.mjs` 路径仅是历史阶段材料。**
 
 ---
 
@@ -616,23 +617,23 @@ Codex Island 则用 `IslandModel` 把 state → size → hit rect 收在一起�
 
 ```text
 Claude Code statusLine/hooks
-  -> .claude/bridge/claude-status-bridge.mjs
+  -> native hud-bridge-<sha>.exe
+  -> Rust stdin parse / redaction / state normalization / Terminal HUD render
   -> %APPDATA%/Claude HUD One/claude-status.json
   -> %APPDATA%/Claude HUD One/sessions/*.json
-  -> Rust claude_status.rs
+  -> %APPDATA%/Claude HUD One/pending-intents/*.json
+  -> Rust claude_status.rs / Mobile snapshot
   -> Tauri commands
   -> src/providers/claudeCodeSummary.ts
-  -> useIslandStore
-  -> IslandRoot / CurrentSessionStrip / UsageView / CostView
+  -> Desktop HUD / Settings / Diagnostics / Android Mobile HUD
 ```
 
 关键源码：
 
-- bridge summarizeStatusLine：`.claude/bridge/claude-status-bridge.mjs:986`
-- bridge summarizeHook：`.claude/bridge/claude-status-bridge.mjs:1071`
-- bridge 写状态：`.claude/bridge/claude-status-bridge.mjs:1402`
-- Rust 读取 current state：`src-tauri/src/window/claude_status.rs:85`
-- Rust 读取 sessions：`src-tauri/src/window/claude_status.rs:91`
+- bridge runtime：`src-tauri/src/hud_bridge/runtime.rs`
+- bridge contract fixtures：`schemas/hud-bridge/fixtures/`
+- Rust 读取 current state：`src-tauri/src/window/claude_status.rs`
+- Rust 读取 sessions：`src-tauri/src/window/claude_status.rs`
 - 前端 bridge → session patch：`src/providers/claudeCodeSummary.ts:96`
 - normalize 承接点：`src/hud/normalize.ts:9`
 
@@ -648,7 +649,7 @@ Claude Code statusLine/hooks
 | 像素 mascot | CodeIsland `ClawdView` Canvas 状态动画 | 直接复刻为 CSS/SVG/Canvas 像素角色 |
 | AgentStatus | idle / processing / running / waitingApproval / waitingQuestion | 直接照抄状态语义 |
 | Top-level surface | collapsed / sessionList / approvalCard / questionCard / completionCard | 直接照抄为 Desktop HUD surface enum |
-| approval/question | HookServer blocking response + queue | 思路照抄，Windows/Claude Code bridge 需重写 |
+| approval/question | HookServer blocking response + queue | 只照抄体验语义；Claude HUD One 当前用 Rust native bridge + pending intent + signed intent / Local Runtime 安全校验，Question 为 attention-only |
 | click-to-jump | TerminalActivator 支持 Ghostty/iTerm2/tmux/zellij | 思路照抄，Windows 侧适配 Windows Terminal/进程窗口 |
 | hover 展开 | 0.5s 展开、0.15s 收起，交互卡不自动收起 | 直接照抄 |
 | 三态/usage dashboard | codex-island compact/peek/expanded + Usage/Cost/Overview | 作为补充页照抄，不再作为主线 |
@@ -690,22 +691,23 @@ Claude Code statusLine/hooks
 
 ---
 
-### Phase 2：HookServer / Bridge / blocking interaction
+### Phase 2：Rust native bridge / pending intent interaction（已按新架构更新）
 
-目标：从“读取 statusLine 文件状态”升级为“能接住 hook event，并对 PermissionRequest / AskUserQuestion 阻塞响应”。
+目标：由 native `hud-bridge-<sha>.exe` 直接接住 Claude Code hook event，并通过 pending intent / signed intent / Local Runtime 安全模型处理 approval attention；Question 当前只做 attention-only 展示。
 
 建议改造：
 
-1. 设计 Windows/Tauri 版 `HookServer`，可用本地 TCP/Named Pipe/Unix domain socket 等 IPC，先保证本机安全权限。
-2. bridge 读取 Claude Code hook stdin JSON，归一化 eventName/sessionId/toolName/toolInput/source/terminal metadata。
-3. AppState 维护 `permissionQueue`、`questionQueue`、`pendingToolUses`。
-4. 实现 PreToolUse cache enrich，避免 PermissionRequest payload 过薄导致 HUD 无上下文。
-5. approval UI 支持 Allow once / Always / Deny / Dismiss；question UI 支持单选、多选、Other、文本输入。
-6. blocking hook 返回必须可审计，默认不自动批准。
+1. Claude Code hooks 直接调用版本化 `hud-bridge-<sha>.exe`，不引入 HookServer、Node hook bridge 或额外 IPC server。
+2. bridge 读取 Claude Code hook stdin JSON，归一化 eventName/sessionId/toolName/source/terminal metadata；敏感 tool input/result 不下发到 UI/Mobile。
+3. Rust runtime 维护 low-sensitive pendingQueue / pending-intents request，包含 TTL、session binding、bodyHash、idempotency 和 fail-safe。
+4. Approval UI 可在安全校验通过后触发 allow once / deny / dismiss；Always allow 不作为默认能力。
+5. Question UI 不暴露可输入 answer 的假闭环，保持 attention-only。
+6. Local Runtime audit 只记录低敏事件和 hash 引用，默认不自动批准。
 
 主要文件：
 
-- `.claude/bridge/claude-status-bridge.mjs` 或新增独立 hook bridge
+- `src-tauri/src/hud_bridge/runtime.rs`
+- `schemas/hud-bridge/fixtures/`
 - `src-tauri/src/window/claude_global.rs`
 - `src-tauri/src/window/claude_status.rs`
 - `src/providers/claudeCodeSummary.ts`
@@ -714,9 +716,9 @@ Claude Code statusLine/hooks
 验收口径：
 
 - PermissionRequest 能进入 HUD approval surface。
-- 用户在 HUD 点击后，hook 能收到正确 allow/deny response。
+- 用户在 HUD 点击 approval 操作后，只有通过 Rust pending intent / signed intent / TTL 校验才回写 allow/deny response。
 - Dismiss 不等于 deny。
-- AskUserQuestion 能在 HUD 展示并回写选择。
+- AskUserQuestion / Notification 类信息只做 HUD attention 展示，不回写选择或答案。
 
 ---
 

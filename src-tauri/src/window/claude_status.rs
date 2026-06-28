@@ -79,6 +79,7 @@ pub struct ClaudeStatusBridgeState {
     pub schema_version: u8,
     pub updated_at: String,
     pub activity_started_at: Option<String>,
+    pub last_running_signal_at: Option<String>,
     pub event: String,
     pub activity: String,
     pub status_text: String,

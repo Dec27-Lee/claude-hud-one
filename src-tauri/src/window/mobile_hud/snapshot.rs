@@ -90,7 +90,12 @@ pub fn build_mobile_hud_view_model(
         .into_iter()
         .filter(|session| bridge_session_is_fresh(session, now))
         .collect::<Vec<_>>();
-    let cards = fresh_sessions.iter().map(session_card).collect::<Vec<_>>();
+    let mut cards = fresh_sessions.iter().map(session_card).collect::<Vec<_>>();
+    cards.sort_by(|left, right| {
+        mobile_activity_rank(&left.activity)
+            .cmp(&mobile_activity_rank(&right.activity))
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+    });
     let attention = fresh_sessions
         .iter()
         .flat_map(|session| attention_items_for_session(session, now))
@@ -217,10 +222,7 @@ fn session_activity(state: &ClaudeStatusBridgeState) -> String {
     if matches!(state.activity.as_str(), "waiting" | "error") {
         return state.activity.clone();
     }
-    if positive_count(state.tools_running_count).is_some()
-        || positive_count(state.agents_running_count).is_some()
-        || matches!(state.hook_event_name.as_deref(), Some("MessageDisplay") | Some("PreToolUse") | Some("SubagentStart") | Some("PreCompact"))
-    {
+    if bridge_has_running_work(state) {
         return "running".to_string();
     }
     if state.source == "statusLine" {
@@ -230,6 +232,34 @@ fn session_activity(state: &ClaudeStatusBridgeState) -> String {
         "active".to_string()
     } else {
         state.activity.clone()
+    }
+}
+
+fn bridge_has_running_work(state: &ClaudeStatusBridgeState) -> bool {
+    positive_count(state.tools_running_count).is_some()
+        || positive_count(state.agents_running_count).is_some()
+        || matches!(state.hook_event_name.as_deref(), Some("MessageDisplay") | Some("PreToolUse") | Some("SubagentStart") | Some("PreCompact"))
+        || status_text_has_running_signal(&state.status_text)
+}
+
+fn status_text_has_running_signal(status_text: &str) -> bool {
+    let trimmed = status_text.trim();
+    trimmed.eq_ignore_ascii_case("Generating response")
+        || trimmed.eq_ignore_ascii_case("Agent running")
+        || trimmed.eq_ignore_ascii_case("Compacting context")
+        || trimmed
+            .to_ascii_lowercase()
+            .starts_with("tool running")
+}
+
+fn mobile_activity_rank(activity: &str) -> u8 {
+    match activity {
+        "waiting" => 0,
+        "running" => 1,
+        "error" => 2,
+        "active" => 3,
+        "idle" => 4,
+        _ => 5,
     }
 }
 
@@ -880,6 +910,58 @@ mod tests {
     }
 
     #[test]
+    fn mobile_snapshot_prioritizes_running_session_over_newer_idle_heartbeat() {
+        let now = OffsetDateTime::now_utc();
+        let mut running = sample_session();
+        running.session_key = Some("running-session".to_string());
+        running.session_name = Some("Running Session".to_string());
+        running.activity = "running".to_string();
+        running.status_text = "Generating response".to_string();
+        running.hook_event_name = Some("MessageDisplay".to_string());
+        running.updated_at = format_rfc3339(now - Duration::seconds(60));
+        running.last_running_signal_at = Some(running.updated_at.clone());
+        running.pending_queue = None;
+
+        let mut idle = sample_session();
+        idle.session_key = Some("idle-session".to_string());
+        idle.session_name = Some("Idle Session".to_string());
+        idle.activity = "idle".to_string();
+        idle.status_text = "Session idle".to_string();
+        idle.hook_event_name = None;
+        idle.tools_running_count = None;
+        idle.agents_running_count = None;
+        idle.source = "statusLine".to_string();
+        idle.updated_at = format_rfc3339(now);
+        idle.last_running_signal_at = None;
+        idle.pending_queue = None;
+
+        let snapshot = build_mobile_hud_view_model(vec![idle, running], sample_usage(), AppSettings::default());
+
+        assert_eq!(snapshot.sessions[0].activity, "running");
+        assert_eq!(snapshot.sessions[0].session_name, "Running Session");
+        assert_eq!(snapshot.summary.status, "running");
+        assert_eq!(snapshot.capsule.state, "running");
+    }
+
+    #[test]
+    fn mobile_snapshot_derives_running_from_status_text_when_hook_is_missing() {
+        let mut session = sample_session();
+        session.activity = "idle".to_string();
+        session.status_text = "Generating response".to_string();
+        session.hook_event_name = None;
+        session.tools_running_count = None;
+        session.agents_running_count = None;
+        session.source = "statusLine".to_string();
+        session.pending_queue = None;
+
+        let snapshot = build_mobile_hud_view_model(vec![session], sample_usage(), AppSettings::default());
+
+        assert_eq!(snapshot.sessions[0].activity, "running");
+        assert_eq!(snapshot.summary.status, "running");
+        assert_eq!(snapshot.capsule.state, "running");
+    }
+
+    #[test]
     fn mobile_snapshot_keeps_user_prompt_submit_active() {
         let mut session = sample_session();
         session.activity = "active".to_string();
@@ -918,6 +1000,7 @@ mod tests {
             schema_version: 1,
             updated_at: now.clone(),
             activity_started_at: Some("2026-06-17T07:59:00Z".to_string()),
+            last_running_signal_at: Some(now.clone()),
             event: "PreToolUse".to_string(),
             activity: "waiting".to_string(),
             status_text: "Waiting for approval".to_string(),

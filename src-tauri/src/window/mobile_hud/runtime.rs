@@ -411,7 +411,11 @@ async fn pairing_claim_handler(
             Json(json!({ "ok": true, "result": result }))
         }
         Err(error) => {
-            audit::record_best_effort(audit::mobile_service_event("mobile.pairing.claim_failed", "rejected", Some("claim_rejected")));
+            audit::record_best_effort(audit::mobile_service_event(
+                "mobile.pairing.claim_failed",
+                "rejected",
+                Some("claim_rejected"),
+            ));
             Json(json!({
                 "ok": false,
                 "error": error,
@@ -430,24 +434,49 @@ async fn intent_resolve_handler(
     let auth = match mobile_intent_auth_from_headers(&headers) {
         Ok(value) => value,
         Err(error) => {
-            audit::record_best_effort(audit::mobile_intent_event("mobile.intent.auth_invalid", "rejected", None, None, Some("headers_invalid")));
+            audit::record_best_effort(audit::mobile_intent_event(
+                "mobile.intent.auth_invalid",
+                "rejected",
+                None,
+                None,
+                Some("headers_invalid"),
+            ));
             return mobile_intent_error(StatusCode::UNAUTHORIZED, error);
         }
     };
-    audit::record_best_effort(audit::mobile_intent_event("mobile.intent.received", "received", Some(&auth.metadata.device_id), None, None));
+    audit::record_best_effort(audit::mobile_intent_event(
+        "mobile.intent.received",
+        "received",
+        Some(&auth.metadata.device_id),
+        None,
+        None,
+    ));
 
     let Some(device) = pairing::authorized_device_record(&auth.metadata.device_id) else {
-        audit::record_best_effort(audit::mobile_intent_event("mobile.intent.device_unknown", "rejected", Some(&auth.metadata.device_id), None, Some("device_not_approved")));
+        audit::record_best_effort(audit::mobile_intent_event(
+            "mobile.intent.device_unknown",
+            "rejected",
+            Some(&auth.metadata.device_id),
+            None,
+            Some("device_not_approved"),
+        ));
         return mobile_intent_error(
             StatusCode::FORBIDDEN,
             "Mobile intent device is not approved or was revoked.".to_string(),
         );
     };
     let Some(public_key_der_b64) = device.public_key_der_b64.as_deref() else {
-        audit::record_best_effort(audit::mobile_intent_event("mobile.intent.public_key_missing", "rejected", Some(&auth.metadata.device_id), None, Some("public_key_missing")));
+        audit::record_best_effort(audit::mobile_intent_event(
+            "mobile.intent.public_key_missing",
+            "rejected",
+            Some(&auth.metadata.device_id),
+            None,
+            Some("public_key_missing"),
+        ));
         return mobile_intent_error(
             StatusCode::FORBIDDEN,
-            "Mobile intent device must be re-paired before signed actions are accepted.".to_string(),
+            "Mobile intent device must be re-paired before signed actions are accepted."
+                .to_string(),
         );
     };
 
@@ -456,33 +485,59 @@ async fn intent_resolve_handler(
         ..auth
     };
     if let Err(error) = security::verify_mobile_intent_request(&verification, &body, now_ms) {
-        audit::record_best_effort(audit::mobile_intent_event("mobile.intent.signature_rejected", "rejected", Some(&verification.metadata.device_id), None, Some("signature_invalid")));
+        audit::record_best_effort(audit::mobile_intent_event(
+            "mobile.intent.signature_rejected",
+            "rejected",
+            Some(&verification.metadata.device_id),
+            None,
+            Some("signature_invalid"),
+        ));
         return mobile_intent_error(
             StatusCode::UNAUTHORIZED,
             format!("Mobile intent signature rejected: {error:?}"),
         );
     }
 
-    let request = match serde_json::from_slice::<claude_status::PendingIntentResolutionRequest>(&body) {
-        Ok(value) => value,
-        Err(_) => {
-            audit::record_best_effort(audit::mobile_intent_event("mobile.intent.body_invalid", "rejected", Some(&verification.metadata.device_id), None, Some("body_invalid")));
-            return mobile_intent_error(
-                StatusCode::BAD_REQUEST,
-                "Mobile intent body is not a valid pending intent resolution request.".to_string(),
-            )
-        }
-    };
+    let request =
+        match serde_json::from_slice::<claude_status::PendingIntentResolutionRequest>(&body) {
+            Ok(value) => value,
+            Err(_) => {
+                audit::record_best_effort(audit::mobile_intent_event(
+                    "mobile.intent.body_invalid",
+                    "rejected",
+                    Some(&verification.metadata.device_id),
+                    None,
+                    Some("body_invalid"),
+                ));
+                return mobile_intent_error(
+                    StatusCode::BAD_REQUEST,
+                    "Mobile intent body is not a valid pending intent resolution request."
+                        .to_string(),
+                );
+            }
+        };
     let action = request.action.clone();
 
     if let Err(error) = runtime.record_mobile_intent_replay(&verification.metadata, now_ms) {
-        audit::record_best_effort(audit::mobile_intent_event("mobile.intent.replay_rejected", "conflict", Some(&verification.metadata.device_id), Some(&action), Some("replay")));
+        audit::record_best_effort(audit::mobile_intent_event(
+            "mobile.intent.replay_rejected",
+            "conflict",
+            Some(&verification.metadata.device_id),
+            Some(&action),
+            Some("replay"),
+        ));
         return mobile_intent_error(StatusCode::CONFLICT, error);
     }
 
     match claude_status::resolve_pending_intent(request) {
         Ok(result) => {
-            audit::record_best_effort(audit::mobile_intent_event("mobile.intent.resolved", "ok", Some(&verification.metadata.device_id), Some(&action), None));
+            audit::record_best_effort(audit::mobile_intent_event(
+                "mobile.intent.resolved",
+                "ok",
+                Some(&verification.metadata.device_id),
+                Some(&action),
+                None,
+            ));
             Json(json!({
                 "ok": true,
                 "result": result,
@@ -491,7 +546,13 @@ async fn intent_resolve_handler(
             .into_response()
         }
         Err(error) => {
-            audit::record_best_effort(audit::mobile_intent_event("mobile.intent.resolve_failed", "rejected", Some(&verification.metadata.device_id), Some(&action), Some("resolve_failed")));
+            audit::record_best_effort(audit::mobile_intent_event(
+                "mobile.intent.resolve_failed",
+                "rejected",
+                Some(&verification.metadata.device_id),
+                Some(&action),
+                Some("resolve_failed"),
+            ));
             mobile_intent_error(StatusCode::BAD_REQUEST, error)
         }
     }
@@ -591,7 +652,11 @@ fn mobile_intent_auth_from_headers(
     headers: &HeaderMap,
 ) -> Result<MobileIntentVerificationRequest, String> {
     let protocol_version = optional_header(headers, "x-claude-hud-protocol-version")
-        .map(|value| value.parse::<u8>().map_err(|_| "Mobile intent protocol version is invalid.".to_string()))
+        .map(|value| {
+            value
+                .parse::<u8>()
+                .map_err(|_| "Mobile intent protocol version is invalid.".to_string())
+        })
         .transpose()?
         .unwrap_or(security::MOBILE_INTENT_PROTOCOL_VERSION);
     let timestamp_ms = required_header(headers, "x-claude-hud-timestamp-ms")?
@@ -619,7 +684,8 @@ fn mobile_intent_auth_from_headers(
 }
 
 fn required_header(headers: &HeaderMap, name: &str) -> Result<String, String> {
-    optional_header(headers, name).ok_or_else(|| format!("Mobile intent header {name} is required."))
+    optional_header(headers, name)
+        .ok_or_else(|| format!("Mobile intent header {name} is required."))
 }
 
 fn optional_header(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -653,7 +719,14 @@ fn current_unix_ms() -> u64 {
 fn prepare_server_certificate(
     subject_alt_names: &[String],
 ) -> Result<(certificate::MobileHudCertificatePaths, String), String> {
-    let paths = certificate::default_certificate_paths();
+    prepare_server_certificate_at_paths(certificate::default_certificate_paths(), subject_alt_names)
+}
+
+fn prepare_server_certificate_at_paths(
+    paths: certificate::MobileHudCertificatePaths,
+    subject_alt_names: &[String],
+) -> Result<(certificate::MobileHudCertificatePaths, String), String> {
+    let subject_alt_names = certificate::normalize_subject_alt_names(subject_alt_names);
     fs::create_dir_all(&paths.directory).map_err(|error| {
         format!(
             "Mobile HUD failed to create certificate directory {}: {error}",
@@ -671,11 +744,47 @@ fn prepare_server_certificate(
         if let Ok(fingerprint) =
             certificate::spki_fingerprint_from_private_key_pem(&private_key_pem)
         {
-            return Ok((paths, fingerprint));
+            let metadata_matches = certificate::read_certificate_metadata(&paths)
+                .map(|metadata| {
+                    metadata.spki_fingerprint == fingerprint
+                        && certificate::certificate_metadata_covers_subject_alt_names(
+                            &metadata,
+                            &subject_alt_names,
+                        )
+                })
+                .unwrap_or(false);
+            if metadata_matches {
+                return Ok((paths, fingerprint));
+            }
+
+            let server_certificate = certificate::generate_server_certificate_from_private_key(
+                &subject_alt_names,
+                &private_key_pem,
+            )?;
+            fs::write(&paths.certificate_pem, &server_certificate.certificate_pem).map_err(
+                |error| {
+                    format!(
+                        "Mobile HUD failed to write certificate {}: {error}",
+                        paths.certificate_pem.display()
+                    )
+                },
+            )?;
+            certificate::write_certificate_metadata(
+                &paths,
+                &subject_alt_names,
+                &server_certificate.spki_fingerprint,
+            )
+            .map_err(|error| {
+                format!(
+                    "Mobile HUD failed to write certificate metadata {}: {error}",
+                    paths.metadata_json.display()
+                )
+            })?;
+            return Ok((paths, server_certificate.spki_fingerprint));
         }
     }
 
-    let server_certificate = certificate::generate_server_certificate(subject_alt_names)?;
+    let server_certificate = certificate::generate_server_certificate(&subject_alt_names)?;
     fs::write(&paths.certificate_pem, &server_certificate.certificate_pem).map_err(|error| {
         format!(
             "Mobile HUD failed to write certificate {}: {error}",
@@ -686,6 +795,17 @@ fn prepare_server_certificate(
         format!(
             "Mobile HUD failed to write private key {}: {error}",
             paths.private_key_pem.display()
+        )
+    })?;
+    certificate::write_certificate_metadata(
+        &paths,
+        &subject_alt_names,
+        &server_certificate.spki_fingerprint,
+    )
+    .map_err(|error| {
+        format!(
+            "Mobile HUD failed to write certificate metadata {}: {error}",
+            paths.metadata_json.display()
         )
     })?;
     Ok((paths, server_certificate.spki_fingerprint))
@@ -793,6 +913,11 @@ fn runtime_privacy_note() -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
     use serde_json::json;
 
     use super::*;
@@ -818,6 +943,58 @@ mod tests {
         ]);
 
         assert!(certificate.is_ok());
+    }
+
+    #[test]
+    fn certificate_is_reissued_when_advertised_host_changes() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let root = std::env::temp_dir().join(format!(
+            "claude-hud-one-mobile-cert-test-{}-{nonce}",
+            std::process::id()
+        ));
+        let paths = certificate::certificate_paths_for_root(root.clone());
+
+        let (_, first_fingerprint) = prepare_server_certificate_at_paths(
+            paths.clone(),
+            &[
+                "192.168.31.201".to_string(),
+                "127.0.0.1".to_string(),
+                "localhost".to_string(),
+            ],
+        )
+        .expect("initial certificate should be prepared");
+        let first_certificate = fs::read_to_string(&paths.certificate_pem)
+            .expect("initial certificate should be written");
+
+        let (_, second_fingerprint) = prepare_server_certificate_at_paths(
+            paths.clone(),
+            &[
+                "192.168.31.202".to_string(),
+                "127.0.0.1".to_string(),
+                "localhost".to_string(),
+            ],
+        )
+        .expect("changed host should reissue certificate");
+        let second_certificate = fs::read_to_string(&paths.certificate_pem)
+            .expect("reissued certificate should be written");
+        let metadata = certificate::read_certificate_metadata(&paths)
+            .expect("certificate metadata should be written");
+
+        assert_eq!(first_fingerprint, second_fingerprint);
+        assert_ne!(first_certificate, second_certificate);
+        assert!(certificate::certificate_metadata_covers_subject_alt_names(
+            &metadata,
+            &["192.168.31.202".to_string()]
+        ));
+        assert!(!certificate::certificate_metadata_covers_subject_alt_names(
+            &metadata,
+            &["192.168.31.201".to_string()]
+        ));
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -881,8 +1058,12 @@ mod tests {
             idempotency_key: "idem-1".to_string(),
         };
 
-        assert!(runtime.record_mobile_intent_replay(&metadata, 2_000).is_ok());
-        assert!(runtime.record_mobile_intent_replay(&metadata, 2_001).is_err());
+        assert!(runtime
+            .record_mobile_intent_replay(&metadata, 2_000)
+            .is_ok());
+        assert!(runtime
+            .record_mobile_intent_replay(&metadata, 2_001)
+            .is_err());
     }
 
     #[test]

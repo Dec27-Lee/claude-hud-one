@@ -210,6 +210,7 @@ export type ClaudeStatusBridgeState = {
   schemaVersion: number
   updatedAt: string
   activityStartedAt?: string
+  lastRunningSignalAt?: string | null
   event: string
   activity: SessionActivityState
   statusText: string

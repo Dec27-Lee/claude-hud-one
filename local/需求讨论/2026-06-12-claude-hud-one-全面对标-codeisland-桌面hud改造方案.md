@@ -2,7 +2,8 @@
 
 > 日期：2026-06-12  
 > 结论：Claude HUD One 的 **Desktop HUD 主线全面切换为 Windows 版 CodeIsland**。参考对象为 `local/参考项目/CodeIsland`，不是旧 `codex-island`。Windows 上不做 Mac 刘海硬件适配，而是用 Tauri 透明置顶悬浮窗模拟同等桌面体验。  
-> 裁剪：一期只做 **Claude Code**，不做 Codex/Gemini/Cursor/Copilot/Cline 等其他 AI 工具；现有 **Terminal HUD 必须保留**，作为 Claude Code `statusLine` 输出和终端内状态面。
+> 裁剪：一期只做 **Claude Code**，不做 Codex/Gemini/Cursor/Copilot/Cline 等其他 AI 工具；现有 **Terminal HUD 必须保留**，作为 Claude Code `statusLine` 输出和终端内状态面。  
+> **架构状态更新（2026-06-28）：本文中的 HookServer / IPC server / Node hook bridge 设计是历史阶段方案，已被 2026-06-22/23 纯 Rust bridge 架构取代。当前生产链路为 Claude Code `statusLine` / hooks 直接调用 native `hud-bridge-<sha>.exe`，由 Rust runtime 写入低敏 session / pending intent 状态并返回 hook response；安全交互路线以 pending intent、signed intent 校验、Tauri command 和 Local Runtime audit 基础为准。Question 输入当前为 attention-only，不应写成完整 answer 闭环。**
 
 ---
 
@@ -350,8 +351,10 @@ Claude HUD One 一期全部不做：
 - Terminal HUD config：`src/hud/config.ts:76`
 - Terminal HUD default：`src/hud/config.ts:166`
 - TerminalHudPanel：`src/components/settings/TerminalHudPanel.tsx:357`
-- bridge statusLine 模式：`.claude/bridge/claude-status-bridge.mjs:7`
-- 打包版 bridge：`src-tauri/resources/claude-status-bridge.mjs:7`
+- bridge statusLine/hooks 生产入口：版本化 native `hud-bridge-<sha>.exe`
+- Rust bridge runtime：`src-tauri/src/hud_bridge/runtime.rs`
+- bridge 契约 fixtures：`schemas/hud-bridge/fixtures/`
+- legacy `claude-status-bridge.mjs` 仅为历史阶段材料，不再作为生产路径或打包资源
 
 实施原则：
 
@@ -388,21 +391,20 @@ Claude HUD One 一期全部不做：
 
 ```text
 Claude Code statusLine/hooks
-  -> claude-status-bridge.mjs / claude-hook-bridge
-  -> AppData state + optional IPC/HookServer
-  -> Rust/Tauri commands
-  -> React store/useIslandStore or new useDesktopHudStore
-  -> DesktopHudRoot
+  -> native hud-bridge-<sha>.exe
+  -> Rust stdin parse / redaction / state normalization
+  -> Terminal HUD render + sessions/*.json + pending-intents/*.json + hook response
+  -> Tauri commands / React store / DesktopHudRoot
       -> DesktopHudCapsule
       -> ClawdMascot
       -> SessionListSurface
       -> ApprovalSurface
-      -> QuestionSurface
+      -> QuestionSurface(attention-only)
       -> CompletionSurface
   -> Win32 overlay/click-through/window region
 
 Terminal HUD 保持：
-Claude Code statusLine -> same bridge -> terminalRenderer -> stdout
+Claude Code statusLine -> native hud-bridge-<sha>.exe -> Rust terminal renderer -> stdout
 ```
 
 ### 5.2 新增前端模块
@@ -459,30 +461,16 @@ type DesktopHudSurface =
   | { type: 'completionCard'; sessionId: string }
 ```
 
-### 5.4 Bridge / HookServer 策略
+### 5.4 Bridge / 安全交互策略（已按新架构更新）
 
-分两阶段：
+当前生产策略不再拆成 Node 文件桥 + HookServer / IPC server 两段，而是统一由 native Rust bridge 承担 Claude Code 接入：
 
-#### 阶段 A：先利用现有文件桥
-
-当前 bridge 已能写 APPDATA state 和 sessions：
-
-- `.claude/bridge/claude-status-bridge.mjs:10`
-- `src-tauri/src/window/claude_status.rs:51`
-- `src/providers/claudeCodeSummary.ts:264`
-
-先扩展状态映射，不急着做 blocking response。
-
-#### 阶段 B：实现 Windows HookServer / blocking response
-
-当要做真正 approval/question 时，新增：
-
-- Rust 本地 IPC server，Named Pipe 或 localhost TCP。
-- Node hook bridge 与 Rust IPC 通信。
-- permission/question continuation 管理。
-- 超时、dismiss、deny、allow response。
-
-这阶段必须单独设计安全策略，避免误批准。
+- Claude Code `statusLine` / hooks 直接调用版本化 `hud-bridge-<sha>.exe`。
+- `src-tauri/src/hud_bridge/runtime.rs` 负责 stdin JSON 解析、脱敏归一化、Terminal HUD 渲染、sessions 状态写入、pending intent request 写入和 hook response。
+- `src-tauri/src/window/claude_status.rs`、`src/providers/claudeCodeSummary.ts` 和 Desktop/Mobile snapshot 只消费低敏状态。
+- 安全交互以 pending intent、signed intent / Local Runtime 校验、TTL、bodyHash、idempotency、过期拒绝和低敏 audit 为边界。
+- Question 当前降级为 attention-only，不再暴露可输入 answer 的假闭环。
+- 旧 `.claude/bridge/claude-status-bridge.mjs`、`src-tauri/resources/claude-status-bridge.mjs`、HookServer、Node hook bridge 与 Rust IPC 通信均为历史阶段方案，不作为后续主线。
 
 ---
 
@@ -593,26 +581,25 @@ type DesktopHudSurface =
 
 ---
 
-## Phase 4：HookServer / Blocking Response
+## Phase 4：Rust native bridge / Pending intent 安全响应（已按新架构更新）
 
-目标：实现真正的 HUD approval/question 回写 Claude Code。
+目标：在不引入 HookServer / IPC server / Node hook bridge 的前提下，由 Rust native bridge 和 pending intent 安全模型承接 approval/question attention 与受控响应。
 
 工作项：
 
-1. 设计 Windows IPC：Named Pipe 优先，localhost TCP 备选。
-2. bridge 支持 blocking request / response。
-3. Rust/Tauri 管理 pending continuation。
-4. Approval 按钮回写 allow/deny。
-5. Question 表单回写答案。
-6. 超时策略。
-7. 安全审计日志。
-8. 默认不启用 Always allow，需用户明确开。
+1. Claude Code hooks 直接调用版本化 native `hud-bridge-<sha>.exe`。
+2. Rust bridge 生成低敏 pending intent request，并维护 TTL、session binding、bodyHash、idempotency 和 fail-safe 行为。
+3. Tauri command / Local Runtime 校验 request 状态、设备权限、签名和过期状态。
+4. Approval allow/deny 只在明确安全校验通过时回写；过期 request 在 Desktop/Mobile resolve 入口拒绝。
+5. Question 当前为 attention-only，不开放 answer 输入假闭环。
+6. Local Runtime audit 只记录低敏事件和 hash 引用，不落 prompt/tool input/tool result/transcript/cwd/projectDir/token/cost/nonce/signature/body/answerText。
+7. Always allow 不作为默认能力。
 
 验收：
 
-- Allow once / Deny 能影响 Claude Code 权限请求。
+- 安全校验通过的 allow once / deny 能影响 Claude Code 权限请求。
 - Dismiss 不等于 Deny。
-- AskUserQuestion 能从 HUD 回答。
+- Question 不伪装成完整 answer 闭环。
 - hook 不死锁，不超过合理超时。
 - 失败时 fail safe，不阻塞 Claude Code。
 
@@ -810,7 +797,7 @@ src-tauri/resources/install-claude-hud-one-bridge.ps1
 3. **Phase 2 配置迁移**：DesktopHudConfigV2 + DesktopHudPanel 重写，Terminal HUD 不动。
 4. **Phase 3 状态映射**：bridge state → ClaudeCodeSession → DesktopHud view model。
 5. **Phase 4 approval/question UI**：先展示和本地队列，不回写。
-6. **Phase 5 HookServer blocking**：单独验证安全闭环。
+6. **Phase 5 Rust native pending intent**：按 native bridge + signed intent / Local Runtime 校验单独验证安全闭环，不再走 HookServer/IPC。
 7. **Phase 6 Terminal jump**：先窗口级，后 tab 级。
 8. **Phase 7 polish**：completion、smart suppress、音效、低功耗。
 9. **Phase 8 usage/cost 辅助**：放到二级，不影响主流程。

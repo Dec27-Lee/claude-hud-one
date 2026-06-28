@@ -247,7 +247,7 @@ Claude Code hooks/statusLine 的本质不是 Node 插件机制，而是“运行
 
 1. **生产 bridge**：Claude Code hooks/statusLine 直接调用自包含 `hud-bridge.exe`，由 Rust 读取 stdin JSON、脱敏、归一化状态、渲染 Terminal HUD、写入 pending intent request，并返回 blocking hook response。
 2. **协议固化**：bridge 输入/输出契约继续沉淀到 `schemas/hud-bridge/fixtures/` 与 `schemas/mobile-hud/`，用测试保护跨端低敏 DTO 和行为兼容。
-3. **运行时边界**：当前仍以文件队列和状态 JSON 作为 Desktop/Mobile 的稳定消费面；下一步再把 SQLite event log、local event bus、diagnostics API 逐步提升为 Local Runtime 的主干能力。
+3. **运行时边界**：当前仍以文件队列和状态 JSON 作为 Desktop/Mobile 的稳定消费面；SQLite audit 基础已在 2026-06-23 落地，后续是继续扩展 local event bus、replay store 和 diagnostics API，而不是从零开始实现 Local Runtime。
 4. **TypeScript 保留位置**：TypeScript 继续用于 React UI、schema tooling、开发脚本、调试工具和可选 SDK，不再作为生产桥接层运行时。
 
 ### 6.3 Android

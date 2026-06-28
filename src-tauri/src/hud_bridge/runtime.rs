@@ -22,6 +22,7 @@ const PENDING_APPROVAL_TTL_MS: u128 = 2 * 60_000;
 const PENDING_QUESTION_TTL_MS: u128 = 5 * 60_000;
 const DEFAULT_PENDING_RESPONSE_WAIT_MS: u64 = 25_000;
 const DEFAULT_PENDING_RESPONSE_POLL_MS: u64 = 250;
+const RUNNING_SIGNAL_TTL_MS: u128 = 10 * 60_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BridgeMode {
@@ -272,6 +273,7 @@ fn summarize_status_line(input: &Value) -> Value {
         || positive_count(state.get("agentsRunningCount").and_then(value_number)) > 0
     {
         state.insert("activity".to_string(), json!("running"));
+        state.insert("lastRunningSignalAt".to_string(), json!(now.clone()));
         if state
             .get("statusText")
             .and_then(Value::as_str)
@@ -280,6 +282,8 @@ fn summarize_status_line(input: &Value) -> Value {
         {
             state.insert("statusText".to_string(), json!("Tool running"));
         }
+    } else {
+        insert_null(&mut state, "lastRunningSignalAt");
     }
     insert_number(&mut state, "fiveHourUsedPercent", compact_percent(number_path(input, &["rate_limits", "five_hour", "used_percentage"])));
     insert_string(&mut state, "fiveHourResetAt", string_path(input, &["rate_limits", "five_hour", "resets_at"]));
@@ -321,14 +325,21 @@ fn summarize_hook(input: &Value) -> Value {
     let is_agent_running = (hook_event == "PreToolUse" && is_agent_tool) || hook_event == "SubagentStart";
     let is_todo_active = hook_event == "PreToolUse" && is_todo_tool;
     let terminal = terminal_metadata(project_dir.as_deref(), Some(&project_slug), string_path(input, &["session_name"]).as_deref(), string_path(input, &["session_id"]).as_deref());
+    let now = iso_now();
+    let activity = activity_from_hook(&hook_event);
 
     let mut state = Map::new();
     state.insert("schemaVersion".to_string(), json!(1));
-    state.insert("updatedAt".to_string(), json!(iso_now()));
-    state.insert("activityStartedAt".to_string(), json!(iso_now()));
+    state.insert("updatedAt".to_string(), json!(now.clone()));
+    state.insert("activityStartedAt".to_string(), json!(now.clone()));
     state.insert("event".to_string(), json!("hook"));
-    state.insert("activity".to_string(), json!(activity_from_hook(&hook_event)));
+    state.insert("activity".to_string(), json!(activity));
     state.insert("statusText".to_string(), json!(status_text_from_hook(&hook_event, raw_tool_name.as_deref())));
+    if activity == "running" {
+        state.insert("lastRunningSignalAt".to_string(), json!(now));
+    } else {
+        insert_null(&mut state, "lastRunningSignalAt");
+    }
     insert_string(&mut state, "sessionId", string_path(input, &["session_id"]).or_else(|| string_path(input, &["sessionId"])));
     insert_string(&mut state, "sessionName", string_path(input, &["session_name"]).or_else(|| string_path(input, &["sessionName"])));
     insert_string(&mut state, "cwd", cwd);
@@ -1763,7 +1774,83 @@ fn merge_with_previous(next_state: Value, previous_state: Option<&Value>, mode: 
     }
     let merged_queue = merge_pending_queue(&Value::Object(merged.clone()), previous, mode);
     merged.insert("pendingQueue".to_string(), merged_queue);
+    preserve_recent_running_signal(&mut merged, previous, mode);
     Value::Object(merged)
+}
+
+fn preserve_recent_running_signal(
+    merged: &mut Map<String, Value>,
+    previous: &Value,
+    mode: BridgeMode,
+) {
+    if mode != BridgeMode::StatusLine || state_has_running_signal(&Value::Object(merged.clone())) {
+        return;
+    }
+    let previous_is_hook_running_signal = previous.get("source").and_then(Value::as_str) == Some("hook")
+        || is_running_hook_event(previous.get("hookEventName").and_then(Value::as_str));
+    if !previous_is_hook_running_signal || !state_has_running_signal(previous) {
+        return;
+    }
+    let Some(signal_at) = previous
+        .get("lastRunningSignalAt")
+        .and_then(Value::as_str)
+        .or_else(|| previous.get("updatedAt").and_then(Value::as_str))
+    else {
+        return;
+    };
+    let Some(signal_ms) = ms_from_iso(signal_at) else {
+        return;
+    };
+    if unix_millis().saturating_sub(signal_ms) > RUNNING_SIGNAL_TTL_MS {
+        return;
+    }
+
+    merged.insert("activity".to_string(), json!("running"));
+    merged.insert("lastRunningSignalAt".to_string(), json!(signal_at));
+    for key in ["statusText", "hookEventName", "toolName", "source"] {
+        if let Some(previous_value) = previous.get(key) {
+            merged.insert(key.to_string(), previous_value.clone());
+        }
+    }
+    if let Some(previous_value) = previous.get("activityStartedAt") {
+        merged.insert("activityStartedAt".to_string(), previous_value.clone());
+    }
+    for key in ["toolsRunningCount", "agentsRunningCount"] {
+        if positive_count(previous.get(key).and_then(value_number)) > 0 {
+            if let Some(previous_value) = previous.get(key) {
+                merged.insert(key.to_string(), previous_value.clone());
+            }
+        }
+    }
+}
+
+fn state_has_running_signal(state: &Value) -> bool {
+    positive_count(state.get("toolsRunningCount").and_then(value_number)) > 0
+        || positive_count(state.get("agentsRunningCount").and_then(value_number)) > 0
+        || is_running_hook_event(state.get("hookEventName").and_then(Value::as_str))
+        || state
+            .get("statusText")
+            .and_then(Value::as_str)
+            .map(status_text_has_running_signal)
+            .unwrap_or(false)
+        || state.get("activity").and_then(Value::as_str) == Some("running")
+}
+
+fn is_running_hook_event(hook_event: Option<&str>) -> bool {
+    matches!(
+        hook_event,
+        Some("MessageDisplay" | "PreToolUse" | "SubagentStart" | "PreCompact")
+    )
+}
+
+fn status_text_has_running_signal(status_text: &str) -> bool {
+    let trimmed = status_text.trim();
+    trimmed.eq_ignore_ascii_case("Generating response")
+        || trimmed.eq_ignore_ascii_case("Agent running")
+        || trimmed.eq_ignore_ascii_case("Compacting context")
+        || trimmed
+            .to_ascii_lowercase()
+            .starts_with("tool running")
 }
 
 fn is_statusline_live_metric_key(key: &str) -> bool {
@@ -3111,6 +3198,34 @@ mod tests {
         assert_eq!(state.get("hookEventName").and_then(Value::as_str), Some("MessageDisplay"));
         assert_eq!(state.get("activity").and_then(Value::as_str), Some("running"));
         assert_eq!(state.get("statusText").and_then(Value::as_str), Some("Generating response"));
+    }
+
+    #[test]
+    fn hud_bridge_statusline_preserves_recent_message_display_running_signal() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let mut message = serde_json::from_str::<Value>(USER_PROMPT).unwrap();
+        if let Some(object) = message.as_object_mut() {
+            object.insert("hook_event_name".to_string(), json!("MessageDisplay"));
+        }
+        let statusline = json!({
+            "session_id": "fixture-session-001",
+            "session_name": "Fixture Session",
+            "cwd": "E:/Develop_E/claude-hud-one",
+            "model": { "display_name": "Claude Opus 4.8" }
+        });
+
+        let hook_output = run_bridge_once(&serde_json::to_string(&message).unwrap(), BridgeMode::Hook);
+        assert!(hook_output.stdout.is_empty());
+        let status_output = run_bridge_once(&serde_json::to_string(&statusline).unwrap(), BridgeMode::StatusLine);
+        assert!(status_output.stdout.contains("Generating response"));
+
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        assert_eq!(state.get("activity").and_then(Value::as_str), Some("running"));
+        assert_eq!(state.get("hookEventName").and_then(Value::as_str), Some("MessageDisplay"));
+        assert_eq!(state.get("statusText").and_then(Value::as_str), Some("Generating response"));
+        assert!(state.get("lastRunningSignalAt").and_then(Value::as_str).is_some());
     }
 
     #[test]

@@ -1,15 +1,17 @@
 # Claude HUD One
 
-Claude HUD One 是一款为 Windows 11 打造的 Claude Code 动态岛 HUD。一期按 macOS 参考项目 `codex-island` 的核心体验做 Windows 复刻；本轮先面向 Claude Code 发布使用，Codex 代码保留但前端默认不展示，后续按需补齐。
+Claude HUD One 是一款面向 Windows 11 的 Claude Code 本地 HUD 套件。当前主线架构为 Tauri 2 + React/TypeScript + Rust native `hud-bridge.exe` + Android Kotlin/Compose Mobile HUD：Claude Code `statusLine` / hooks 直接调用版本化 native bridge，由 Rust runtime 完成 stdin 解析、脱敏归一化、Terminal HUD 渲染、状态/会话/pending intent 写入和 hook response；Desktop HUD、Settings、Diagnostics 与 Android Mobile HUD 只消费低敏状态 DTO。早期 `codex-island`、Claude HUD Plus、Node bridge 相关内容仅作为历史/parity 参考，不是当前生产路径。
 
 ## 当前开发状态
 
-已启动 Tauri 2 + React + TypeScript + Rust Win32 native layer 的项目骨架，并已完成首轮可构建桌面包验证：
+当前主线已经从早期桌面动态岛 MVP 收敛为本地多端 HUD 架构：
 
-- 前端：React / TypeScript / Vite
-- 桌面壳：Tauri 2
-- Windows 原生能力：Rust 侧已接入第一层 overlay 样式，设置 `WS_EX_LAYERED` / `WS_EX_TOOLWINDOW` / `WS_EX_NOACTIVATE`，并用 `WM_MOUSEACTIVATE -> MA_NOACTIVATE` 阻止 overlay 鼠标点击激活；已加入 50ms cursor hit-test 轮询，根据前端上报的多矩形交互区域动态切换 `WS_EX_TRANSPARENT`；已加入显示器列表、目标显示器和 top offset 定位；已接入前台全屏窗口基础检测与自动隐藏 overlay；已加入当前 Claude Code 会话摘要扫描命令，仅统计事件类型、数量和时间戳；已加入本地 Usage/Cost 聚合与 last-known-good 聚合缓存、Claude Code statusLine/hook 状态桥、Settings 原生配置文件、HKCU Run 开机启动、托盘菜单、诊断目录打开、App data 诊断摘要和更新器状态预留
-- 当前 UI：使用 mock 数据实现 compact / peek / expanded、Usage / Cost / Overview、Settings 独立窗口；expanded 面板已加入 Current Session 状态条，可用当前 Claude Code 会话 transcript 做真实测试模拟；Usage/Cost/Overview 可被本地 Claude Code 聚合数据覆盖，其中 Usage 优先读取 Claude Code statusLine 自带的 rate limit 估算字段；Current Session 已优先读取 Claude Code statusLine/hook bridge，可在用户提交、工具调用、停止/等待等事件后约 1 秒内刷新；并补充 source/auth 标识、stale/error/threshold alerts、手动刷新、低功耗、显示器选择、手动更新入口和 diagnostics 展示；Codex 数据结构保留但前端默认不展示；已接入 Playwright UI 冒烟截图验收
+- 前端：React / TypeScript / Vite，负责 Desktop HUD、Settings、Diagnostics、Usage/Cost 聚合展示和低敏 bridge session 展示。
+- 桌面壳：Tauri 2，负责窗口、托盘、Settings、capabilities、原生命令和 NSIS 打包。
+- Rust 本地层：Win32 overlay / display / fullscreen / terminal jump 能力、Claude Code native bridge、Mobile HUD runtime、Local Runtime audit SQLite 基础和 schema-first 协议验证。
+- Claude Code 集成：安装包写入版本化 `hud-bridge-<sha>.exe` 到 Claude Code `statusLine` / hooks；Rust runtime 直接处理 statusLine/hooks stdin，不再运行、委托或打包 Node bridge / Claude HUD Plus runtime。
+- Desktop HUD：CodeIsland 风格黑色 notch、多会话列表、Clawd 三态、approval/question attention、completion、Terminal HUD 跳转和低敏状态排序。
+- Android Mobile HUD：Kotlin/Compose 客户端、Deep Link 配对、WSS + SPKI pinning、前台服务/通知、Mobile-safe snapshot 展示和低敏只读 DTO；手机端不直接执行命令，不展示 raw transcript/prompt/tool input/tool result/完整路径。
 - 构建产物：`src-tauri\target\release\claude-hud-one.exe`
 - 安装包产物：`src-tauri\target\release\bundle\nsis\Claude HUD One_0.1.0_x64-setup.exe`
 
@@ -53,9 +55,15 @@ HUD 读取 `%APPDATA%\Claude HUD One\claude-status.json` 与 `.claude/bridge/sta
 
 ## 关键文档
 
-- `local\需求讨论\2026-06-08-win11-codex-island-full-replica-一期正式产品方案.md`
-- `local\需求讨论\2026-06-09-claude-hud-one-对标codex-island-当前进展与正式使用缺口.md`
-- `local\参考项目\codex-island\README.zh-CN.md`
+当前架构权威入口优先读：
+
+- `local\需求讨论\2026-06-22-claude-hud-one-架构改造执行跟踪计划.md`
+- `local\需求讨论\2026-06-23-claude-hud-one-pure-rust-bridge-finalization-plan.md`
+- `local\需求讨论\2026-06-22-claude-hud-one-可持续技术栈与架构改造建议.md`
+- `schemas\mobile-hud\README.md`
+- `schemas\hud-bridge\fixtures\statusline-basic.json`
+
+6/8-6/18 的 `codex-island`、Claude HUD Plus、HookServer/IPC、Node bridge、Android 空壳等文档均为历史阶段材料；如需引用，必须按 6/22-6/23 纯 Rust bridge 与 Mobile-safe 协议重新复核。
 
 ## 隐私原则
 

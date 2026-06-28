@@ -113,7 +113,7 @@ const bridgeHasRunningWork = (bridge: ClaudeStatusBridgeState): boolean => (
   || bridge.hookEventName === 'PreToolUse'
   || bridge.hookEventName === 'SubagentStart'
   || bridge.hookEventName === 'PreCompact'
-  || /^Tool running(?::|$)|^Agent running$|^Compacting context$/i.test(bridge.statusText ?? '')
+  || /^Tool running(?::|$)|^Agent running$|^Compacting context$|^Generating response$/i.test(bridge.statusText ?? '')
 )
 
 const bridgeIsEnded = (bridge: ClaudeStatusBridgeState): boolean => bridge.hookEventName === 'SessionEnd'

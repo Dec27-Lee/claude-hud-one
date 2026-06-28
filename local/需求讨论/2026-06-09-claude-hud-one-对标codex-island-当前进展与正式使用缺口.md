@@ -4,7 +4,8 @@
 > 状态：阶段性复盘 / 正式使用前差距清单  
 > 目标口径：继续以 `local\参考项目\codex-island` 为完整对标对象，在 Windows 11 上实现等价产品能力，而不是只做 Claude Code 状态栏或简化 MVP。
 >
-> 2026-06-09 后续范围修订：用户确认本轮 Usage 直接使用 Claude Code 自身 statusLine 估算信息；Codex 本次不实现，已有代码保留但前端不展示；发布目标不上架应用商店，但必须具备安装、卸载、手动更新、开机启动等常规桌面应用闭环；全部做完后再提交。
+> 2026-06-09 后续范围修订：用户确认本轮 Usage 直接使用 Claude Code 自身 statusLine 估算信息；Codex 本次不实现，已有代码保留但前端不展示；发布目标不上架应用商店，但必须具备安装、卸载、手动更新、开机启动等常规桌面应用闭环；全部做完后再提交。  
+> **架构状态更新（2026-06-28）：本文是早期 codex-island 对标复盘。当前主线不再以 codex-island usage dashboard 或 Node bridge 为生产架构依据；当前权威路线为 Tauri 2 + React/TypeScript + Rust native `hud-bridge-<sha>.exe` + CodeIsland 风格 Desktop HUD + schema-first Android Mobile HUD。旧 `.claude/bridge/claude-status-bridge.mjs` 相关描述只代表历史阶段。**
 
 ## 1. 当前结论
 

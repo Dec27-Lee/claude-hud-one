@@ -4,7 +4,8 @@
 > 目标：参考 macOS `codex-island` 的动态岛式状态展示能力，规划 Windows 11 版本 Claude Code 状态 HUD。  
 > 本文重点：UI 展示效果、实时性、低 CPU/内存、可视化 UI 配置、Claude Code 集成边界。
 >
-> **范围修订（2026-06-08）：** 用户已明确要求一期按正式发布产品打造，并完整复刻参考项目 `codex-island` 已有功能。本文中“简化 MVP / 暂不做完整 Usage、Cost、Codex、发布更新链路”等判断已不再作为一期范围依据。正式一期范围以新文档 `local\需求讨论\2026-06-08-win11-codex-island-full-replica-一期正式产品方案.md` 为准。
+> **范围修订（2026-06-08）：** 用户已明确要求一期按正式发布产品打造，并完整复刻参考项目 `codex-island` 已有功能。本文中“简化 MVP / 暂不做完整 Usage、Cost、Codex、发布更新链路”等判断已不再作为一期范围依据。正式一期范围以新文档 `local\需求讨论\2026-06-08-win11-codex-island-full-replica-一期正式产品方案.md` 为准。  
+> **架构状态更新（2026-06-28）：本文是早期选型讨论，Electron MVP、codex-island 主线和早期状态模型描述仅保留为历史背景。当前项目已确定为 Tauri 2 + React/TypeScript + Rust native `hud-bridge.exe` + Android Kotlin/Compose Mobile HUD；Claude Code 集成生产入口是版本化 native bridge，不是 Electron/Node bridge/外部 Claude HUD Plus runtime。**
 
 ---
 

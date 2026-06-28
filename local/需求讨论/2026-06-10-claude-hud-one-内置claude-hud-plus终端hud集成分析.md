@@ -3,7 +3,8 @@
 > 日期：2026-06-10  
 > 文档版本：v2，按用户 6 条新约束修订  
 > 范围：继续只读研究当前仓库与 `E:\Develop_E\claude-hud-plus`，把方案从“兼容外部 Claude HUD Plus 的谨慎集成”调整为“Claude HUD One 的一体化目标架构”。  
-> 本轮不做：不搬代码、不改安装逻辑、不读取 prompt / tool-result / transcript 正文或凭据。
+> 本轮不做：不搬代码、不改安装逻辑、不读取 prompt / tool-result / transcript 正文或凭据。  
+> **架构状态更新（2026-06-28）：本文是 Terminal HUD 内置化早期历史分析。当前生产路径已收敛为版本化 native `hud-bridge-<sha>.exe`：Rust runtime 直接处理 Claude Code `statusLine` / hooks stdin、脱敏归一化、Terminal HUD 渲染、状态/会话/pending intent 写入和 hook response。Claude HUD Plus / Node / TS bridge 仅保留为 parity/历史参考，不再抽取、运行、委托或打包为生产 runtime。**
 
 ## 0. 本次修订的硬约束
 
@@ -709,15 +710,15 @@ Settings 不需要展示复杂兼容模式，只需要显示：
 
 ### Phase 1：Terminal HUD 内置化
 
-目标：完整复用 Claude HUD Plus 终端能力。
+目标：以 Claude HUD Plus 的展示能力为 parity 参考，在 Claude HUD One 内由 Rust native bridge 直接实现 Terminal HUD。
 
-任务：
+任务（已被 2026-06-23 纯 Rust bridge 最终化更新）：
 
-- 抽取 HUD Plus runtime / renderer / config；
-- 产出内置 terminal renderer；
-- bridge 调用 renderer 输出 stdout；
-- statusLine owner 直接覆盖为 Claude HUD One；
-- 保留 fallback。
+- 不再抽取或委托 HUD Plus runtime / Node renderer；
+- 在 Rust `hud-bridge.exe` 中实现 Terminal HUD renderer，并读取 Claude HUD One settings；
+- native bridge 直接接收 Claude Code statusLine stdin 并输出 Terminal HUD stdout；
+- statusLine owner 直接覆盖为 Claude HUD One 的版本化 `hud-bridge-<sha>.exe`；
+- 仅保留 HUD Plus / Node 资料作为 parity 和历史参考。
 
 验收：HUD Plus 当前所有 row item 和 display 配置可用。
 

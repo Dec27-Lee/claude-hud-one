@@ -1,5 +1,7 @@
 # Desktop HUD Approval / Question 安全交互协议
 
+> 架构状态更新（2026-06-28）：本文是 2026-06-12 历史阶段记录。后续安全路线已由 HookServer/IPC 设想收敛为 Rust native bridge + pending intent + signed intent / Local Runtime 校验；Question answer 当前不应写成完整闭环，Mobile 仍为低敏只读控制面。
+
 ## 需求人
 
 Dec27-Lee <lipengyue31@163.com>

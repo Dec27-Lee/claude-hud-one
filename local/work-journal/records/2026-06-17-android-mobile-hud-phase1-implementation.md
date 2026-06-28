@@ -1,7 +1,7 @@
 # Android 手机 HUD 一期实现
 
 - 需求人：Dec27-Lee <lipengyue31@163.com>
-- 原始需求：按照 `local/需求讨论/2026-06-17-claude-hud-one-android-mobile-hud-一期开发执行计划.md` 开始执行 Android 手机 HUD 一期开发，从 Phase 0 的协议与加密 spike、Mobile HUD DTO、Settings skeleton、Android 空壳工程开始，后续按计划推进到 PC/Android 联调、自动化验收和打包。
+- 原始需求：按照 `local/需求讨论/2026-06-17-claude-hud-one-android-mobile-hud-一期开发执行计划.md` 开始执行 Android 手机 HUD 一期开发，从 Phase 0 的协议与加密 spike、Mobile HUD DTO、Settings skeleton、Android Kotlin/Compose 初始工程开始，后续按计划推进到 PC/Android 联调、自动化验收和打包；当前该工程已演进为可配对、可连接、可展示低敏 snapshot 的 Mobile HUD 客户端。
 - 范围：
   - 本轮做：启动一期实现工作；先执行 Phase 0，建立协议/DTO/settings/Android 工程地基；过程中按计划使用自动化验证，不能把半成品交给用户安装试错。
   - 本轮不做：不跳过 Phase 0 直接做 Android UI；不开放手机端 allow/deny/answer/terminal jump；不提交/推送，除非用户另行要求。
@@ -12,7 +12,7 @@
   3. 执行 Phase 0.1：验证并冻结 WSS pinning / 备选 Noise 的可实现路线，沉淀结论。
   4. 执行 Phase 0.2：新增 Mobile HUD Rust DTO、snapshot 纯函数和 contract fixtures，并加敏感字段检查测试。
   5. 执行 Phase 0.3：新增 PC settings mobileHud skeleton 和前端 Settings Mobile HUD 空壳。
-  6. 执行 Phase 0.4：创建 Android 空壳工程，至少能构建 debug APK 并解析 fixtures。
+  6. 执行 Phase 0.4：创建 Android Kotlin/Compose 初始工程，至少能构建 debug APK 并解析 fixtures；后续继续补齐配对、WSS 连接、缓存恢复、前台服务/通知和 connected UI。
   7. 阶段完成后运行对应构建/测试，失败则自主修复循环，并回写执行计划与工作日志。
 - 进展：
   - 2026-06-17 已按用户要求启动实现阶段。
@@ -20,7 +20,7 @@
   - 2026-06-17 Phase 0 PC 地基：新增 `src-tauri/src/window/mobile_hud/`，包含证书/SPKI fingerprint 工具、Mobile HUD DTO、snapshot envelope、敏感字段检查单测；新增 `get_mobile_hud_snapshot` 与 `get_mobile_hud_security_preview` Tauri command。
   - 2026-06-17 Phase 0 contract fixtures：新增 `schemas/mobile-hud/README.md` 和 `schemas/mobile-hud/fixtures/*.json`，覆盖 running、multi-session、waiting-approval、waiting-question、completion、error、connection-lost、revoked、unknown-enum。
   - 2026-06-17 Phase 0 settings skeleton：`AppSettings` / `SettingsState` / store merge / mock data 增加 `mobileHud`；新增 `src/components/settings/MobileHudPanel.tsx`、Settings → 移动 HUD tab、`src/app/mobileHudBridge.ts`。
-  - 2026-06-17 Phase 0 Android 空壳：新增 `apps/android/` Kotlin/Compose 子工程、Gradle Wrapper、Deep Link manifest、Mobile HUD Kotlin DTO 和 fixture 解析单测。
+  - 2026-06-17 Phase 0 Android 初始工程：新增 `apps/android/` Kotlin/Compose 子工程、Gradle Wrapper、Deep Link manifest、Mobile HUD Kotlin DTO 和 fixture 解析单测；后续已继续演进为完整 Mobile HUD 客户端。
   - 2026-06-17 验证通过：`npm run build`；`npm run ui`；`npm run test:rust`；`cargo check --manifest-path src-tauri/Cargo.toml -j 1`；`npm run tauri:build`。
   - 2026-06-17 Windows 安装包已生成：`src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`。
   - 2026-06-17 Android 构建环境：用户授权接受 Android SDK License 后，已在项目内 `.tools/` 准备 JDK 17、Gradle 8.7、Android SDK command-line tools、platform-tools、API 34、build-tools、emulator 和 default x86_64 system image；`.tools/` 已加入 `.gitignore`。
@@ -62,9 +62,17 @@
   - 2026-06-18 设备去重、删除与设置页交互修复：pairing claim 改为按设备公钥 hash upsert，同一台手机重复配对复用原 `deviceId`，revoked 设备再次配对会复用记录并回到待批准；新增 `delete_mobile_hud_device` Tauri command 和前端 bridge；Mobile HUD 设置页更新为设备卡片，区分待批准/已授权/已撤销，增加批准/拒绝/撤销授权/删除记录按钮，并加入 action-level loading、成功/失败状态提示和按钮 hover/active/focus 反馈。
   - 2026-06-18 Terminal Jump 绑定式定位：不再只靠短生命周期 bridge PID 或 Windows Terminal 标题猜测；新增本地 `terminal-bindings.json`，以 sessionKey/sessionId 的 hash 作为稳定键保存会话到 Windows Terminal HWND 的绑定；点击会话时优先聚焦已绑定 HWND，绑定失效时自动清理；找不到时可绑定最近/当前 Windows Terminal，后续点击走绑定窗口，不再用“找不到就新开终端”糊弄。
   - 2026-06-18 UI 测试稳定性修复：`scripts/test-ui.mjs` 在启动 Playwright 前预热 `@vite/client` 和 `/src/main.tsx`，避免 Vite cold transform 导致首个 `/` 页面 `page.goto` 等待 load 超时；修复后 `npm run ui` 10/10 通过。
+  - 2026-06-28 Mobile HUD connected 状态 CodeIsland 化：按用户要求参考 Desktop HUD 截图重设计 Android 连接后主界面，保留配对页原信息结构，连接后隐藏顶部 AppHeader 和重复安全说明；Mobile island 改为黑色 notch、像素 `PixelClawdMascot`、状态 chip、单行 ticker、ALL/STA/CLI 过滤视觉和低噪声连接状态；会话卡改为黑色紧凑卡、左侧像素 Clawd、单行摘要、最多 3 个低敏 meta chips、更新时间和 PC badge；诊断卡默认折叠为“连接”详情，继续保持手机端只读和低敏展示。
+  - 2026-06-28 验证与打包：`scripts/android-gradle.ps1 :app:testDebugUnitTest`、`scripts/android-gradle.ps1 :app:lintDebug`、`npm run build:android:fresh`、`npm run tauri:build` 均通过；新版 debug APK 输出到 `apps/android/app/build/outputs/apk/debug/app-debug.apk`，SHA256 `05464633DD5CDCC799E9D0572F96FB273B4A941388D0F0B81F609B5C62002011`；新版 Windows NSIS 安装包输出到 `src-tauri/target/release/bundle/nsis/Claude HUD One_0.1.0_x64-setup.exe`，SHA256 `050DE90EBB7304D5D2FE6E9AC685633BC10BF80A42FFE829D1A631A877368A76`。
+  - 2026-06-28 配对失败修复：用户安装新版后手机提示 `Hostname ... not verified`，定位为 PC 配对链接 host 已变为当前 LAN IP，但复用的 Mobile HUD 自签证书 SAN 仍停留在旧 LAN IP，Android 默认 hostname verifier 在 SPKI pinning 通过后继续拒绝主机名不匹配。已改为记录 `server-cert-metadata.json`，复用证书前校验证书元数据是否覆盖当前 advertised host；host 变化或旧安装无元数据时，使用既有私钥重新签发包含当前 host/127.0.0.1/localhost 的证书，保持 SPKI fingerprint 稳定；Android 端补充该错误的中文诊断提示。
+  - 2026-06-28 配对失败修复验证与打包：`cargo test --manifest-path src-tauri/Cargo.toml -j 1 mobile_hud`、`scripts/android-gradle.ps1 :app:testDebugUnitTest`、`scripts/android-gradle.ps1 :app:lintDebug`、`npm run build:android:fresh`、`npm run tauri:build` 均通过；最终 debug APK SHA256 `C3AE54361A790CA0A7C0F5BF8128A6D1AE7885E26F467B6F19F6ACA665CAB9A5`；最终 Windows NSIS 安装包 SHA256 `3BAEEB08C472CA71B4C8873E50901857B4D711E0B7FEBEABCD37533FD5E1C820`。
+  - 2026-06-28 connected UI 真机反馈重做：用户反馈上一版仍丑，且不应手写粗糙像素块。只读核查后确认当前 Desktop HUD 没有独立动态图文件，而是 `src/components/desktopHud/ClawdMascot.tsx` + `src/styles.css` CSS keyframes 程序化动画；Android 已改为 Compose Canvas 复刻同一套 sleep/work/alert Clawd 场景和动效，移除带边框的 7x7 方块头像；同时压缩顶部 island、移除无实际交互的 ALL/STA/CLI 行、把 completion 大卡降级为无会话时的小条、会话卡改成更轻的 HUD list row，诊断卡默认一行。
+  - 2026-06-28 connected UI 重做验证与打包：`scripts/android-gradle.ps1 :app:testDebugUnitTest`、`scripts/android-gradle.ps1 :app:lintDebug`、`npm run build:android:fresh`、`npm run tauri:build` 均通过；最终 debug APK SHA256 `0AB214307BDEEC7E76844D1A7DBDB1E4AA6745D1AF5D7C63A441333FD2A31772`；最终 Windows NSIS 安装包 SHA256 `E7DB3A8046764BFEF9FBC7DA04E9E302ACE6E4C4D63143FAAA662DA5E0E7D4E9`。
+  - 2026-06-28 Mobile 会话状态不一致修复：用户反馈后台运行中的会话与手机显示对不上。只读核对当前状态文件后确认 Mobile 只会展示 10 分钟内 fresh sessions，且 `statusLine` 心跳会刷新同一 session 的 `updatedAt`、`activity=idle`、`hookEventName=null`；如果缺少 running count，近期 `MessageDisplay/PreToolUse/SubagentStart` 等运行 hook 信号会被心跳覆盖，导致 Mobile snapshot/Android 排序把真实后台运行会话显示为 idle 或排到后面。已新增 `lastRunningSignalAt`，让 statusLine 在 10 分钟内保留最近 hook running 信号；Mobile snapshot 改为按 waiting/running/error/active/idle 优先级选 primary，而不是只按 `updatedAt`；Rust/TS running 判定补充 `Generating response` 文案信号。
+  - 2026-06-28 会话状态修复验证与打包：首次 `npm run test:bridge` 暴露 statusLine running count 污染旧测试的问题，已收敛为只保留 hook running 信号，不保留纯 statusLine running count；随后 `npm run test:bridge`、`npm run test:rust`、`scripts/android-gradle.ps1 :app:testDebugUnitTest`、`scripts/android-gradle.ps1 :app:lintDebug`、`npm run build:android:fresh`、`npm run tauri:build` 均通过。最终 debug APK SHA256 `98BDC41499FFB17AB61D3EE3C7D81E2A1FCAC3E9F07AEEE3CEBADDA72C77F6E8`；最终 Windows NSIS 安装包 SHA256 `4B057FB41E461ADC566B68EA13315237B888679C3C6B45730C8DDFA420DD258F`。
 - 检查：
-  - 需求覆盖：已覆盖用户最新 3 个问题的可自动验证部分：手机 APP 重开恢复连接、PC 证书指纹稳定、同手机重复配对去重、设备删除和设置页交互反馈、Desktop HUD Terminal Jump 绑定式定位；仍需用户用真实手机/真实多窗口 Windows Terminal 布局做最终体验确认。
-  - 产物明确：本轮修改 Android `MainActivity.kt`/`MobileHudClient.kt`，Rust `mobile_hud/certificate.rs`、`runtime.rs`、`pairing.rs`、`terminal_jump.rs` 和 `lib.rs`，前端 `mobileHudBridge.ts`、`overlayBridge.ts`、`DesktopHudRoot.tsx`、`SessionCard.tsx`、`MobileHudPanel.tsx`、`styles.css`，以及 UI 测试启动脚本 `scripts/test-ui.mjs`；APK 与 Windows NSIS 安装包已重新生成。
-  - 验证情况：`npm run build`、`npm run test:rust`、`cargo check --manifest-path src-tauri/Cargo.toml`、`npm run ui`、`scripts/android-gradle.ps1 :app:testDebugUnitTest`、`:app:lintDebug`、`:app:assembleDebug`、`npm run tauri:build` 已通过；`npm run ui` 首次因 Vite cold transform 在首个 `/` 页面超时，补预热后 10/10 通过。
-  - 风险/待确认：Terminal Jump 的 HWND 绑定能解决“后续定位同一窗口”的稳定性，但首次绑定仍依赖最近/当前可见 Windows Terminal，且 Windows Terminal 仍没有公开 tab 级 API；如果同一 Windows Terminal 窗口内有多个 Claude tab，系统只能聚焦窗口，不能保证切到具体 tab。真实局域网防火墙、后台通知权限、电池策略和真机系统行为仍需最终人工体验确认。
-  - 结论：已完成本轮可自动验证修复，等待用户安装新版 Windows 安装包和新版 APK 做最终体验。
+  - 需求覆盖：已覆盖本轮“移动 HUD connected 状态对齐 Desktop HUD/CodeIsland 风格、补动态小形象、减少无用信息”的可开发部分；针对用户反馈的新版安装包配对失败修复了 PC 证书 SAN 与配对链接 host 不一致的问题；针对最新真机截图，已重做移动端 connected UI 并把 Clawd 动效改为复刻桌面 HUD 的程序化动画逻辑；针对会话状态反馈，已修复 statusLine 心跳覆盖 hook running 信号、Mobile primary 选择和 running 文案判定。
+  - 产物明确：本轮核心代码修改为 `apps/android/app/src/main/java/com/claudehud/one/mobile/MainActivity.kt`、`apps/android/app/src/main/java/com/claudehud/one/mobile/MobileHudPresentation.kt`、`src-tauri/src/hud_bridge/runtime.rs`、`src-tauri/src/window/claude_status.rs`、`src-tauri/src/window/mobile_hud/snapshot.rs`、`src/providers/claudeCodeSummary.ts`、`src/app/types.ts`、`src-tauri/src/window/mobile_hud/certificate.rs`、`src-tauri/src/window/mobile_hud/runtime.rs`；构建过程更新了随包 native bridge 资源 `src-tauri/resources/hud-bridge.exe`；APK 与 Windows NSIS 安装包已重新生成。
+  - 验证情况：bridge/Rust Mobile HUD/Android unit/Android lint/Android fresh debug APK/Tauri release build 已通过；最新状态修复新增回归覆盖“MessageDisplay 被 statusLine 心跳覆盖仍保持 running”和“running session 优先于更新的 idle heartbeat”。本轮未做真机截图验收，需安装新版 APK 后在真实手机连接 PC 状态下确认视觉、动效、重新配对和多后台运行会话状态体验。
+  - 风险/待确认：手机端仍按既定安全边界只读，不开放 allow/deny/answer/terminal jump；真实局域网/前台服务/电池策略仍需真机体验确认。若手机保留旧连接配置，建议用新 PC 安装包重启 Mobile HUD 服务后重新生成配对链接并重新提交配对。
+  - 结论：已完成本轮可自动验证的移动端 connected UI 重设计、配对证书 host mismatch 修复、Clawd 动效复刻、Mobile 会话状态修复与重新打包，等待用户安装新版 APK/安装包体验确认。

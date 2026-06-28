@@ -1,5 +1,7 @@
 # 2026-06-10 Terminal HUD Plus 内置集成与 Settings Studio
 
+> 架构状态更新（2026-06-28）：本文是 Terminal HUD 内置化早期记录。当前生产路径已改为 Rust native `hud-bridge-<sha>.exe` 直接处理 Claude Code `statusLine` / hooks 并渲染 Terminal HUD；`.claude/bridge/claude-status-bridge.mjs` 和 Claude HUD Plus runtime 只代表历史阶段或 parity 参考，不是当前生产依赖。
+
 ## 原始需求
 
 - 用户希望把本机 `E:\Develop_E\claude-hud-plus` 的终端 HUD 能力内置到 Claude HUD One，解决两个独立 statusLine 产品同时安装的兼容复杂度。
