@@ -22,7 +22,8 @@ const PENDING_APPROVAL_TTL_MS: u128 = 2 * 60_000;
 const PENDING_QUESTION_TTL_MS: u128 = 5 * 60_000;
 const DEFAULT_PENDING_RESPONSE_WAIT_MS: u64 = 25_000;
 const DEFAULT_PENDING_RESPONSE_POLL_MS: u64 = 250;
-const RUNNING_SIGNAL_TTL_MS: u128 = 10 * 60_000;
+const RUNNING_SIGNAL_TTL_MS: u128 = 90_000;
+const TRANSCRIPT_RUNNING_TOOL_TTL_MS: u128 = 10 * 60_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BridgeMode {
@@ -55,7 +56,7 @@ pub fn run_bridge_once(raw_stdin: &str, mode: BridgeMode) -> BridgeRunOutput {
         BridgeMode::Hook => summarize_hook(&input),
     };
     let session_key = session_key_from_state(&raw_state);
-    let previous = read_previous_session_state(&session_key).or_else(|| read_previous_state_for_session(&session_key));
+    let previous = read_previous_related_state(&raw_state, &session_key);
     let mut state = merge_with_previous(raw_state, previous.as_ref(), mode);
     if let Some(object) = state.as_object_mut() {
         object.insert("sessionKey".to_string(), Value::String(session_key.clone()));
@@ -2004,24 +2005,80 @@ fn project_state_root() -> Option<PathBuf> {
         .map(|path| path.join(".claude").join("bridge").join("state"))
 }
 
-fn read_previous_state_for_session(session_key: &str) -> Option<Value> {
-    state_paths()
+fn read_previous_related_state(next_state: &Value, session_key: &str) -> Option<Value> {
+    previous_session_candidate_keys(next_state, session_key)
         .into_iter()
-        .find_map(read_json_file)
-        .filter(|state| previous_state_matches_session(state, session_key))
+        .find_map(|key| read_previous_session_state(&key))
+        .or_else(|| {
+            state_paths()
+                .into_iter()
+                .filter_map(read_json_file)
+                .find(|state| previous_state_matches_next(state, next_state, session_key))
+        })
+        .or_else(|| {
+            session_state_dirs()
+                .into_iter()
+                .flat_map(read_json_files)
+                .filter_map(read_json_file)
+                .find(|state| previous_state_matches_next(state, next_state, session_key))
+        })
 }
 
-fn previous_state_matches_session(state: &Value, session_key: &str) -> bool {
-    state
+fn previous_session_candidate_keys(next_state: &Value, session_key: &str) -> Vec<String> {
+    let mut keys = vec![session_key.to_string()];
+    for key in ["transcriptPath", "sessionId"] {
+        if let Some(candidate) = state_string(next_state, key).and_then(|value| safe_path_segment(&value)) {
+            if !keys.iter().any(|existing| existing == &candidate) {
+                keys.push(candidate);
+            }
+        }
+    }
+    keys
+}
+
+fn previous_state_matches_next(previous: &Value, next: &Value, session_key: &str) -> bool {
+    previous
         .get("sessionKey")
         .and_then(Value::as_str)
         .map(|value| value == session_key)
         .unwrap_or(false)
-        || session_key_from_state(state) == session_key
+        || session_key_from_state(previous) == session_key
+        || shared_non_empty_state_string(previous, next, "transcriptPath")
+        || shared_non_empty_state_string(previous, next, "sessionId")
+}
+
+fn shared_non_empty_state_string(left: &Value, right: &Value, key: &str) -> bool {
+    match (state_string(left, key), state_string(right, key)) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
 }
 
 fn read_previous_session_state(session_key: &str) -> Option<Value> {
     session_state_paths(session_key).into_iter().find_map(read_json_file)
+}
+
+fn session_state_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(appdata) = app_data_root() {
+        dirs.push(appdata.join("sessions"));
+    }
+    if let Some(project) = project_state_root() {
+        dirs.push(project.join("sessions"));
+    }
+    dirs
+}
+
+fn read_json_files(dir: PathBuf) -> Vec<PathBuf> {
+    fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().and_then(|extension| extension.to_str()).map(|extension| extension.eq_ignore_ascii_case("json")).unwrap_or(false))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn read_json_file(path: PathBuf) -> Option<Value> {
@@ -2065,9 +2122,9 @@ fn write_json_atomic(path: &Path, value: &Value, replace: bool) -> Result<(), St
 }
 
 fn session_key_from_state(state: &Value) -> String {
-    state_string(state, "sessionId")
+    state_string(state, "transcriptPath")
         .and_then(|value| safe_path_segment(&value))
-        .or_else(|| state_string(state, "transcriptPath").and_then(|value| safe_path_segment(&value)))
+        .or_else(|| state_string(state, "sessionId").and_then(|value| safe_path_segment(&value)))
         .or_else(|| {
             safe_path_segment(&[
                 state_string(state, "projectSlug"),
@@ -2099,6 +2156,12 @@ impl SessionTokenUsage {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TranscriptRunningItem {
+    kind: &'static str,
+    started_at_ms: Option<u128>,
+}
+
 #[derive(Debug, Clone, Default)]
 struct TranscriptSummary {
     session_tokens: SessionTokenUsage,
@@ -2128,7 +2191,7 @@ fn read_transcript_summary(transcript_path: Option<&str>) -> TranscriptSummary {
     let mut agents_count = 0.0;
     let mut todo_operation_count = 0.0;
     let mut latest_todo_counts: Option<(f64, f64, f64)> = None;
-    let mut running_tools = BTreeMap::<String, &'static str>::new();
+    let mut running_tools = BTreeMap::<String, TranscriptRunningItem>::new();
     let mut task_statuses = Vec::<String>::new();
 
     for line in BufReader::new(file).lines().map_while(Result::ok) {
@@ -2140,16 +2203,18 @@ fn read_transcript_summary(transcript_path: Option<&str>) -> TranscriptSummary {
             continue;
         };
 
-        if let Some(timestamp) = string_path(&entry, &["timestamp"]).filter(|value| ms_from_iso(value).is_some()) {
+        let entry_timestamp_ms = string_path(&entry, &["timestamp"]).and_then(|value| {
+            let ms = ms_from_iso(&value)?;
             if summary.first_timestamp.is_none() {
-                summary.first_timestamp = Some(timestamp.clone());
+                summary.first_timestamp = Some(value.clone());
             }
             if entry.get("type").and_then(Value::as_str) == Some("assistant")
                 || entry.get("message").and_then(|message| message.get("role")).and_then(Value::as_str) == Some("assistant")
             {
-                summary.last_assistant_response_at = Some(timestamp);
+                summary.last_assistant_response_at = Some(value);
             }
-        }
+            Some(ms)
+        });
 
         let usage = entry
             .get("message")
@@ -2177,7 +2242,7 @@ fn read_transcript_summary(transcript_path: Option<&str>) -> TranscriptSummary {
             if matches!(name, "Task" | "Agent") {
                 agents_count += 1.0;
                 if let Some(id) = id {
-                    running_tools.insert(id, "agent");
+                    running_tools.insert(id, TranscriptRunningItem { kind: "agent", started_at_ms: entry_timestamp_ms });
                 }
                 continue;
             }
@@ -2194,14 +2259,14 @@ fn read_transcript_summary(transcript_path: Option<&str>) -> TranscriptSummary {
                     task_statuses.push(status.to_string());
                 }
                 if let Some(id) = id {
-                    running_tools.insert(id, "todo");
+                    running_tools.insert(id, TranscriptRunningItem { kind: "todo", started_at_ms: entry_timestamp_ms });
                 }
                 continue;
             }
             if regular_tool_name(Some(name.to_string())).is_some() {
                 tools_count += 1.0;
                 if let Some(id) = id {
-                    running_tools.insert(id, "tool");
+                    running_tools.insert(id, TranscriptRunningItem { kind: "tool", started_at_ms: entry_timestamp_ms });
                 }
             }
         }
@@ -2211,8 +2276,15 @@ fn read_transcript_summary(transcript_path: Option<&str>) -> TranscriptSummary {
         summary.session_tokens = SessionTokenUsage::default();
     }
     summary.todo_operation_count = (todo_operation_count > 0.0).then_some(todo_operation_count);
-    let tools_running = running_tools.values().filter(|kind| **kind == "tool").count() as f64;
-    let agents_running = running_tools.values().filter(|kind| **kind == "agent").count() as f64;
+    let now_ms = unix_millis();
+    let tools_running = running_tools
+        .values()
+        .filter(|item| item.kind == "tool" && transcript_running_item_is_fresh(*item, now_ms))
+        .count() as f64;
+    let agents_running = running_tools
+        .values()
+        .filter(|item| item.kind == "agent" && transcript_running_item_is_fresh(*item, now_ms))
+        .count() as f64;
     summary.tools_count = (tools_count > 0.0).then_some(tools_count);
     summary.tools_running_count = (tools_running > 0.0).then_some(tools_running);
     summary.agents_count = (agents_count > 0.0).then_some(agents_count);
@@ -2224,6 +2296,12 @@ fn read_transcript_summary(transcript_path: Option<&str>) -> TranscriptSummary {
         summary.todos_total_count = Some(total);
     }
     summary
+}
+
+fn transcript_running_item_is_fresh(item: &TranscriptRunningItem, now_ms: u128) -> bool {
+    item.started_at_ms
+        .map(|started_at_ms| now_ms.saturating_sub(started_at_ms) <= TRANSCRIPT_RUNNING_TOOL_TTL_MS)
+        .unwrap_or(false)
 }
 
 fn transcript_content_items(entry: &Value) -> Vec<&Value> {
@@ -3490,6 +3568,79 @@ mod tests {
         assert!(output.stdout.contains("Agents"));
         assert!(output.stdout.contains("Tools"));
         assert!(output.stdout.contains("1"));
+    }
+
+    #[test]
+    fn hud_bridge_statusline_uses_transcript_path_as_resume_session_key() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let transcript_path = guard.root.join("resume-transcript.jsonl");
+        fs::write(&transcript_path, "").unwrap();
+        let first = json!({
+            "session_id": "resume-session-before",
+            "session_name": "Resume Fixture",
+            "cwd": "E:/Develop_E/resume-fixture",
+            "transcript_path": transcript_path.to_string_lossy(),
+            "model": { "display_name": "Claude Sonnet 4.6" }
+        });
+        let second = json!({
+            "session_id": "resume-session-after",
+            "session_name": "Resume Fixture",
+            "cwd": "E:/Develop_E/resume-fixture",
+            "transcript_path": transcript_path.to_string_lossy(),
+            "model": { "display_name": "Claude Sonnet 4.6" }
+        });
+
+        run_bridge_once(&serde_json::to_string(&first).unwrap(), BridgeMode::StatusLine);
+        run_bridge_once(&serde_json::to_string(&second).unwrap(), BridgeMode::StatusLine);
+
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        let expected_key = safe_path_segment(&transcript_path.to_string_lossy()).unwrap();
+        assert_eq!(state.get("sessionKey").and_then(Value::as_str), Some(expected_key.as_str()));
+        assert_eq!(state.get("sessionId").and_then(Value::as_str), Some("resume-session-after"));
+        let sessions_dir = guard.root.join("appdata").join(APP_NAME).join("sessions");
+        let session_files = fs::read_dir(sessions_dir).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(session_files.len(), 1);
+    }
+
+    #[test]
+    fn hud_bridge_statusline_ignores_stale_unpaired_transcript_tool_as_running() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new();
+        let transcript_path = guard.root.join("stale-running-transcript.jsonl");
+        fs::write(
+            &transcript_path,
+            serde_json::to_string(&json!({
+                "type": "assistant",
+                "timestamp": "2026-06-22T00:25:12.065Z",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        { "type": "tool_use", "id": "old-tool-1", "name": "Read", "input": {} },
+                        { "type": "tool_use", "id": "old-agent-1", "name": "Task", "input": {} }
+                    ]
+                }
+            })).unwrap(),
+        )
+        .unwrap();
+        let statusline = json!({
+            "session_id": "stale-transcript-session",
+            "session_name": "Stale Transcript",
+            "cwd": "E:/Develop_E/stale-transcript",
+            "transcript_path": transcript_path.to_string_lossy(),
+            "model": { "display_name": "Claude Sonnet 4.6" }
+        });
+
+        run_bridge_once(&serde_json::to_string(&statusline).unwrap(), BridgeMode::StatusLine);
+
+        let state_path = guard.root.join("appdata").join(APP_NAME).join("claude-status.json");
+        let state = serde_json::from_str::<Value>(&fs::read_to_string(state_path).unwrap()).unwrap();
+        assert_eq!(state.get("activity").and_then(Value::as_str), Some("idle"));
+        assert_eq!(state.get("toolsCount").and_then(Value::as_f64), Some(1.0));
+        assert_eq!(state.get("agentsCount").and_then(Value::as_f64), Some(1.0));
+        assert!(state.get("toolsRunningCount").and_then(Value::as_f64).unwrap_or(0.0) == 0.0);
+        assert!(state.get("agentsRunningCount").and_then(Value::as_f64).unwrap_or(0.0) == 0.0);
     }
 
     #[test]

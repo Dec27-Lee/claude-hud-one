@@ -216,7 +216,15 @@ fn session_activity(state: &ClaudeStatusBridgeState) -> String {
     if state.hook_event_name.as_deref() == Some("SessionEnd") {
         return "idle".to_string();
     }
-    if matches!(state.hook_event_name.as_deref(), Some("Stop") | Some("PostToolUse") | Some("PostToolUseFailure") | Some("PostToolBatch") | Some("SubagentStop") | Some("PostCompact")) {
+    if matches!(
+        state.hook_event_name.as_deref(),
+        Some("Stop")
+            | Some("PostToolUse")
+            | Some("PostToolUseFailure")
+            | Some("PostToolBatch")
+            | Some("SubagentStop")
+            | Some("PostCompact")
+    ) {
         return "idle".to_string();
     }
     if matches!(state.activity.as_str(), "waiting" | "error") {
@@ -238,7 +246,13 @@ fn session_activity(state: &ClaudeStatusBridgeState) -> String {
 fn bridge_has_running_work(state: &ClaudeStatusBridgeState) -> bool {
     positive_count(state.tools_running_count).is_some()
         || positive_count(state.agents_running_count).is_some()
-        || matches!(state.hook_event_name.as_deref(), Some("MessageDisplay") | Some("PreToolUse") | Some("SubagentStart") | Some("PreCompact"))
+        || matches!(
+            state.hook_event_name.as_deref(),
+            Some("MessageDisplay")
+                | Some("PreToolUse")
+                | Some("SubagentStart")
+                | Some("PreCompact")
+        )
         || status_text_has_running_signal(&state.status_text)
 }
 
@@ -247,9 +261,7 @@ fn status_text_has_running_signal(status_text: &str) -> bool {
     trimmed.eq_ignore_ascii_case("Generating response")
         || trimmed.eq_ignore_ascii_case("Agent running")
         || trimmed.eq_ignore_ascii_case("Compacting context")
-        || trimmed
-            .to_ascii_lowercase()
-            .starts_with("tool running")
+        || trimmed.to_ascii_lowercase().starts_with("tool running")
 }
 
 fn mobile_activity_rank(activity: &str) -> u8 {
@@ -649,9 +661,9 @@ fn basename(value: Option<&str>) -> Option<String> {
 
 fn session_ref(state: &ClaudeStatusBridgeState) -> String {
     let key = first_non_empty([
+        state.transcript_path.as_deref(),
         state.session_key.as_deref(),
         state.session_id.as_deref(),
-        state.transcript_path.as_deref(),
         state.project_slug.as_deref(),
         state.session_name.as_deref(),
     ])
@@ -902,7 +914,8 @@ mod tests {
         session.agents_running_count = None;
         session.pending_queue = None;
 
-        let snapshot = build_mobile_hud_view_model(vec![session], sample_usage(), AppSettings::default());
+        let snapshot =
+            build_mobile_hud_view_model(vec![session], sample_usage(), AppSettings::default());
 
         assert_eq!(snapshot.sessions[0].activity, "running");
         assert_eq!(snapshot.summary.status, "running");
@@ -935,7 +948,11 @@ mod tests {
         idle.last_running_signal_at = None;
         idle.pending_queue = None;
 
-        let snapshot = build_mobile_hud_view_model(vec![idle, running], sample_usage(), AppSettings::default());
+        let snapshot = build_mobile_hud_view_model(
+            vec![idle, running],
+            sample_usage(),
+            AppSettings::default(),
+        );
 
         assert_eq!(snapshot.sessions[0].activity, "running");
         assert_eq!(snapshot.sessions[0].session_name, "Running Session");
@@ -954,7 +971,8 @@ mod tests {
         session.source = "statusLine".to_string();
         session.pending_queue = None;
 
-        let snapshot = build_mobile_hud_view_model(vec![session], sample_usage(), AppSettings::default());
+        let snapshot =
+            build_mobile_hud_view_model(vec![session], sample_usage(), AppSettings::default());
 
         assert_eq!(snapshot.sessions[0].activity, "running");
         assert_eq!(snapshot.summary.status, "running");
@@ -971,7 +989,8 @@ mod tests {
         session.agents_running_count = None;
         session.pending_queue = None;
 
-        let snapshot = build_mobile_hud_view_model(vec![session], sample_usage(), AppSettings::default());
+        let snapshot =
+            build_mobile_hud_view_model(vec![session], sample_usage(), AppSettings::default());
 
         assert_eq!(snapshot.sessions[0].activity, "active");
         assert_eq!(snapshot.summary.status, "active");

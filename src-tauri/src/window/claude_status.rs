@@ -273,10 +273,10 @@ fn read_state_file(path: PathBuf) -> Option<ClaudeStatusBridgeState> {
 
 fn state_key(state: &ClaudeStatusBridgeState) -> String {
     state
-        .session_key
+        .transcript_path
         .as_deref()
+        .or(state.session_key.as_deref())
         .or(state.session_id.as_deref())
-        .or(state.transcript_path.as_deref())
         .or(state.project_slug.as_deref())
         .unwrap_or("claude-code")
         .to_string()
@@ -511,18 +511,36 @@ mod tests {
 
     impl EnvGuard {
         fn new(name: &str) -> Self {
-            let root = env::temp_dir().join(format!("claude-hud-one-pending-intent-test-{}-{name}", std::process::id()));
+            let root = env::temp_dir().join(format!(
+                "claude-hud-one-pending-intent-test-{}-{name}",
+                std::process::id()
+            ));
             let _ = fs::remove_dir_all(&root);
             fs::create_dir_all(&root).unwrap();
             let original_appdata = env::var("APPDATA").ok();
             let original_dir = env::current_dir().unwrap();
             env::set_var("APPDATA", root.join("appdata"));
             env::set_current_dir(&root).unwrap();
-            Self { root, original_appdata, original_dir }
+            Self {
+                root,
+                original_appdata,
+                original_dir,
+            }
         }
 
-        fn write_request(&self, intent_id: &str, expires_at: OffsetDateTime, allowed: &[&str], kind: &str) {
-            let request_dir = self.root.join("appdata").join("Claude HUD One").join("pending-intents").join("requests");
+        fn write_request(
+            &self,
+            intent_id: &str,
+            expires_at: OffsetDateTime,
+            allowed: &[&str],
+            kind: &str,
+        ) {
+            let request_dir = self
+                .root
+                .join("appdata")
+                .join("Claude HUD One")
+                .join("pending-intents")
+                .join("requests");
             fs::create_dir_all(&request_dir).unwrap();
             fs::write(
                 request_dir.join(format!("{intent_id}.json")),
@@ -554,11 +572,83 @@ mod tests {
     }
 
     #[test]
+    fn bridge_sessions_dedupe_resume_aliases_by_transcript_path() {
+        let _lock = TEST_LOCK.lock().unwrap();
+        let guard = EnvGuard::new("resume-dedupe");
+        let sessions_dir = guard
+            .root
+            .join("appdata")
+            .join("Claude HUD One")
+            .join("sessions");
+        fs::create_dir_all(&sessions_dir).unwrap();
+        let transcript_path = guard
+            .root
+            .join("same-resume-transcript.jsonl")
+            .to_string_lossy()
+            .to_string();
+        let base = serde_json::json!({
+            "schemaVersion": 1,
+            "updatedAt": "2026-06-29T00:00:00Z",
+            "activityStartedAt": "2026-06-29T00:00:00Z",
+            "lastRunningSignalAt": null,
+            "event": "statusLine",
+            "activity": "idle",
+            "statusText": "Session idle",
+            "sessionName": "Resume Fixture",
+            "transcriptPath": transcript_path,
+            "source": "statusLine",
+            "privacyNote": "test"
+        });
+        let mut old_state = base.clone();
+        old_state.as_object_mut().unwrap().insert(
+            "sessionKey".to_string(),
+            serde_json::json!("old-session-key"),
+        );
+        old_state
+            .as_object_mut()
+            .unwrap()
+            .insert("sessionId".to_string(), serde_json::json!("old-session-id"));
+        let mut new_state = base;
+        new_state.as_object_mut().unwrap().insert(
+            "updatedAt".to_string(),
+            serde_json::json!("2026-06-29T00:01:00Z"),
+        );
+        new_state.as_object_mut().unwrap().insert(
+            "sessionKey".to_string(),
+            serde_json::json!("new-session-key"),
+        );
+        new_state
+            .as_object_mut()
+            .unwrap()
+            .insert("sessionId".to_string(), serde_json::json!("new-session-id"));
+        fs::write(
+            sessions_dir.join("old-session-key.json"),
+            serde_json::to_string_pretty(&old_state).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            sessions_dir.join("new-session-key.json"),
+            serde_json::to_string_pretty(&new_state).unwrap(),
+        )
+        .unwrap();
+
+        let sessions = get_claude_status_bridge_sessions();
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].session_id.as_deref(), Some("new-session-id"));
+    }
+
+    #[test]
     fn resolve_pending_intent_does_not_persist_answer_text() {
         let _lock = TEST_LOCK.lock().unwrap();
         let guard = EnvGuard::new("answer-text");
         let intent_id = "question-test-intent";
-        guard.write_request(intent_id, OffsetDateTime::now_utc() + Duration::minutes(5), &["answerIntent", "dismiss"], "question");
+        guard.write_request(
+            intent_id,
+            OffsetDateTime::now_utc() + Duration::minutes(5),
+            &["answerIntent", "dismiss"],
+            "question",
+        );
 
         let result = resolve_pending_intent(PendingIntentResolutionRequest {
             intent_id: intent_id.to_string(),
@@ -573,13 +663,27 @@ mod tests {
 
         assert_eq!(result.status, "accepted");
         let response = fs::read_to_string(
-            guard.root.join("appdata").join("Claude HUD One").join("pending-intents").join("responses").join(format!("{intent_id}.json")),
+            guard
+                .root
+                .join("appdata")
+                .join("Claude HUD One")
+                .join("pending-intents")
+                .join("responses")
+                .join(format!("{intent_id}.json")),
         )
         .unwrap();
         assert!(response.contains("hasAnswer"));
         assert!(!response.contains("answerText"));
         assert!(!response.contains("SECRET_ANSWER_TEXT_SHOULD_NOT_LEAK"));
-        let audit = fs::read_to_string(guard.root.join("appdata").join("Claude HUD One").join("pending-intents").join("audit.jsonl")).unwrap();
+        let audit = fs::read_to_string(
+            guard
+                .root
+                .join("appdata")
+                .join("Claude HUD One")
+                .join("pending-intents")
+                .join("audit.jsonl"),
+        )
+        .unwrap();
         assert!(audit.contains("intentRef"));
         assert!(!audit.contains(intent_id));
     }
@@ -589,7 +693,12 @@ mod tests {
         let _lock = TEST_LOCK.lock().unwrap();
         let guard = EnvGuard::new("expired");
         let intent_id = "expired-test-intent";
-        guard.write_request(intent_id, OffsetDateTime::now_utc() - Duration::minutes(5), &["allowOnce", "deny", "dismiss"], "approval");
+        guard.write_request(
+            intent_id,
+            OffsetDateTime::now_utc() - Duration::minutes(5),
+            &["allowOnce", "deny", "dismiss"],
+            "approval",
+        );
 
         let result = resolve_pending_intent(PendingIntentResolutionRequest {
             intent_id: intent_id.to_string(),
@@ -602,6 +711,13 @@ mod tests {
         });
 
         assert!(result.unwrap_err().contains("expired"));
-        assert!(!guard.root.join("appdata").join("Claude HUD One").join("pending-intents").join("responses").join(format!("{intent_id}.json")).exists());
+        assert!(!guard
+            .root
+            .join("appdata")
+            .join("Claude HUD One")
+            .join("pending-intents")
+            .join("responses")
+            .join(format!("{intent_id}.json"))
+            .exists());
     }
 }

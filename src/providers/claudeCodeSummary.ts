@@ -70,7 +70,7 @@ const emptyCounts = () => ({
 
 const sessionKeyFromBridge = (bridge: ClaudeStatusBridgeState): string => {
   const fallback = [bridge.projectSlug, bridge.sessionName, bridge.projectDir ?? bridge.cwd].filter(Boolean).join(' · ')
-  return (bridge.sessionKey ?? bridge.sessionId ?? bridge.transcriptPath ?? fallback) || bridge.updatedAt
+  return (bridge.transcriptPath ?? bridge.sessionKey ?? bridge.sessionId ?? fallback) || bridge.updatedAt
 }
 
 const contextTokenLabelFromBridge = (bridge: ClaudeStatusBridgeState): string | null => {
